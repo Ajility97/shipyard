@@ -1029,10 +1029,10 @@ button.chevron:active {
 
 .repo-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(300px, auto) 40px;
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, auto) 1.75rem;
   align-items: center;
   column-gap: 1rem;
-  padding: 0.42rem 0.9rem 0.42rem 2.15rem;
+  padding: 0.42rem 0.75rem 0.42rem 2.15rem;
   border-radius: 0;
   user-select: none;
   cursor: pointer;
@@ -1119,16 +1119,44 @@ button.chevron:active {
   position: relative;
 }
 
+.group-menu,
 .repo-menu {
-  justify-self: end;
+  width: 1.75rem;
+  display: flex;
+  justify-content: center;
+}
+
+.repo-menu {
+  justify-self: stretch;
+}
+
+.repo-menu .overflow-menu-trigger {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.repo-menu .overflow-menu-trigger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
 }
 
 .overflow-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
   min-width: 1.75rem;
-  padding-left: 0.35rem;
-  padding-right: 0.35rem;
-  font-size: 1.05rem;
-  line-height: 1;
+  min-height: 1.75rem;
+  padding: 0;
+  line-height: 0;
+}
+
+.overflow-menu-trigger svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
 }
 
 .overflow-menu-dropdown {

@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
-
-const lastRepoClick = ref<string | null>(null);
+import { ref } from "vue";
 import { rangeIds } from "../selection";
 import { useApp } from "../composables/useApp";
+import { useOverflowMenu } from "../composables/useOverflowMenu";
 import { useTabs } from "../composables/useTabs";
 import type { RepoEntry } from "../types";
 import BranchIcon from "./BranchIcon.vue";
 import FileIcon from "./FileIcon.vue";
+
+const lastRepoClick = ref<string | null>(null);
 
 const props = defineProps<{
   repo: RepoEntry;
@@ -21,7 +22,9 @@ const emit = defineEmits<{
 
 const { statuses, isRepoRefreshing } = useApp();
 const { activeId, hasTab, openRepo, openRepos } = useTabs();
-const menuOpen = ref(false);
+const { isOpen: menuOpen, toggle: toggleMenu, close: closeMenu } = useOverflowMenu(
+  () => `repo:${props.repo.id}`,
+);
 
 function folderName(path: string) {
   const parts = path.split("/").filter(Boolean);
@@ -37,42 +40,10 @@ function handleClick(event: MouseEvent) {
   lastRepoClick.value = props.repo.id;
 }
 
-function toggleMenu() {
-  menuOpen.value = !menuOpen.value;
-}
-
-function closeMenu() {
-  menuOpen.value = false;
-}
-
 function onRemove() {
   closeMenu();
   emit("remove", props.repo.id);
 }
-
-function onDocumentPointerDown(event: PointerEvent) {
-  const target = event.target;
-  if (target instanceof Element && target.closest(".overflow-menu")) {
-    return;
-  }
-  closeMenu();
-}
-
-function onDocumentKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    closeMenu();
-  }
-}
-
-onMounted(() => {
-  document.addEventListener("pointerdown", onDocumentPointerDown);
-  document.addEventListener("keydown", onDocumentKeydown);
-});
-
-onUnmounted(() => {
-  document.removeEventListener("pointerdown", onDocumentPointerDown);
-  document.removeEventListener("keydown", onDocumentKeydown);
-});
 </script>
 
 <template>
@@ -136,7 +107,11 @@ onUnmounted(() => {
         title="Repository actions"
         @click.stop="toggleMenu"
       >
-        ⋮
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="3.25" r="1.25" />
+          <circle cx="8" cy="8" r="1.25" />
+          <circle cx="8" cy="12.75" r="1.25" />
+        </svg>
       </button>
       <div v-if="menuOpen" class="overflow-menu-dropdown" role="menu">
         <button

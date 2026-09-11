@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useApp } from "../composables/useApp";
+import { useOverflowMenu } from "../composables/useOverflowMenu";
 import { useTabs } from "../composables/useTabs";
 import type { RepoGroup } from "../types";
 import Modal from "./Modal.vue";
@@ -40,7 +41,11 @@ const {
   cancelCheckout,
 } = useApp();
 const { hasTab, closeRepos } = useTabs();
-const groupMenuOpen = ref(false);
+const {
+  isOpen: groupMenuOpen,
+  toggle: toggleGroupMenu,
+  close: closeMenus,
+} = useOverflowMenu(() => `group:${props.group.id}`);
 
 const siblingIds = computed(() => props.group.repos.map((repo) => repo.id));
 
@@ -186,38 +191,6 @@ async function removeAndLeave(repoId: string) {
     closeRepos([repoId]);
   }
 }
-
-function toggleGroupMenu() {
-  groupMenuOpen.value = !groupMenuOpen.value;
-}
-
-function closeMenus() {
-  groupMenuOpen.value = false;
-}
-
-function onDocumentPointerDown(event: PointerEvent) {
-  const target = event.target;
-  if (target instanceof Element && target.closest(".overflow-menu")) {
-    return;
-  }
-  closeMenus();
-}
-
-function onDocumentKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") {
-    closeMenus();
-  }
-}
-
-onMounted(() => {
-  document.addEventListener("pointerdown", onDocumentPointerDown);
-  document.addEventListener("keydown", onDocumentKeydown);
-});
-
-onUnmounted(() => {
-  document.removeEventListener("pointerdown", onDocumentPointerDown);
-  document.removeEventListener("keydown", onDocumentKeydown);
-});
 
 const pulling = computed(() => Boolean(pullProgress.value[props.group.id]));
 const checkingOut = computed(() => Boolean(checkoutProgress.value[props.group.id]));
@@ -472,7 +445,11 @@ function contrastingText(color: string) {
             title="Group actions"
             @click.stop="toggleGroupMenu"
           >
-            ⋮
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="3.25" r="1.25" />
+              <circle cx="8" cy="8" r="1.25" />
+              <circle cx="8" cy="12.75" r="1.25" />
+            </svg>
           </button>
           <div v-if="groupMenuOpen" class="overflow-menu-dropdown" role="menu">
             <button

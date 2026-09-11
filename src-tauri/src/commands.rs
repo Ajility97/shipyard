@@ -166,6 +166,19 @@ pub fn toggle_group(app: AppHandle, state: State<AppState>, group_id: String) ->
 }
 
 #[tauri::command]
+pub fn set_all_groups_expanded(
+    app: AppHandle,
+    state: State<AppState>,
+    expanded: bool,
+) -> Result<(), String> {
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    for group in &mut data.groups {
+        group.expanded = expanded;
+    }
+    persist_data(&app, &data)
+}
+
+#[tauri::command]
 pub fn update_group_settings(
     app: AppHandle,
     state: State<AppState>,

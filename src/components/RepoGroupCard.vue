@@ -410,6 +410,11 @@ function contrastingText(color: string) {
               :disabled="(!!actionLabel && !pulling) || pullCancelled[group.id]"
               @click="openPull"
             >
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+                />
+              </svg>
               {{ pullLabel }}
             </button>
           </div>
@@ -425,6 +430,11 @@ function contrastingText(color: string) {
               :disabled="(!!actionLabel && !checkingOut) || checkoutCancelled[group.id]"
               @click="openCheckout"
             >
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"
+                />
+              </svg>
               {{ checkoutLabel }}
             </button>
           </div>
@@ -444,6 +454,11 @@ function contrastingText(color: string) {
               "
               @click="groupRefreshing ? cancelRefresh() : refreshGroup(group.id)"
             >
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+                />
+              </svg>
               {{ refreshLabel }}
             </button>
           </div>
@@ -489,7 +504,7 @@ function contrastingText(color: string) {
       </div>
     </div>
 
-    <div v-if="group.expanded" class="group-body">
+    <div v-if="group.expanded && group.repos.length" class="group-body">
       <RepoRow
         v-for="repo in group.repos"
         :key="repo.id"
@@ -497,8 +512,6 @@ function contrastingText(color: string) {
         :sibling-ids="siblingIds"
         @remove="removeAndLeave"
       />
-
-      <p v-if="actionLabel" class="muted tiny" style="padding: 0.35rem 0.9rem">{{ actionLabel }}</p>
     </div>
 
     <Modal v-if="modal === 'pull'" title="Pull from remote" @close="closeModal">

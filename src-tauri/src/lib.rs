@@ -27,6 +27,7 @@ pub fn run() {
             commands::rename_group,
             commands::delete_group,
             commands::toggle_group,
+            commands::set_all_groups_expanded,
             commands::update_group_settings,
             commands::update_app_settings,
             commands::update_files_pane_width,

@@ -363,11 +363,47 @@ export function useApp() {
     results.value = next;
   }
 
-  async function toggleGroup(groupId: string) {
-    const expanded = await api.toggleGroup(groupId);
+  function groupNeedsStatus(group: RepoGroup) {
+    return group.repos.some((repo) => !statuses.value[repo.id]);
+  }
+
+  function toggleGroup(groupId: string) {
+    const group = groups.value.find((item) => item.id === groupId);
+    if (!group) {
+      return;
+    }
+    const expanded = !group.expanded;
     patchGroup(groupId, { expanded });
+    void api.toggleGroup(groupId).catch((err) => {
+      patchGroup(groupId, { expanded: !expanded });
+      error.value = String(err);
+    });
+    if (expanded && groupNeedsStatus(group)) {
+      void refreshStatus(groupId);
+    }
+  }
+
+  function setAllGroupsExpanded(expanded: boolean) {
+    if (!groups.value.length) {
+      return;
+    }
+    const previous = groups.value.map((group) => group.expanded);
+    groups.value = groups.value.map((group) =>
+      group.expanded === expanded ? group : { ...group, expanded },
+    );
+    void api.setAllGroupsExpanded(expanded).catch((err) => {
+      groups.value = groups.value.map((group, index) => ({
+        ...group,
+        expanded: previous[index] ?? group.expanded,
+      }));
+      error.value = String(err);
+    });
     if (expanded) {
-      await refreshStatus(groupId);
+      for (const group of groups.value) {
+        if (groupNeedsStatus(group)) {
+          void refreshStatus(group.id);
+        }
+      }
     }
   }
 
@@ -684,6 +720,7 @@ export function useApp() {
     renameGroup,
     deleteGroup,
     toggleGroup,
+    setAllGroupsExpanded,
     saveSettings,
     addRepo,
     addStandaloneRepo,

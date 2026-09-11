@@ -251,11 +251,23 @@ watch(
         aria-label="Resize files panel"
         @pointerdown="startResize"
       />
+      <button
+        class="files-float dock-left"
+        type="button"
+        title="Collapse files panel"
+        aria-label="Collapse files panel"
+        @click="filesCollapsed = true"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
+          <path d="M10.25 2.25v11.5" />
+          <path d="M7.15 5.6L9.4 8l-2.25 2.4" />
+        </svg>
+      </button>
       <WorkingTree
         :files="files"
         :selected="selectedFile?.path ?? ''"
         @select="selectFile"
-        @collapse="filesCollapsed = true"
         @discard="discardAll"
       />
     </aside>

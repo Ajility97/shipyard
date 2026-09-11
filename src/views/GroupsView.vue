@@ -10,6 +10,7 @@ const {
   groups,
   standaloneRepos,
   createGroup,
+  setAllGroupsExpanded,
   addStandaloneRepo,
   removeStandaloneRepo,
   refreshAll,
@@ -51,6 +52,14 @@ const hasRepos = computed(
 const standaloneIds = computed(() => standaloneRepos.value.map((repo) => repo.id));
 
 const isEmpty = computed(() => !groups.value.length && !standaloneRepos.value.length);
+
+const canExpandAll = computed(
+  () => groups.value.length > 0 && groups.value.some((group) => !group.expanded),
+);
+
+const canCollapseAll = computed(
+  () => groups.value.length > 0 && groups.value.some((group) => group.expanded),
+);
 
 async function submit() {
   const value = name.value.trim();
@@ -138,19 +147,48 @@ async function removeStandalone(repoId: string) {
             <button v-else class="primary" type="button" @click="creating = true">New group</button>
             <button class="ghost" type="button" @click="pickStandaloneRepo">Add repository</button>
           </div>
-          <div class="header-action">
-            <span v-if="refreshingAll" class="action-progress">
-              <span class="spinner" aria-hidden="true" />
-              {{ refreshAllProgress }}
-            </span>
+          <div class="toolbar-end">
             <button
+              class="ghost"
               type="button"
-              :class="{ danger: refreshingAll }"
-              :disabled="!hasRepos || refreshCancelled"
-              @click="refreshingAll ? cancelRefresh() : refreshAll()"
+              :disabled="!canExpandAll"
+              @click="setAllGroupsExpanded(true)"
             >
-              {{ refreshCancelled ? "Cancelling…" : refreshingAll ? "Cancel" : "Refresh all" }}
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19.5 5.25 12 12.75 4.5 5.25m15 6L12 18.75l-7.5-7.5" />
+              </svg>
+              Expand
             </button>
+            <button
+              class="ghost"
+              type="button"
+              :disabled="!canCollapseAll"
+              @click="setAllGroupsExpanded(false)"
+            >
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m4.5 18.75 7.5-7.5 7.5 7.5m-15-6 7.5-7.5 7.5 7.5" />
+              </svg>
+              Collapse
+            </button>
+            <div class="header-action">
+              <span v-if="refreshingAll" class="action-progress">
+                <span class="spinner" aria-hidden="true" />
+                {{ refreshAllProgress }}
+              </span>
+              <button
+                type="button"
+                :class="{ danger: refreshingAll }"
+                :disabled="!hasRepos || refreshCancelled"
+                @click="refreshingAll ? cancelRefresh() : refreshAll()"
+              >
+                <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+                  />
+                </svg>
+                {{ refreshCancelled ? "Cancelling…" : refreshingAll ? "Cancel" : "Refresh" }}
+              </button>
+            </div>
           </div>
         </div>
 

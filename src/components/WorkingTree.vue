@@ -8,7 +8,6 @@ defineProps<{
 
 const emit = defineEmits<{
   select: [file: WorkingTreeFile];
-  collapse: [];
   discard: [];
 }>();
 </script>
@@ -20,19 +19,6 @@ const emit = defineEmits<{
         <strong>Uncommitted changes</strong>
         <span class="file-count-badge">{{ files.length }}</span>
       </div>
-      <button
-        class="files-float"
-        type="button"
-        title="Collapse files panel"
-        aria-label="Collapse files panel"
-        @click="emit('collapse')"
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
-          <path d="M10.25 2.25v11.5" />
-          <path d="M7.15 5.6L9.4 8l-2.25 2.4" />
-        </svg>
-      </button>
     </div>
     <div class="file-list">
       <p v-if="!files.length" class="muted tiny" style="padding: 0.75rem 0.85rem">

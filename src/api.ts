@@ -30,6 +30,10 @@ export function toggleGroup(groupId: string) {
   return invoke<boolean>("toggle_group", { groupId });
 }
 
+export function setAllGroupsExpanded(expanded: boolean) {
+  return invoke<void>("set_all_groups_expanded", { expanded });
+}
+
 export function updateGroupSettings(
   groupId: string,
   pullFromBranch: string,

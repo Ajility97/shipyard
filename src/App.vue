@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from "vue";
+import { getVersion } from "@tauri-apps/api/app";
 import { useRoute } from "vue-router";
 import TabBar from "./components/TabBar.vue";
 import RepoPane from "./components/RepoPane.vue";
@@ -31,10 +32,18 @@ function onToastDismiss() {
   dismissToast();
 }
 const settingsOpen = ref(false);
+const appVersion = ref("0.1.0");
 const { repoTabs, activeId, syncFromRoute, refreshTitles } = useTabs();
 
 onMounted(() => {
   void load();
+  void getVersion()
+    .then((value) => {
+      appVersion.value = value;
+    })
+    .catch(() => {
+      /* keep the bundled fallback */
+    });
 });
 
 watch(
@@ -64,6 +73,9 @@ watch(statuses, () => {
         :repo-id="tab.id"
       />
     </main>
+    <footer class="status-bar">
+      <span class="status-bar-version">{{ appVersion }}</span>
+    </footer>
     <Transition name="toast" :duration="{ enter: 520, leave: 280 }">
       <Toast
         v-if="toastMessage"

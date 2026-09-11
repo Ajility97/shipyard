@@ -13,9 +13,13 @@ export interface RepoGroup {
   repos: RepoEntry[];
 }
 
+export type DiffMode = "inline" | "split";
+
 export interface AppData {
   groups: RepoGroup[];
   refreshIntervalSeconds?: number;
+  filesPaneWidth?: number;
+  diffMode?: DiffMode;
 }
 
 export interface RepoStatus {
@@ -26,6 +30,9 @@ export interface RepoStatus {
   ahead: number;
   behind: number;
   dirty: boolean;
+  insertions: number;
+  deletions: number;
+  changedFiles: number;
 }
 
 export interface RepoActionResult {

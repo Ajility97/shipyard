@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppData,
   CommitNode,
+  DiffMode,
   RepoActionResult,
   RepoEntry,
   RepoGroup,
@@ -55,12 +56,32 @@ export function updateAppSettings(refreshIntervalSeconds: number) {
   return invoke<number>("update_app_settings", { refreshIntervalSeconds });
 }
 
+export function updateFilesPaneWidth(width: number) {
+  return invoke<number>("update_files_pane_width", { width });
+}
+
+export function updateDiffMode(mode: DiffMode) {
+  return invoke<DiffMode>("update_diff_mode", { mode });
+}
+
+export function replaceAppData(data: AppData) {
+  return invoke<AppData>("replace_app_data", { data });
+}
+
 export function groupStatus(groupId: string, fetch = false) {
   return invoke<RepoStatus[]>("group_status", { groupId, fetch });
 }
 
 export function refreshRepo(groupId: string, repoId: string, fetch = true) {
   return invoke<RepoStatus>("refresh_repo", { groupId, repoId, fetch });
+}
+
+export function pullRepo(groupId: string, repoId: string, branch?: string) {
+  return invoke<RepoActionResult>("pull_repo", {
+    groupId,
+    repoId,
+    branch: branch?.trim() || null,
+  });
 }
 
 export function pullCurrent(groupId: string) {

@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -117,6 +118,9 @@ pub struct LiveStatus {
     pub ahead: u32,
     pub behind: u32,
     pub dirty: bool,
+    pub insertions: u32,
+    pub deletions: u32,
+    pub changed_files: u32,
 }
 
 pub fn fetch_remote(git: &Path, repo: &Path) {
@@ -167,6 +171,7 @@ pub fn live_status(git: &Path, repo: &Path) -> Result<LiveStatus, String> {
     let mut ahead = 0;
     let mut behind = 0;
     let mut dirty = false;
+    let mut changed_files = 0;
     let mut saw_ab = false;
 
     for line in output.stdout.lines() {
@@ -183,6 +188,7 @@ pub fn live_status(git: &Path, repo: &Path) -> Result<LiveStatus, String> {
         }
         if !line.is_empty() && !line.starts_with('#') {
             dirty = true;
+            changed_files += 1;
         }
     }
 
@@ -198,12 +204,61 @@ pub fn live_status(git: &Path, repo: &Path) -> Result<LiveStatus, String> {
         (ahead, behind) = ahead_behind_for_ref(git, repo, &format!("origin/{branch}"));
     }
 
+    let (insertions, deletions) = if dirty {
+        working_tree_line_counts(git, repo)
+    } else {
+        (0, 0)
+    };
+
     Ok(LiveStatus {
         branch,
         ahead,
         behind,
         dirty,
+        insertions,
+        deletions,
+        changed_files,
     })
+}
+
+fn working_tree_line_counts(git: &Path, repo: &Path) -> (u32, u32) {
+    let mut insertions = 0;
+    let mut deletions = 0;
+
+    if let Ok(output) = run_git(git, repo, &["diff", "--numstat", "HEAD"]) {
+        if output.success {
+            add_numstat(&output.stdout, &mut insertions, &mut deletions);
+        }
+    }
+
+    if let Ok(output) = run_git(git, repo, &["ls-files", "--others", "--exclude-standard", "-z"]) {
+        if output.success {
+            for rel in output.stdout.split('\0').filter(|path| !path.is_empty()) {
+                insertions += count_text_lines(&repo.join(rel));
+            }
+        }
+    }
+
+    (insertions, deletions)
+}
+
+fn add_numstat(stdout: &str, insertions: &mut u32, deletions: &mut u32) {
+    for line in stdout.lines() {
+        let mut parts = line.split('\t');
+        if let Some(added) = parts.next().and_then(|value| value.parse::<u32>().ok()) {
+            *insertions += added;
+        }
+        if let Some(removed) = parts.next().and_then(|value| value.parse::<u32>().ok()) {
+            *deletions += removed;
+        }
+    }
+}
+
+fn count_text_lines(path: &Path) -> u32 {
+    match fs::read(path) {
+        Ok(bytes) if !bytes.contains(&0) => String::from_utf8_lossy(&bytes).lines().count() as u32,
+        _ => 0,
+    }
 }
 
 fn parse_count(value: Option<&str>, prefix: char) -> u32 {
@@ -527,6 +582,18 @@ mod tests {
         assert!(!is_dirty(&git_bin(), &repo).unwrap());
         fs::write(repo.join("README.md"), "changed\n").unwrap();
         assert!(is_dirty(&git_bin(), &repo).unwrap());
+        let dirty = live_status(&git_bin(), &repo).unwrap();
+        assert_eq!((dirty.insertions, dirty.deletions, dirty.changed_files), (1, 1, 1));
+        fs::write(repo.join("new.txt"), "one\ntwo\n").unwrap();
+        let with_untracked = live_status(&git_bin(), &repo).unwrap();
+        assert_eq!(
+            (
+                with_untracked.insertions,
+                with_untracked.deletions,
+                with_untracked.changed_files
+            ),
+            (3, 1, 2)
+        );
         let files = working_tree(&git_bin(), &repo).unwrap();
         assert!(files.iter().any(|file| file.path == "README.md"));
     }

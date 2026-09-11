@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import WorkingTree from "./WorkingTree.vue";
@@ -11,17 +11,66 @@ const props = defineProps<{
   repoId: string;
 }>();
 
-const { findRepo, groups, loaded } = useApp();
+const {
+  findRepo,
+  groups,
+  loaded,
+  filesPaneWidth,
+  setFilesPaneWidth,
+  saveFilesPaneWidth,
+  diffMode,
+  saveDiffMode,
+} = useApp();
 
 const commits = ref<CommitNode[]>([]);
 const files = ref<WorkingTreeFile[]>([]);
 const selectedFile = ref<WorkingTreeFile | null>(null);
+const filesCollapsed = ref(false);
 const diff = ref("");
-const diffMode = ref<"inline" | "split">("inline");
 const loading = ref(false);
 const message = ref("");
 
 const current = computed(() => findRepo(props.repoId));
+const resizing = ref(false);
+let resizeStartX = 0;
+let resizeStartWidth = 320;
+let resizePointerId: number | null = null;
+
+function onResizeMove(event: PointerEvent) {
+  setFilesPaneWidth(resizeStartWidth + (resizeStartX - event.clientX));
+}
+
+function stopResize(event?: PointerEvent) {
+  if (resizePointerId === null) {
+    return;
+  }
+  if (event && event.pointerId !== resizePointerId) {
+    return;
+  }
+  window.removeEventListener("pointermove", onResizeMove);
+  window.removeEventListener("pointerup", stopResize);
+  window.removeEventListener("pointercancel", stopResize);
+  resizing.value = false;
+  resizePointerId = null;
+  document.body.classList.remove("is-resizing");
+  void saveFilesPaneWidth(filesPaneWidth.value);
+}
+
+function startResize(event: PointerEvent) {
+  event.preventDefault();
+  resizeStartX = event.clientX;
+  resizeStartWidth = filesPaneWidth.value;
+  resizePointerId = event.pointerId;
+  resizing.value = true;
+  document.body.classList.add("is-resizing");
+  window.addEventListener("pointermove", onResizeMove);
+  window.addEventListener("pointerup", stopResize);
+  window.addEventListener("pointercancel", stopResize);
+}
+
+onUnmounted(() => {
+  stopResize();
+});
 
 async function loadRepo() {
   const match = current.value;
@@ -54,9 +103,18 @@ async function loadRepo() {
   }
 }
 
+function closeDiff() {
+  selectedFile.value = null;
+  diff.value = "";
+}
+
 async function selectFile(file: WorkingTreeFile) {
   const match = current.value;
   if (!match) {
+    return;
+  }
+  if (selectedFile.value?.path === file.path) {
+    closeDiff();
     return;
   }
   selectedFile.value = file;
@@ -77,41 +135,97 @@ watch(
 </script>
 
 <template>
-  <div v-if="current" class="repo-view">
-    <section class="graph-pane">
+  <div
+    v-if="current"
+    class="repo-view"
+    :class="{ 'files-collapsed': filesCollapsed, resizing }"
+    :style="{ '--files-pane-width': `${filesPaneWidth}px` }"
+  >
+    <section v-if="!selectedFile" class="graph-pane">
       <div class="pane-header">
         <div>
           <strong>{{ current.status?.name ?? current.repo.path }}</strong>
           <div class="commit-sub">{{ current.status?.branch ?? "" }} · {{ current.repo.path }}</div>
         </div>
-        <span v-if="loading" class="muted tiny">Loading…</span>
+        <div class="pane-header-end">
+          <span v-if="loading" class="muted tiny">Loading…</span>
+          <button
+            v-if="filesCollapsed"
+            class="files-float"
+            type="button"
+            title="Show files panel"
+            aria-label="Show files panel"
+            @click="filesCollapsed = false"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
+              <path d="M10.25 2.25v11.5" />
+              <path d="M8.85 5.6L6.6 8l2.25 2.4" />
+            </svg>
+          </button>
+        </div>
       </div>
       <p v-if="message" class="banner">{{ message }}</p>
       <CommitGraph :commits="commits" />
     </section>
-    <aside class="changes-pane">
+    <section v-else class="diff-main">
+      <div class="pane-header">
+        <div class="diff-heading">
+          <button class="ghost tiny" type="button" @click="closeDiff">← Commits</button>
+          <span class="diff-path">{{ selectedFile.path }}</span>
+        </div>
+        <div class="pane-header-end">
+          <div class="segmented" role="group" aria-label="Diff layout">
+            <button
+              type="button"
+              :class="{ active: diffMode === 'inline' }"
+              :aria-pressed="diffMode === 'inline'"
+              @click="saveDiffMode('inline')"
+            >
+              Inline
+            </button>
+            <button
+              type="button"
+              :class="{ active: diffMode === 'split' }"
+              :aria-pressed="diffMode === 'split'"
+              @click="saveDiffMode('split')"
+            >
+              Side by side
+            </button>
+          </div>
+          <button
+            v-if="filesCollapsed"
+            class="files-float"
+            type="button"
+            title="Show files panel"
+            aria-label="Show files panel"
+            @click="filesCollapsed = false"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
+              <path d="M10.25 2.25v11.5" />
+              <path d="M8.85 5.6L6.6 8l2.25 2.4" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="diff-scroll">
+        <DiffViewer :raw="diff" :mode="diffMode" />
+      </div>
+    </section>
+    <aside v-if="!filesCollapsed" class="changes-pane">
+      <button
+        class="pane-resize"
+        type="button"
+        aria-label="Resize files panel"
+        @pointerdown="startResize"
+      />
       <WorkingTree
         :files="files"
         :selected="selectedFile?.path ?? ''"
         @select="selectFile"
+        @collapse="filesCollapsed = true"
       />
-      <div class="diff-pane">
-        <div class="pane-header">
-          <span>{{ selectedFile?.path ?? "Select a changed file" }}</span>
-          <div class="segmented">
-            <button :class="{ primary: diffMode === 'inline' }" type="button" @click="diffMode = 'inline'">
-              Inline
-            </button>
-            <button :class="{ primary: diffMode === 'split' }" type="button" @click="diffMode = 'split'">
-              Side by side
-            </button>
-          </div>
-        </div>
-        <DiffViewer v-if="selectedFile" :raw="diff" :mode="diffMode" />
-        <p v-else class="muted" style="padding: 0.85rem">
-          Uncommitted files appear above. Click one to compare it with HEAD.
-        </p>
-      </div>
     </aside>
   </div>
   <div v-else class="empty-home">

@@ -4,12 +4,24 @@ fn default_refresh_interval() -> u64 {
     300
 }
 
+fn default_files_pane_width() -> u32 {
+    320
+}
+
+fn default_diff_mode() -> String {
+    "split".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
     pub groups: Vec<RepoGroup>,
     #[serde(default = "default_refresh_interval")]
     pub refresh_interval_seconds: u64,
+    #[serde(default = "default_files_pane_width")]
+    pub files_pane_width: u32,
+    #[serde(default = "default_diff_mode")]
+    pub diff_mode: String,
 }
 
 impl Default for AppData {
@@ -17,6 +29,8 @@ impl Default for AppData {
         Self {
             groups: Vec::new(),
             refresh_interval_seconds: default_refresh_interval(),
+            files_pane_width: default_files_pane_width(),
+            diff_mode: default_diff_mode(),
         }
     }
 }
@@ -46,6 +60,8 @@ mod tests {
     fn serializes_groups_as_camel_case_json() {
         let data = AppData {
             refresh_interval_seconds: 300,
+            files_pane_width: 320,
+            diff_mode: "split".into(),
             groups: vec![RepoGroup {
                 id: "g1".into(),
                 name: "Work".into(),
@@ -84,6 +100,9 @@ pub struct RepoStatus {
     pub ahead: u32,
     pub behind: u32,
     pub dirty: bool,
+    pub insertions: u32,
+    pub deletions: u32,
+    pub changed_files: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

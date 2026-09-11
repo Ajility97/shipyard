@@ -1,14 +1,36 @@
 <script setup lang="ts">
-import { onMounted, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import TabBar from "./components/TabBar.vue";
 import RepoPane from "./components/RepoPane.vue";
+import OutputModal from "./components/OutputModal.vue";
+import SettingsModal from "./components/SettingsModal.vue";
+import Toast from "./components/Toast.vue";
 import GroupsView from "./views/GroupsView.vue";
 import { useApp } from "./composables/useApp";
 import { GROUPS_TAB_ID, useTabs } from "./composables/useTabs";
 
 const route = useRoute();
-const { load, error, statuses } = useApp();
+const {
+  load,
+  error,
+  statuses,
+  toastMessage,
+  toastKind,
+  actionOutput,
+  actionOutputOpen,
+  dismissToast,
+  dismissOutput,
+  openOutput,
+} = useApp();
+
+function onToastDismiss() {
+  if (toastKind.value === "error" && !actionOutputOpen.value) {
+    openOutput();
+  }
+  dismissToast();
+}
+const settingsOpen = ref(false);
 const { repoTabs, activeId, syncFromRoute, refreshTitles } = useTabs();
 
 onMounted(() => {
@@ -31,7 +53,7 @@ watch(statuses, () => {
 
 <template>
   <div class="app-shell">
-    <TabBar />
+    <TabBar @settings="settingsOpen = true" />
     <main class="main">
       <p v-if="error" class="banner">{{ error }}</p>
       <GroupsView v-show="activeId === GROUPS_TAB_ID" />
@@ -42,5 +64,20 @@ watch(statuses, () => {
         :repo-id="tab.id"
       />
     </main>
+    <Transition name="toast" :duration="{ enter: 520, leave: 280 }">
+      <Toast
+        v-if="toastMessage"
+        :message="toastMessage"
+        :kind="toastKind"
+        @dismiss="onToastDismiss"
+      />
+    </Transition>
+    <SettingsModal v-if="settingsOpen" @close="settingsOpen = false" />
+    <OutputModal
+      v-if="actionOutputOpen && actionOutput"
+      :title="actionOutput.title"
+      :results="actionOutput.results"
+      @close="dismissOutput"
+    />
   </div>
 </template>

@@ -1,7 +1,6 @@
 import { computed, nextTick, ref, watch } from "vue";
 import * as api from "../api";
-import { ensureNotificationPermission, notifyRefreshComplete } from "../notify";
-import type { RepoActionResult, RepoGroup, RepoStatus } from "../types";
+import type { AppData, DiffMode, RepoActionResult, RepoGroup, RepoStatus } from "../types";
 
 const groups = ref<RepoGroup[]>([]);
 const statuses = ref<Record<string, RepoStatus>>({});
@@ -10,6 +9,10 @@ const busy = ref<Record<string, string>>({});
 const error = ref("");
 const loaded = ref(false);
 const refreshIntervalSeconds = ref(300);
+const filesPaneWidth = ref(320);
+const diffMode = ref<DiffMode>("split");
+const FILES_PANE_MIN = 220;
+const FILES_PANE_MAX = 800;
 const refreshingAll = ref(false);
 const lastRefreshAt = ref<Date | null>(null);
 const nextRefreshAt = ref<number | null>(null);
@@ -19,6 +22,14 @@ const refreshingGroups = ref<Record<string, boolean>>({});
 const refreshTotal = ref(0);
 const refreshDone = ref(0);
 const refreshCancelled = ref(false);
+const refreshProgress = ref<Record<string, string>>({});
+const toastMessage = ref("");
+const toastKind = ref<"success" | "error">("success");
+const actionOutput = ref<{ title: string; results: RepoActionResult[] } | null>(null);
+const actionOutputOpen = ref(false);
+const pullProgress = ref<Record<string, string>>({});
+const pullCancelled = ref<Record<string, boolean>>({});
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let autoRefreshStarted = false;
@@ -29,9 +40,7 @@ export function useApp() {
   async function load() {
     error.value = "";
     try {
-      const data = await api.getState();
-      groups.value = data.groups;
-      refreshIntervalSeconds.value = data.refreshIntervalSeconds ?? 300;
+      applyState(await api.getState());
       loaded.value = true;
       startAutoRefresh();
       await Promise.all(
@@ -40,6 +49,13 @@ export function useApp() {
     } catch (err) {
       error.value = String(err);
     }
+  }
+
+  function applyState(data: AppData) {
+    groups.value = data.groups;
+    refreshIntervalSeconds.value = data.refreshIntervalSeconds ?? 300;
+    filesPaneWidth.value = clampFilesPaneWidth(data.filesPaneWidth ?? 320);
+    diffMode.value = data.diffMode === "inline" ? "inline" : "split";
   }
 
   function applyStatus(status: RepoStatus) {
@@ -63,6 +79,63 @@ export function useApp() {
 
   function cancelRefresh() {
     refreshCancelled.value = true;
+  }
+
+  function cancelPull(groupId: string) {
+    pullCancelled.value = { ...pullCancelled.value, [groupId]: true };
+  }
+
+  function dismissToast() {
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
+    toastMessage.value = "";
+  }
+
+  function showToast(message: string, kind: "success" | "error" = "success") {
+    dismissToast();
+    toastKind.value = kind;
+    toastMessage.value = message;
+    toastTimer = setTimeout(
+      () => {
+        toastMessage.value = "";
+        toastTimer = null;
+      },
+      kind === "error" ? 5600 : 3200,
+    );
+  }
+
+  function dismissOutput() {
+    actionOutputOpen.value = false;
+  }
+
+  function openOutput() {
+    if (actionOutput.value) {
+      actionOutputOpen.value = true;
+    }
+  }
+
+  function presentActionResults(
+    title: string,
+    outcomes: RepoActionResult[],
+    messages: { success: string; error: string },
+  ) {
+    actionOutput.value = { title, results: outcomes };
+    const failed = outcomes.filter((item) => !item.ok).length;
+    if (failed) {
+      actionOutputOpen.value = true;
+      showToast(messages.error, "error");
+      return;
+    }
+    showToast(messages.success);
+  }
+
+  function refreshDoneMessage(count: number, groupName?: string) {
+    const repos = count === 1 ? "1 repository" : `${count} repositories`;
+    return groupName
+      ? `Refreshed ${groupName} (${repos}).`
+      : `Refresh complete. Updated ${repos}.`;
   }
 
   async function refreshRepo(groupId: string, repoId: string) {
@@ -99,17 +172,20 @@ export function useApp() {
       refreshCancelled.value = false;
       refreshDone.value = 0;
       refreshTotal.value = group.repos.length;
-      void ensureNotificationPermission();
     }
     try {
-      for (const repo of group.repos) {
+      for (const [index, repo] of group.repos.entries()) {
         if (refreshCancelled.value) {
           break;
         }
+        refreshProgress.value = {
+          ...refreshProgress.value,
+          [groupId]: `${index + 1}/${group.repos.length}`,
+        };
         await refreshRepo(groupId, repo.id);
       }
       if (notify && !refreshCancelled.value) {
-        void notifyRefreshComplete(group.repos.length, group.name);
+        showToast(refreshDoneMessage(group.repos.length, group.name));
       }
     } finally {
       const groupsBusy = { ...refreshingGroups.value };
@@ -118,6 +194,9 @@ export function useApp() {
       const next = { ...busy.value };
       delete next[groupId];
       busy.value = next;
+      const progress = { ...refreshProgress.value };
+      delete progress[groupId];
+      refreshProgress.value = progress;
       if (!refreshingAll.value) {
         refreshCancelled.value = false;
         refreshDone.value = 0;
@@ -136,9 +215,6 @@ export function useApp() {
     error.value = "";
     refreshDone.value = 0;
     refreshTotal.value = groups.value.reduce((sum, group) => sum + group.repos.length, 0);
-    if (notify) {
-      void ensureNotificationPermission();
-    }
     if (autoRefreshTimer) {
       clearTimeout(autoRefreshTimer);
       autoRefreshTimer = null;
@@ -151,7 +227,7 @@ export function useApp() {
         await refreshGroup(group.id);
       }
       if (notify && !refreshCancelled.value) {
-        void notifyRefreshComplete(refreshTotal.value);
+        showToast(refreshDoneMessage(refreshTotal.value));
       }
     } finally {
       refreshingAll.value = false;
@@ -182,6 +258,29 @@ export function useApp() {
     }, seconds * 1000);
   }
 
+  function clampFilesPaneWidth(width: number) {
+    return Math.round(Math.min(FILES_PANE_MAX, Math.max(FILES_PANE_MIN, width)));
+  }
+
+  function setFilesPaneWidth(width: number) {
+    filesPaneWidth.value = clampFilesPaneWidth(width);
+  }
+
+  async function saveFilesPaneWidth(width: number) {
+    filesPaneWidth.value = await api.updateFilesPaneWidth(clampFilesPaneWidth(width));
+  }
+
+  async function saveDiffMode(mode: DiffMode) {
+    diffMode.value = await api.updateDiffMode(mode);
+  }
+
+  async function replaceSettings(data: AppData) {
+    const next = await api.replaceAppData(data);
+    applyState(next);
+    startAutoRefresh();
+    return next;
+  }
+
   async function saveRefreshInterval(seconds: number) {
     refreshIntervalSeconds.value = await api.updateAppSettings(seconds);
     startAutoRefresh();
@@ -206,9 +305,6 @@ export function useApp() {
   });
 
   const countdownLabel = computed(() => {
-    if (refreshingAll.value) {
-      return refreshProgressLabel.value || "Refreshing…";
-    }
     if (!nextRefreshAt.value || refreshIntervalSeconds.value <= 0) {
       return "";
     }
@@ -275,16 +371,101 @@ export function useApp() {
     statuses.value = next;
   }
 
+  function repoDisplayName(repoId: string, path: string) {
+    return (
+      statuses.value[repoId]?.name ??
+      path.split("/").filter(Boolean).at(-1) ??
+      path
+    );
+  }
+
+  async function pullGroup(groupId: string, branch?: string) {
+    const group = groups.value.find((item) => item.id === groupId);
+    if (!group || busy.value[groupId] || !group.repos.length) {
+      return;
+    }
+    error.value = "";
+    const outcomes: RepoActionResult[] = [];
+    pullCancelled.value = { ...pullCancelled.value, [groupId]: false };
+    try {
+      for (const [index, repo] of group.repos.entries()) {
+        if (pullCancelled.value[groupId]) {
+          break;
+        }
+        const name = repoDisplayName(repo.id, repo.path);
+        const progress = `${index + 1}/${group.repos.length}`;
+        pullProgress.value = { ...pullProgress.value, [groupId]: progress };
+        busy.value = {
+          ...busy.value,
+          [groupId]: `Pulling ${name} (${progress})…`,
+        };
+        refreshingRepos.value = { ...refreshingRepos.value, [repo.id]: true };
+        await nextTick();
+        try {
+          outcomes.push(await api.pullRepo(groupId, repo.id, branch));
+          applyStatus(await api.refreshRepo(groupId, repo.id, false));
+        } catch (err) {
+          outcomes.push({
+            path: repo.path,
+            ok: false,
+            message: String(err),
+          });
+        } finally {
+          const next = { ...refreshingRepos.value };
+          delete next[repo.id];
+          refreshingRepos.value = next;
+          await nextTick();
+        }
+      }
+      if (outcomes.length && !pullCancelled.value[groupId]) {
+        results.value = { ...results.value, [groupId]: outcomes };
+        const failed = outcomes.filter((item) => !item.ok).length;
+        const repos =
+          group.repos.length === 1 ? "1 repository" : `${group.repos.length} repositories`;
+        presentActionResults(branch ? `Pull ${branch} — ${group.name}` : `Pull — ${group.name}`, outcomes, {
+          success: branch
+            ? `Pulled ${branch} into ${group.name} (${repos}).`
+            : `Pulled ${group.name} (${repos}).`,
+          error:
+            failed === 1
+              ? `Pull failed for 1 repository in ${group.name}.`
+              : `Pull failed for ${failed} repositories in ${group.name}.`,
+        });
+      }
+    } finally {
+      const next = { ...busy.value };
+      delete next[groupId];
+      busy.value = next;
+      const progress = { ...pullProgress.value };
+      delete progress[groupId];
+      pullProgress.value = progress;
+      const cancelled = { ...pullCancelled.value };
+      delete cancelled[groupId];
+      pullCancelled.value = cancelled;
+    }
+  }
+
   async function runAction(
     groupId: string,
     label: string,
     action: () => Promise<RepoActionResult[]>,
+    title?: string,
   ) {
     busy.value = { ...busy.value, [groupId]: label };
     error.value = "";
     try {
       const outcome = await action();
       results.value = { ...results.value, [groupId]: outcome };
+      const group = groups.value.find((item) => item.id === groupId);
+      const failed = outcome.filter((item) => !item.ok).length;
+      const heading = title ?? label.replace(/…$/, "");
+      presentActionResults(heading, outcome, {
+        success: group ? `Finished ${heading.toLowerCase()} for ${group.name}.` : "Done.",
+        error:
+          failed === 1
+            ? `${heading} failed for 1 repository.`
+            : `${heading} failed for ${failed} repositories.`,
+      });
       await refreshStatus(groupId);
     } catch (err) {
       error.value = String(err);
@@ -337,16 +518,34 @@ export function useApp() {
     error,
     loaded,
     refreshIntervalSeconds,
+    filesPaneWidth,
+    setFilesPaneWidth,
+    saveFilesPaneWidth,
+    diffMode,
+    saveDiffMode,
+    replaceSettings,
     refreshingAll,
     lastRefreshAt,
     countdownLabel,
     refreshProgressLabel,
     refreshCancelled,
+    refreshProgress,
+    toastMessage,
+    toastKind,
+    actionOutput,
+    actionOutputOpen,
+    dismissToast,
+    dismissOutput,
+    openOutput,
     cancelRefresh,
+    cancelPull,
     load,
     refreshStatus,
     refreshGroup,
     refreshAll,
+    pullGroup,
+    pullProgress,
+    pullCancelled,
     isRepoRefreshing,
     isGroupRefreshing,
     saveRefreshInterval,

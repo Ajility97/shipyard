@@ -13,6 +13,7 @@ const {
   refreshCancelled,
   lastRefreshAt,
   countdownLabel,
+  refreshProgressLabel,
   saveRefreshInterval,
 } = useApp();
 const creating = ref(false);
@@ -30,6 +31,10 @@ const lastRefreshLabel = computed(() => {
   }
   return lastRefreshAt.value.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 });
+
+const refreshAllProgress = computed(
+  () => refreshProgressLabel.value.replace(/^Refreshing\s+/, "") || "…",
+);
 
 async function submit() {
   const value = name.value.trim();
@@ -53,12 +58,9 @@ function cancel() {
       <div class="groups-header">
         <div>
           <div class="brand">Krakdown</div>
-          <p class="muted tiny">
-            Click a repository to open it in a tab. Shift-click to open several.
-            <span v-if="lastRefreshLabel"> Last refresh {{ lastRefreshLabel }}.</span>
-          </p>
+          <p class="muted tiny">Click a repository to open it in a tab.</p>
         </div>
-        <div class="groups-toolbar">
+        <div class="refresh-area">
           <label class="refresh-setting">
             <span class="muted tiny">Auto-refresh</span>
             <select v-model.number="interval">
@@ -69,37 +71,50 @@ function cancel() {
               <option :value="1800">30 minutes</option>
             </select>
           </label>
-          <span v-if="countdownLabel" class="countdown">{{ countdownLabel }}</span>
-          <button
-            type="button"
-            :class="{ danger: refreshingAll }"
-            :disabled="!groups.length || refreshCancelled"
-            @click="refreshingAll ? cancelRefresh() : refreshAll()"
-          >
-            {{ refreshCancelled ? "Cancelling…" : refreshingAll ? "Cancel" : "Refresh all" }}
-          </button>
-          <button class="primary" type="button" @click="creating = true">New group</button>
+          <div class="refresh-times">
+            <span v-if="countdownLabel" class="refresh-meta countdown">{{ countdownLabel }}</span>
+            <span class="refresh-last">Last refresh {{ lastRefreshLabel || "—" }}</span>
+          </div>
         </div>
       </div>
 
-      <form v-if="creating" class="new-group" @submit.prevent="submit">
-        <input
-          v-model="name"
-          type="text"
-          placeholder="Group name"
-          autofocus
-          @keydown.escape="cancel"
-        />
-        <button class="primary" type="submit">Create</button>
-        <button class="ghost" type="button" @click="cancel">Cancel</button>
-      </form>
+      <div class="groups-display">
+        <div class="groups-toolbar">
+          <form v-if="creating" class="new-group" @submit.prevent="submit">
+            <input
+              v-model="name"
+              type="text"
+              placeholder="Group name"
+              autofocus
+              @keydown.escape="cancel"
+            />
+            <button class="primary" type="submit">Create</button>
+            <button class="ghost" type="button" @click="cancel">Cancel</button>
+          </form>
+          <button v-else class="primary" type="button" @click="creating = true">New group</button>
+          <div class="header-action">
+            <span v-if="refreshingAll" class="action-progress">
+              <span class="spinner" aria-hidden="true" />
+              {{ refreshAllProgress }}
+            </span>
+            <button
+              type="button"
+              :class="{ danger: refreshingAll }"
+              :disabled="!groups.length || refreshCancelled"
+              @click="refreshingAll ? cancelRefresh() : refreshAll()"
+            >
+              {{ refreshCancelled ? "Cancelling…" : refreshingAll ? "Cancel" : "Refresh all" }}
+            </button>
+          </div>
+        </div>
 
-      <p v-if="!groups.length" class="muted">
-        Create a group, then add local repositories.
-      </p>
+        <p v-if="!groups.length" class="muted">
+          Create a group, then add local repositories.
+        </p>
 
-      <div class="groups-list">
-        <RepoGroupCard v-for="group in groups" :key="group.id" :group="group" />
+        <div class="groups-list">
+          <RepoGroupCard v-for="group in groups" :key="group.id" :group="group" />
+        </div>
       </div>
     </div>
   </div>

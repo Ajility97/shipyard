@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, State};
-use tauri_plugin_notification::NotificationExt;
 
 use crate::git;
 use crate::models::{
@@ -175,6 +174,111 @@ pub fn update_app_settings(
 }
 
 #[tauri::command]
+pub fn update_files_pane_width(
+    app: AppHandle,
+    state: State<AppState>,
+    width: u32,
+) -> Result<u32, String> {
+    let width = width.clamp(220, 800);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.files_pane_width = width;
+    persist_data(&app, &data)?;
+    Ok(width)
+}
+
+#[tauri::command]
+pub fn update_diff_mode(
+    app: AppHandle,
+    state: State<AppState>,
+    mode: String,
+) -> Result<String, String> {
+    let mode = sanitize_diff_mode(&mode)?;
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.diff_mode = mode.clone();
+    persist_data(&app, &data)?;
+    Ok(mode)
+}
+
+#[tauri::command]
+pub fn replace_app_data(
+    app: AppHandle,
+    state: State<AppState>,
+    data: AppData,
+) -> Result<AppData, String> {
+    let sanitized = sanitize_app_data(data)?;
+    let mut lock = state.data.lock().map_err(|err| err.to_string())?;
+    *lock = sanitized.clone();
+    persist_data(&app, &lock)?;
+    Ok(sanitized)
+}
+
+fn sanitize_diff_mode(mode: &str) -> Result<String, String> {
+    match mode.trim() {
+        "inline" | "split" => Ok(mode.trim().to_string()),
+        _ => Err("diffMode must be \"inline\" or \"split\"".into()),
+    }
+}
+
+fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
+    data.refresh_interval_seconds = if data.refresh_interval_seconds == 0 {
+        0
+    } else {
+        data.refresh_interval_seconds.clamp(30, 86_400)
+    };
+    data.files_pane_width = data.files_pane_width.clamp(220, 800);
+    data.diff_mode = sanitize_diff_mode(&data.diff_mode)?;
+
+    for group in &mut data.groups {
+        if group.id.trim().is_empty() {
+            group.id = uuid::Uuid::new_v4().to_string();
+        }
+        group.name = group.name.trim().to_string();
+        if group.name.is_empty() {
+            return Err("Every group needs a name".into());
+        }
+        let pull = group.pull_from_branch.trim().to_string();
+        if !pull.is_empty() {
+            git::validate_ref(&pull)?;
+        }
+        group.pull_from_branch = if pull.is_empty() {
+            "develop".into()
+        } else {
+            pull
+        };
+        let fallbacks: Vec<String> = group
+            .checkout_fallbacks
+            .iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect();
+        for fallback in &fallbacks {
+            git::validate_ref(fallback)?;
+        }
+        group.checkout_fallbacks = if fallbacks.is_empty() {
+            vec!["develop".into()]
+        } else {
+            fallbacks
+        };
+        let color = group.header_color.trim().to_string();
+        group.header_color = if color.starts_with('#') && (color.len() == 7 || color.len() == 4) {
+            color
+        } else {
+            "#16323c".into()
+        };
+        for repo in &mut group.repos {
+            if repo.id.trim().is_empty() {
+                repo.id = uuid::Uuid::new_v4().to_string();
+            }
+            repo.path = repo.path.trim().to_string();
+            if repo.path.is_empty() {
+                return Err("Repository path cannot be empty".into());
+            }
+        }
+    }
+    Ok(data)
+}
+
+#[tauri::command]
 pub fn add_repo(
     app: AppHandle,
     state: State<AppState>,
@@ -230,20 +334,7 @@ pub fn group_status(
         if fetch {
             git::fetch_remote(&git, path);
         }
-        let live = git::live_status(&git, path);
-        let (branch, ahead, behind, dirty) = match live {
-            Ok(status) => (status.branch, status.ahead, status.behind, status.dirty),
-            Err(err) => (format!("error: {err}"), 0, 0, false),
-        };
-        statuses.push(RepoStatus {
-            id: repo.id,
-            name: git::folder_name(&repo.path),
-            path: repo.path,
-            branch,
-            ahead,
-            behind,
-            dirty,
-        });
+        statuses.push(status_from_live(&repo, git::live_status(&git, path)));
     }
     Ok(statuses)
 }
@@ -267,19 +358,57 @@ pub async fn refresh_repo(
         if should_fetch {
             git::fetch_remote(&git, path);
         }
-        let live = git::live_status(&git, path);
-        let (branch, ahead, behind, dirty) = match live {
-            Ok(status) => (status.branch, status.ahead, status.behind, status.dirty),
-            Err(err) => (format!("error: {err}"), 0, 0, false),
+        Ok(status_from_live(&repo, git::live_status(&git, path)))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn pull_repo(
+    state: State<'_, AppState>,
+    group_id: String,
+    repo_id: String,
+    branch: Option<String>,
+) -> Result<RepoActionResult, String> {
+    let (git, group) = repo_list(&state, &group_id)?;
+    let repo = group
+        .repos
+        .into_iter()
+        .find(|entry| entry.id == repo_id)
+        .ok_or_else(|| "Repository not found".to_string())?;
+    let branch = branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(ref name) = branch {
+        git::validate_ref(name)?;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let args: Vec<String> = match &branch {
+            Some(name) => vec!["pull".into(), "origin".into(), name.clone()],
+            None => vec!["pull".into()],
         };
-        Ok(RepoStatus {
-            id: repo.id,
-            name: git::folder_name(&repo.path),
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let output = match git::run_git(&git, Path::new(&repo.path), &arg_refs) {
+            Ok(output) => output,
+            Err(err) => {
+                return Ok(RepoActionResult {
+                    path: repo.path,
+                    ok: false,
+                    message: err,
+                });
+            }
+        };
+        let fallback = match &branch {
+            Some(name) => format!("Pulled origin/{name} into the current branch"),
+            None => "Pulled current branch".into(),
+        };
+        Ok(RepoActionResult {
             path: repo.path,
-            branch,
-            ahead,
-            behind,
-            dirty,
+            ok: output.success,
+            message: fallback_message(&git::combined_message(&output), output.success, &fallback),
         })
     })
     .await
@@ -406,25 +535,38 @@ pub fn working_tree(state: State<AppState>, path: String) -> Result<Vec<WorkingT
 }
 
 #[tauri::command]
-pub fn request_notification_permission(app: AppHandle) -> Result<(), String> {
-    let _ = app.notification().request_permission();
-    Ok(())
-}
-
-#[tauri::command]
-pub fn notify_user(app: AppHandle, title: String, body: String) -> Result<(), String> {
-    app.notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show()
-        .map_err(|err| err.to_string())
-}
-
-#[tauri::command]
 pub fn file_diff(state: State<AppState>, path: String, file: String) -> Result<String, String> {
     let git = require_git(&state)?;
     git::file_diff(&git, Path::new(&path), &file)
+}
+
+fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> RepoStatus {
+    match live {
+        Ok(status) => RepoStatus {
+            id: repo.id.clone(),
+            name: git::folder_name(&repo.path),
+            path: repo.path.clone(),
+            branch: status.branch,
+            ahead: status.ahead,
+            behind: status.behind,
+            dirty: status.dirty,
+            insertions: status.insertions,
+            deletions: status.deletions,
+            changed_files: status.changed_files,
+        },
+        Err(err) => RepoStatus {
+            id: repo.id.clone(),
+            name: git::folder_name(&repo.path),
+            path: repo.path.clone(),
+            branch: format!("error: {err}"),
+            ahead: 0,
+            behind: 0,
+            dirty: false,
+            insertions: 0,
+            deletions: 0,
+            changed_files: 0,
+        },
+    }
 }
 
 fn fallback_message(message: &str, ok: bool, success_fallback: &str) -> String {

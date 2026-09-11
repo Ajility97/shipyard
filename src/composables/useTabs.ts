@@ -28,7 +28,7 @@ export function useTabs() {
   const { findRepo } = useApp();
 
   const tabs = computed<AppTab[]>(() => [
-    { id: GROUPS_TAB_ID, title: "Groups", closable: false },
+    { id: GROUPS_TAB_ID, title: "Repositories", closable: false },
     ...repoTabs.value.map((tab) => ({ ...tab, closable: true })),
   ]);
 

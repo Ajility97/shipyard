@@ -15,8 +15,11 @@ export interface RepoGroup {
 
 export type DiffMode = "inline" | "split";
 
+export const STANDALONE_GROUP_ID = "standalone";
+
 export interface AppData {
   groups: RepoGroup[];
+  repos?: RepoEntry[];
   refreshIntervalSeconds?: number;
   filesPaneWidth?: number;
   diffMode?: DiffMode;

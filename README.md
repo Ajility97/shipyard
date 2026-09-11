@@ -5,7 +5,7 @@ A local-first Git client for macOS. Krakdown talks to the `git` binary already o
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+
-- [Rust](https://www.rust-lang.org/tools/install) via `rustup`
+- [Rust](https://www.rust-lang.org/tools/install) via `rustup` (`cargo` must be on your PATH; if a new terminal cannot find it, run `source "$HOME/.cargo/env"`)
 - [Xcode Command Line Tools](https://developer.apple.com/xcode/resources/): `xcode-select --install`
 - Git on your PATH (Homebrew and `/usr/bin/git` are also discovered automatically)
 

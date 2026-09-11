@@ -16,6 +16,8 @@ fn default_diff_mode() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
     pub groups: Vec<RepoGroup>,
+    #[serde(default)]
+    pub repos: Vec<RepoEntry>,
     #[serde(default = "default_refresh_interval")]
     pub refresh_interval_seconds: u64,
     #[serde(default = "default_files_pane_width")]
@@ -28,6 +30,7 @@ impl Default for AppData {
     fn default() -> Self {
         Self {
             groups: Vec::new(),
+            repos: Vec::new(),
             refresh_interval_seconds: default_refresh_interval(),
             files_pane_width: default_files_pane_width(),
             diff_mode: default_diff_mode(),
@@ -62,6 +65,7 @@ mod tests {
             refresh_interval_seconds: 300,
             files_pane_width: 320,
             diff_mode: "split".into(),
+            repos: Vec::new(),
             groups: vec![RepoGroup {
                 id: "g1".into(),
                 name: "Work".into(),

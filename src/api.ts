@@ -48,6 +48,18 @@ export function addRepo(groupId: string, path: string) {
   return invoke<RepoEntry>("add_repo", { groupId, path });
 }
 
+export function addStandaloneRepo(path: string) {
+  return invoke<RepoEntry>("add_standalone_repo", { path });
+}
+
+export function removeStandaloneRepo(repoId: string) {
+  return invoke<void>("remove_standalone_repo", { repoId });
+}
+
+export function standaloneStatus(fetch = false) {
+  return invoke<RepoStatus[]>("standalone_status", { fetch });
+}
+
 export function removeRepo(groupId: string, repoId: string) {
   return invoke<void>("remove_repo", { groupId, repoId });
 }

@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
-import * as api from "../api";
-import { rangeIds } from "../selection";
 import { useApp } from "../composables/useApp";
 import { useTabs } from "../composables/useTabs";
 import type { RepoGroup } from "../types";
-import BranchIcon from "./BranchIcon.vue";
-import FileIcon from "./FileIcon.vue";
 import Modal from "./Modal.vue";
+import RepoRow from "./RepoRow.vue";
 
 const DEFAULT_HEADER = "#16323c";
 const LAST_FALLBACKS = ["develop", "master", "main"] as const;
@@ -20,7 +17,6 @@ function isLastFallback(value: string): value is LastFallback {
 
 const props = defineProps<{ group: RepoGroup }>();
 const {
-  statuses,
   busy,
   toggleGroup,
   renameGroup,
@@ -37,16 +33,13 @@ const {
   refreshingAll,
   refreshCancelled,
   refreshProgress,
-  isRepoRefreshing,
   isGroupRefreshing,
   checkoutGroup,
   checkoutProgress,
   checkoutCancelled,
   cancelCheckout,
 } = useApp();
-const { activeId, hasTab, openRepo, openRepos, closeRepos } = useTabs();
-const lastClickedId = ref<string | null>(null);
-const menuRepoId = ref<string | null>(null);
+const { hasTab, closeRepos } = useTabs();
 const groupMenuOpen = ref(false);
 
 const siblingIds = computed(() => props.group.repos.map((repo) => repo.id));
@@ -83,7 +76,7 @@ const headerStyle = computed(() => ({
 
 function loadFallbacks(list: string[]) {
   const cleaned = list.map((item) => item.trim()).filter(Boolean);
-  const last = cleaned.at(-1);
+  const last = cleaned[cleaned.length - 1];
   if (last && isLastFallback(last)) {
     lastFallback.value = last;
     extraFallbacks.value = cleaned.slice(0, -1);
@@ -188,25 +181,17 @@ function removeFallback() {
 }
 
 async function removeAndLeave(repoId: string) {
-  menuRepoId.value = null;
   await removeRepo(props.group.id, repoId);
   if (hasTab(repoId)) {
     closeRepos([repoId]);
   }
 }
 
-function toggleRepoMenu(repoId: string) {
-  groupMenuOpen.value = false;
-  menuRepoId.value = menuRepoId.value === repoId ? null : repoId;
-}
-
 function toggleGroupMenu() {
-  menuRepoId.value = null;
   groupMenuOpen.value = !groupMenuOpen.value;
 }
 
 function closeMenus() {
-  menuRepoId.value = null;
   groupMenuOpen.value = false;
 }
 
@@ -233,15 +218,6 @@ onUnmounted(() => {
   document.removeEventListener("pointerdown", onDocumentPointerDown);
   document.removeEventListener("keydown", onDocumentKeydown);
 });
-
-function handleRepoClick(event: MouseEvent, repoId: string) {
-  if (event.shiftKey && lastClickedId.value) {
-    openRepos(rangeIds(siblingIds.value, lastClickedId.value, repoId), repoId);
-  } else {
-    openRepo(repoId);
-  }
-  lastClickedId.value = repoId;
-}
 
 const pulling = computed(() => Boolean(pullProgress.value[props.group.id]));
 const checkingOut = computed(() => Boolean(checkoutProgress.value[props.group.id]));
@@ -354,11 +330,6 @@ async function checkoutAll() {
     await persistSettings();
   }
   return checkoutGroup(props.group.id, target, fallbacks);
-}
-
-function folderName(path: string) {
-  const parts = path.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
 }
 
 function contrastingText(color: string) {
@@ -519,77 +490,13 @@ function contrastingText(color: string) {
     </div>
 
     <div v-if="group.expanded" class="group-body">
-      <div
+      <RepoRow
         v-for="repo in group.repos"
         :key="repo.id"
-        class="repo-row"
-        :class="{ active: activeId === repo.id, open: hasTab(repo.id), refreshing: isRepoRefreshing(repo.id) }"
-        @click="handleRepoClick($event, repo.id)"
-      >
-        <span class="repo-name">{{ statuses[repo.id]?.name ?? folderName(repo.path) }}</span>
-        <span class="branch">
-          <span v-if="isRepoRefreshing(repo.id)" class="spinner" aria-label="Refreshing repository" />
-          <span class="branch-name">
-            <BranchIcon />
-            {{ statuses[repo.id]?.branch ?? "…" }}
-          </span>
-          <span
-            v-if="(statuses[repo.id]?.behind ?? 0) > 0 || (statuses[repo.id]?.ahead ?? 0) > 0"
-            class="sync-counts"
-          >
-            <span
-              v-if="(statuses[repo.id]?.behind ?? 0) > 0"
-              class="sync-count behind"
-              :title="`${statuses[repo.id]?.behind} commits behind`"
-            >↓{{ statuses[repo.id]?.behind }}</span>
-            <span
-              v-if="(statuses[repo.id]?.ahead ?? 0) > 0"
-              class="sync-count ahead"
-              :title="`${statuses[repo.id]?.ahead} commits ahead`"
-            >↑{{ statuses[repo.id]?.ahead }}</span>
-          </span>
-          <span
-            v-if="(statuses[repo.id]?.changedFiles ?? 0) > 0"
-            class="diff-stat"
-            :title="`${statuses[repo.id]?.changedFiles} uncommitted files`"
-          >
-            <span class="file-count">
-              <FileIcon />
-              {{ statuses[repo.id]?.changedFiles }}
-            </span>
-            <span class="line-changes">
-              <span v-if="(statuses[repo.id]?.insertions ?? 0) > 0" class="line-ins">
-                +{{ statuses[repo.id]?.insertions }}
-              </span>
-              <span v-if="(statuses[repo.id]?.deletions ?? 0) > 0" class="line-del">
-                −{{ statuses[repo.id]?.deletions }}
-              </span>
-            </span>
-          </span>
-        </span>
-        <div class="overflow-menu repo-menu" @click.stop>
-          <button
-            class="ghost tiny overflow-menu-trigger"
-            type="button"
-            :aria-expanded="menuRepoId === repo.id"
-            aria-haspopup="menu"
-            title="Repository actions"
-            @click.stop="toggleRepoMenu(repo.id)"
-          >
-            ⋮
-          </button>
-          <div v-if="menuRepoId === repo.id" class="overflow-menu-dropdown" role="menu">
-            <button
-              class="overflow-menu-item danger"
-              type="button"
-              role="menuitem"
-              @click.stop="removeAndLeave(repo.id)"
-            >
-              Remove repository
-            </button>
-          </div>
-        </div>
-      </div>
+        :repo="repo"
+        :sibling-ids="siblingIds"
+        @remove="removeAndLeave"
+      />
 
       <p v-if="actionLabel" class="muted tiny" style="padding: 0.35rem 0.9rem">{{ actionLabel }}</p>
     </div>

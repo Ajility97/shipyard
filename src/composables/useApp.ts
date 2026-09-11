@@ -1,8 +1,17 @@
 import { computed, nextTick, ref, watch } from "vue";
 import * as api from "../api";
-import type { AppData, DiffMode, RepoActionResult, RepoGroup, RepoStatus } from "../types";
+import type {
+  AppData,
+  DiffMode,
+  RepoActionResult,
+  RepoEntry,
+  RepoGroup,
+  RepoStatus,
+} from "../types";
+import { STANDALONE_GROUP_ID } from "../types";
 
 const groups = ref<RepoGroup[]>([]);
+const standaloneRepos = ref<RepoEntry[]>([]);
 const statuses = ref<Record<string, RepoStatus>>({});
 const results = ref<Record<string, RepoActionResult[]>>({});
 const busy = ref<Record<string, string>>({});
@@ -45,9 +54,10 @@ export function useApp() {
       applyState(await api.getState());
       loaded.value = true;
       startAutoRefresh();
-      await Promise.all(
-        groups.value.filter((group) => group.expanded).map((group) => refreshStatus(group.id)),
-      );
+      await Promise.all([
+        ...groups.value.filter((group) => group.expanded).map((group) => refreshStatus(group.id)),
+        refreshStatus(STANDALONE_GROUP_ID),
+      ]);
     } catch (err) {
       error.value = String(err);
     }
@@ -55,6 +65,7 @@ export function useApp() {
 
   function applyState(data: AppData) {
     groups.value = data.groups;
+    standaloneRepos.value = data.repos ?? [];
     refreshIntervalSeconds.value = data.refreshIntervalSeconds ?? 300;
     filesPaneWidth.value = clampFilesPaneWidth(data.filesPaneWidth ?? 320);
     diffMode.value = data.diffMode === "inline" ? "inline" : "split";
@@ -67,7 +78,10 @@ export function useApp() {
 
   async function refreshStatus(groupId: string, fetch = false) {
     try {
-      const list = await api.groupStatus(groupId, fetch);
+      const list =
+        groupId === STANDALONE_GROUP_ID
+          ? await api.standaloneStatus(fetch)
+          : await api.groupStatus(groupId, fetch);
       const next = { ...statuses.value };
       for (const status of list) {
         next[status.id] = status;
@@ -212,7 +226,9 @@ export function useApp() {
   }
 
   async function refreshAll(options?: { notify?: boolean }) {
-    if (refreshingAll.value || !groups.value.length) {
+    const standaloneCount = standaloneRepos.value.length;
+    const groupedCount = groups.value.reduce((sum, group) => sum + group.repos.length, 0);
+    if (refreshingAll.value || !(standaloneCount || groupedCount)) {
       return;
     }
     const notify = options?.notify ?? true;
@@ -220,12 +236,20 @@ export function useApp() {
     refreshCancelled.value = false;
     error.value = "";
     refreshDone.value = 0;
-    refreshTotal.value = groups.value.reduce((sum, group) => sum + group.repos.length, 0);
+    refreshTotal.value = standaloneCount + groupedCount;
     if (autoRefreshTimer) {
       clearTimeout(autoRefreshTimer);
       autoRefreshTimer = null;
     }
     try {
+      if (standaloneCount) {
+        for (const repo of standaloneRepos.value) {
+          if (refreshCancelled.value) {
+            break;
+          }
+          await refreshRepo(STANDALONE_GROUP_ID, repo.id);
+        }
+      }
       for (const group of groups.value) {
         if (refreshCancelled.value) {
           break;
@@ -357,6 +381,21 @@ export function useApp() {
     patchGroup(groupId, { pullFromBranch, checkoutFallbacks, headerColor });
   }
 
+  async function addStandaloneRepo(path: string) {
+    const repo = await api.addStandaloneRepo(path);
+    standaloneRepos.value = [...standaloneRepos.value, repo];
+    applyStatus(await api.refreshRepo(STANDALONE_GROUP_ID, repo.id, false));
+    return repo;
+  }
+
+  async function removeStandaloneRepo(repoId: string) {
+    await api.removeStandaloneRepo(repoId);
+    standaloneRepos.value = standaloneRepos.value.filter((repo) => repo.id !== repoId);
+    const next = { ...statuses.value };
+    delete next[repoId];
+    statuses.value = next;
+  }
+
   async function addRepo(groupId: string, path: string) {
     const repo = await api.addRepo(groupId, path);
     const group = groups.value.find((item) => item.id === groupId);
@@ -380,7 +419,7 @@ export function useApp() {
   function repoDisplayName(repoId: string, path: string) {
     return (
       statuses.value[repoId]?.name ??
-      path.split("/").filter(Boolean).at(-1) ??
+      path.split("/").filter(Boolean).pop() ??
       path
     );
   }
@@ -566,6 +605,10 @@ export function useApp() {
   }
 
   function findRepo(repoId: string) {
+    const standalone = standaloneRepos.value.find((item) => item.id === repoId);
+    if (standalone) {
+      return { group: null, repo: standalone, status: statuses.value[standalone.id] };
+    }
     for (const group of groups.value) {
       const repo = group.repos.find((item) => item.id === repoId);
       if (repo) {
@@ -595,6 +638,7 @@ export function useApp() {
 
   return {
     groups,
+    standaloneRepos,
     statuses: statusById,
     results,
     busy,
@@ -642,6 +686,8 @@ export function useApp() {
     toggleGroup,
     saveSettings,
     addRepo,
+    addStandaloneRepo,
+    removeStandaloneRepo,
     removeRepo,
     runAction,
     clearResults,

@@ -31,6 +31,58 @@ fn persist_data(app: &AppHandle, data: &AppData) -> Result<(), String> {
     persist::save(app, data)
 }
 
+const STANDALONE_GROUP_ID: &str = "standalone";
+
+fn path_already_added(data: &AppData, root: &str) -> bool {
+    data.repos.iter().any(|repo| repo.path == root)
+        || data
+            .groups
+            .iter()
+            .any(|group| group.repos.iter().any(|repo| repo.path == root))
+}
+
+fn sanitize_repos(repos: &mut Vec<RepoEntry>) -> Result<(), String> {
+    for repo in repos {
+        if repo.id.trim().is_empty() {
+            repo.id = uuid::Uuid::new_v4().to_string();
+        }
+        repo.path = repo.path.trim().to_string();
+        if repo.path.is_empty() {
+            return Err("Repository path cannot be empty".into());
+        }
+    }
+    Ok(())
+}
+
+fn find_repo_entry(data: &AppData, group_id: &str, repo_id: &str) -> Result<RepoEntry, String> {
+    if group_id == STANDALONE_GROUP_ID {
+        return data
+            .repos
+            .iter()
+            .find(|entry| entry.id == repo_id)
+            .cloned()
+            .ok_or_else(|| "Repository not found".to_string());
+    }
+    let group = data
+        .groups
+        .iter()
+        .find(|group| group.id == group_id)
+        .ok_or_else(|| "Group not found".to_string())?;
+    group
+        .repos
+        .iter()
+        .find(|entry| entry.id == repo_id)
+        .cloned()
+        .ok_or_else(|| "Repository not found".to_string())
+}
+
+fn repo_entry(state: &AppState, group_id: &str, repo_id: &str) -> Result<(PathBuf, RepoEntry), String> {
+    let git = require_git(state)?;
+    let data = state.data.lock().map_err(|err| err.to_string())?;
+    let repo = find_repo_entry(&data, group_id, repo_id)?;
+    Ok((git, repo))
+}
+
 fn repo_list(state: &AppState, group_id: &str) -> Result<(PathBuf, RepoGroup), String> {
     let git = require_git(state)?;
     let data = state.data.lock().map_err(|err| err.to_string())?;
@@ -227,6 +279,7 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
     };
     data.files_pane_width = data.files_pane_width.clamp(220, 800);
     data.diff_mode = sanitize_diff_mode(&data.diff_mode)?;
+    sanitize_repos(&mut data.repos)?;
 
     for group in &mut data.groups {
         if group.id.trim().is_empty() {
@@ -265,15 +318,7 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
         } else {
             "#16323c".into()
         };
-        for repo in &mut group.repos {
-            if repo.id.trim().is_empty() {
-                repo.id = uuid::Uuid::new_v4().to_string();
-            }
-            repo.path = repo.path.trim().to_string();
-            if repo.path.is_empty() {
-                return Err("Repository path cannot be empty".into());
-            }
-        }
+        sanitize_repos(&mut group.repos)?;
     }
     Ok(data)
 }
@@ -289,6 +334,9 @@ pub fn add_repo(
     let root = git::repo_root(&git, Path::new(&path))?;
 
     let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    if data.repos.iter().any(|repo| repo.path == root) {
+        return Err("That repository is already added.".into());
+    }
     let group = find_group_mut(&mut data, &group_id)?;
     if group.repos.iter().any(|repo| repo.path == root) {
         return Err("That repository is already in this group.".into());
@@ -321,6 +369,65 @@ pub fn remove_repo(
 }
 
 #[tauri::command]
+pub fn add_standalone_repo(
+    app: AppHandle,
+    state: State<AppState>,
+    path: String,
+) -> Result<RepoEntry, String> {
+    let git = require_git(&state)?;
+    let root = git::repo_root(&git, Path::new(&path))?;
+
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    if path_already_added(&data, &root) {
+        return Err("That repository is already added.".into());
+    }
+
+    let entry = RepoEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        path: root,
+    };
+    data.repos.push(entry.clone());
+    persist_data(&app, &data)?;
+    Ok(entry)
+}
+
+#[tauri::command]
+pub fn remove_standalone_repo(
+    app: AppHandle,
+    state: State<AppState>,
+    repo_id: String,
+) -> Result<(), String> {
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    let before = data.repos.len();
+    data.repos.retain(|repo| repo.id != repo_id);
+    if data.repos.len() == before {
+        return Err("Repository not found".into());
+    }
+    persist_data(&app, &data)
+}
+
+#[tauri::command]
+pub fn standalone_status(
+    state: State<AppState>,
+    fetch: Option<bool>,
+) -> Result<Vec<RepoStatus>, String> {
+    let git = require_git(&state)?;
+    let data = state.data.lock().map_err(|err| err.to_string())?;
+    let repos = data.repos.clone();
+    drop(data);
+    let fetch = fetch.unwrap_or(false);
+    let mut statuses = Vec::new();
+    for repo in repos {
+        let path = Path::new(&repo.path);
+        if fetch {
+            git::fetch_remote(&git, path);
+        }
+        statuses.push(status_from_live(&repo, git::live_status(&git, path)));
+    }
+    Ok(statuses)
+}
+
+#[tauri::command]
 pub fn group_status(
     state: State<AppState>,
     group_id: String,
@@ -346,12 +453,7 @@ pub async fn refresh_repo(
     repo_id: String,
     fetch: Option<bool>,
 ) -> Result<RepoStatus, String> {
-    let (git, group) = repo_list(&state, &group_id)?;
-    let repo = group
-        .repos
-        .into_iter()
-        .find(|entry| entry.id == repo_id)
-        .ok_or_else(|| "Repository not found".to_string())?;
+    let (git, repo) = repo_entry(&state, &group_id, &repo_id)?;
     let should_fetch = fetch.unwrap_or(true);
     tauri::async_runtime::spawn_blocking(move || {
         let path = Path::new(&repo.path);

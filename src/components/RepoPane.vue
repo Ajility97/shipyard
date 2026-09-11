@@ -7,6 +7,7 @@ import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
 import * as api from "../api";
 import type { CommitNode, WorkingTreeFile } from "../types";
+import { STANDALONE_GROUP_ID } from "../types";
 
 const props = defineProps<{
   repoId: string;
@@ -15,6 +16,7 @@ const props = defineProps<{
 const {
   findRepo,
   groups,
+  standaloneRepos,
   loaded,
   filesPaneWidth,
   setFilesPaneWidth,
@@ -148,14 +150,14 @@ async function discardAll() {
     await api.discardAllChanges(match.repo.path);
     closeDiff();
     await loadRepo();
-    await refreshStatus(match.group.id);
+    await refreshStatus(match.group?.id ?? STANDALONE_GROUP_ID);
   } catch (err) {
     message.value = String(err);
   }
 }
 
 watch(
-  () => [props.repoId, groups.value, loaded.value],
+  () => [props.repoId, groups.value, standaloneRepos.value, loaded.value],
   () => {
     void loadRepo();
   },

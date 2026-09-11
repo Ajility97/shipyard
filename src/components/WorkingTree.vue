@@ -9,6 +9,7 @@ defineProps<{
 const emit = defineEmits<{
   select: [file: WorkingTreeFile];
   collapse: [];
+  discard: [];
 }>();
 </script>
 
@@ -47,6 +48,16 @@ const emit = defineEmits<{
       >
         <span>{{ file.path }}</span>
         <span class="muted tiny">{{ file.status }}</span>
+      </button>
+    </div>
+    <div class="file-footer">
+      <button
+        class="ghost tiny danger"
+        type="button"
+        :disabled="!files.length"
+        @click="emit('discard')"
+      >
+        Discard all
       </button>
     </div>
   </div>

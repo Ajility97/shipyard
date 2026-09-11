@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import WorkingTree from "./WorkingTree.vue";
@@ -20,6 +21,7 @@ const {
   saveFilesPaneWidth,
   diffMode,
   saveDiffMode,
+  refreshStatus,
 } = useApp();
 
 const commits = ref<CommitNode[]>([]);
@@ -125,6 +127,33 @@ async function selectFile(file: WorkingTreeFile) {
   }
 }
 
+async function discardAll() {
+  const match = current.value;
+  if (!match || !files.value.length) {
+    return;
+  }
+  const ok = await confirm(
+    "Discard all uncommitted changes? Tracked files will be reset and untracked files will be deleted.",
+    {
+      title: "Discard all changes",
+      kind: "warning",
+      okLabel: "Discard",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  try {
+    await api.discardAllChanges(match.repo.path);
+    closeDiff();
+    await loadRepo();
+    await refreshStatus(match.group.id);
+  } catch (err) {
+    message.value = String(err);
+  }
+}
+
 watch(
   () => [props.repoId, groups.value, loaded.value],
   () => {
@@ -225,6 +254,7 @@ watch(
         :selected="selectedFile?.path ?? ''"
         @select="selectFile"
         @collapse="filesCollapsed = true"
+        @discard="discardAll"
       />
     </aside>
   </div>

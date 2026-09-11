@@ -332,6 +332,11 @@ pub fn checkout_with_fallbacks(
     repo: &Path,
     branches: &[String],
 ) -> Result<String, String> {
+    let current = current_branch(git, repo)?;
+    if branches.first().is_some_and(|target| target == &current) {
+        return Ok(format!("Already on {current}"));
+    }
+
     let fetch = run_git(git, repo, &["fetch", "--all", "--prune"])?;
     let fetch_note = if fetch.success {
         String::new()
@@ -341,6 +346,9 @@ pub fn checkout_with_fallbacks(
 
     for branch in branches {
         validate_ref(branch)?;
+        if branch == &current {
+            return Ok(format!("{fetch_note}Already on {branch}"));
+        }
         let local = format!("refs/heads/{branch}");
         if ref_exists(git, repo, &local) {
             let output = run_git(git, repo, &["checkout", branch])?;
@@ -421,6 +429,24 @@ pub fn log_graph(git: &Path, repo: &Path) -> Result<Vec<CommitNode>, String> {
         .collect();
 
     Ok(commits)
+}
+
+pub fn discard_all_changes(git: &Path, repo: &Path) -> Result<(), String> {
+    let reset = run_git(git, repo, &["reset", "--hard", "HEAD"])?;
+    if !reset.success {
+        return Err(or_fallback(
+            &combined_message(&reset),
+            "Failed to discard tracked changes.",
+        ));
+    }
+    let clean = run_git(git, repo, &["clean", "-fd"])?;
+    if !clean.success {
+        return Err(or_fallback(
+            &combined_message(&clean),
+            "Failed to remove untracked files.",
+        ));
+    }
+    Ok(())
 }
 
 pub fn working_tree(git: &Path, repo: &Path) -> Result<Vec<WorkingTreeFile>, String> {
@@ -596,6 +622,27 @@ mod tests {
         );
         let files = working_tree(&git_bin(), &repo).unwrap();
         assert!(files.iter().any(|file| file.path == "README.md"));
+    }
+
+    #[test]
+    fn checkout_skips_when_already_on_target() {
+        let repo = init_repo();
+        let message = checkout_with_fallbacks(&git_bin(), &repo, &["develop".into()]).unwrap();
+        assert!(message.contains("Already on develop"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
+    }
+
+    #[test]
+    fn checkout_skips_fallback_when_already_on_it() {
+        let repo = init_repo();
+        let message = checkout_with_fallbacks(
+            &git_bin(),
+            &repo,
+            &["missing-feature".into(), "develop".into()],
+        )
+        .unwrap();
+        assert!(message.contains("Already on develop"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
     }
 
     #[test]

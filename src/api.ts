@@ -92,6 +92,15 @@ export function pullFromBranch(groupId: string) {
   return invoke<RepoActionResult[]>("pull_from_branch", { groupId });
 }
 
+export function checkoutRepo(
+  groupId: string,
+  repoId: string,
+  target: string,
+  fallbacks: string[],
+) {
+  return invoke<RepoActionResult>("checkout_repo", { groupId, repoId, target, fallbacks });
+}
+
 export function checkoutAll(groupId: string, target: string, fallbacks: string[]) {
   return invoke<RepoActionResult[]>("checkout_all", { groupId, target, fallbacks });
 }
@@ -102,6 +111,10 @@ export function logGraph(path: string) {
 
 export function workingTree(path: string) {
   return invoke<WorkingTreeFile[]>("working_tree", { path });
+}
+
+export function discardAllChanges(path: string) {
+  return invoke<void>("discard_all_changes", { path });
 }
 
 export function fileDiff(path: string, file: string) {

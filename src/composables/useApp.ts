@@ -29,6 +29,8 @@ const actionOutput = ref<{ title: string; results: RepoActionResult[] } | null>(
 const actionOutputOpen = ref(false);
 const pullProgress = ref<Record<string, string>>({});
 const pullCancelled = ref<Record<string, boolean>>({});
+const checkoutProgress = ref<Record<string, string>>({});
+const checkoutCancelled = ref<Record<string, boolean>>({});
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -83,6 +85,10 @@ export function useApp() {
 
   function cancelPull(groupId: string) {
     pullCancelled.value = { ...pullCancelled.value, [groupId]: true };
+  }
+
+  function cancelCheckout(groupId: string) {
+    checkoutCancelled.value = { ...checkoutCancelled.value, [groupId]: true };
   }
 
   function dismissToast() {
@@ -445,6 +451,83 @@ export function useApp() {
     }
   }
 
+  async function checkoutGroup(groupId: string, target: string, fallbacks: string[]) {
+    const group = groups.value.find((item) => item.id === groupId);
+    if (!group || busy.value[groupId] || !group.repos.length) {
+      return;
+    }
+    const branch = target.trim();
+    if (!branch) {
+      return;
+    }
+    error.value = "";
+    const outcomes: RepoActionResult[] = [];
+    checkoutCancelled.value = { ...checkoutCancelled.value, [groupId]: false };
+    try {
+      for (const [index, repo] of group.repos.entries()) {
+        if (checkoutCancelled.value[groupId]) {
+          break;
+        }
+        const name = repoDisplayName(repo.id, repo.path);
+        const progress = `${index + 1}/${group.repos.length}`;
+        checkoutProgress.value = { ...checkoutProgress.value, [groupId]: progress };
+        busy.value = {
+          ...busy.value,
+          [groupId]: `Checking out ${name} (${progress})…`,
+        };
+        const alreadyOn = statuses.value[repo.id]?.branch === branch;
+        if (alreadyOn) {
+          outcomes.push({
+            path: repo.path,
+            ok: true,
+            message: `Already on ${branch}`,
+          });
+          continue;
+        }
+        refreshingRepos.value = { ...refreshingRepos.value, [repo.id]: true };
+        await nextTick();
+        try {
+          outcomes.push(await api.checkoutRepo(groupId, repo.id, branch, fallbacks));
+          applyStatus(await api.refreshRepo(groupId, repo.id, false));
+        } catch (err) {
+          outcomes.push({
+            path: repo.path,
+            ok: false,
+            message: String(err),
+          });
+        } finally {
+          const next = { ...refreshingRepos.value };
+          delete next[repo.id];
+          refreshingRepos.value = next;
+          await nextTick();
+        }
+      }
+      if (outcomes.length && !checkoutCancelled.value[groupId]) {
+        results.value = { ...results.value, [groupId]: outcomes };
+        const failed = outcomes.filter((item) => !item.ok).length;
+        const repos =
+          group.repos.length === 1 ? "1 repository" : `${group.repos.length} repositories`;
+        presentActionResults(`Checkout — ${group.name}`, outcomes, {
+          success: `Checked out ${group.name} (${repos}).`,
+          error:
+            failed === 1
+              ? `Checkout failed for 1 repository in ${group.name}.`
+              : `Checkout failed for ${failed} repositories in ${group.name}.`,
+        });
+      }
+    } finally {
+      const next = { ...busy.value };
+      delete next[groupId];
+      busy.value = next;
+      const progress = { ...checkoutProgress.value };
+      delete progress[groupId];
+      checkoutProgress.value = progress;
+      const cancelled = { ...checkoutCancelled.value };
+      delete cancelled[groupId];
+      checkoutCancelled.value = cancelled;
+    }
+  }
+
   async function runAction(
     groupId: string,
     label: string,
@@ -539,6 +622,7 @@ export function useApp() {
     openOutput,
     cancelRefresh,
     cancelPull,
+    cancelCheckout,
     load,
     refreshStatus,
     refreshGroup,
@@ -546,6 +630,9 @@ export function useApp() {
     pullGroup,
     pullProgress,
     pullCancelled,
+    checkoutGroup,
+    checkoutProgress,
+    checkoutCancelled,
     isRepoRefreshing,
     isGroupRefreshing,
     saveRefreshInterval,

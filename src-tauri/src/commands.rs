@@ -480,6 +480,54 @@ pub fn pull_from_branch(
 }
 
 #[tauri::command]
+pub async fn checkout_repo(
+    state: State<'_, AppState>,
+    group_id: String,
+    repo_id: String,
+    target: String,
+    fallbacks: Vec<String>,
+) -> Result<RepoActionResult, String> {
+    let (git, group) = repo_list(&state, &group_id)?;
+    let repo = group
+        .repos
+        .into_iter()
+        .find(|entry| entry.id == repo_id)
+        .ok_or_else(|| "Repository not found".to_string())?;
+    let mut branches = Vec::new();
+    let target = target.trim().to_string();
+    if !target.is_empty() {
+        git::validate_ref(&target)?;
+        branches.push(target);
+    }
+    for fallback in fallbacks {
+        let fallback = fallback.trim().to_string();
+        if !fallback.is_empty() && !branches.contains(&fallback) {
+            git::validate_ref(&fallback)?;
+            branches.push(fallback);
+        }
+    }
+    if branches.is_empty() {
+        return Err("Provide a branch to check out".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        match git::checkout_with_fallbacks(&git, Path::new(&repo.path), &branches) {
+            Ok(message) => Ok(RepoActionResult {
+                path: repo.path,
+                ok: true,
+                message,
+            }),
+            Err(message) => Ok(RepoActionResult {
+                path: repo.path,
+                ok: false,
+                message,
+            }),
+        }
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub fn checkout_all(
     state: State<AppState>,
     group_id: String,
@@ -532,6 +580,12 @@ pub fn log_graph(state: State<AppState>, path: String) -> Result<Vec<CommitNode>
 pub fn working_tree(state: State<AppState>, path: String) -> Result<Vec<WorkingTreeFile>, String> {
     let git = require_git(&state)?;
     git::working_tree(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn discard_all_changes(state: State<AppState>, path: String) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::discard_all_changes(&git, Path::new(&path))
 }
 
 #[tauri::command]

@@ -39,9 +39,11 @@ pub fn run() {
             commands::pull_repo,
             commands::pull_current,
             commands::pull_from_branch,
+            commands::checkout_repo,
             commands::checkout_all,
             commands::log_graph,
             commands::working_tree,
+            commands::discard_all_changes,
             commands::file_diff,
         ])
         .run(tauri::generate_context!())

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BranchIcon from "./BranchIcon.vue";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
 
 const props = defineProps<{
@@ -9,6 +10,7 @@ const props = defineProps<{
   branches: string[];
   busy: boolean;
   busyLabel: string;
+  branchesView: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -16,6 +18,7 @@ const emit = defineEmits<{
   push: [];
   checkout: [branch: string];
   create: [];
+  branches: [];
   refreshBranches: [];
 }>();
 
@@ -89,6 +92,17 @@ async function toggleBranches() {
           <path d="M15 6h6M18 3v6" />
         </svg>
         New branch
+      </button>
+      <button
+        class="ghost tiny"
+        :class="{ active: branchesView }"
+        type="button"
+        :disabled="busy"
+        :aria-pressed="branchesView"
+        @click="emit('branches')"
+      >
+        <BranchIcon />
+        Branches
       </button>
       <button class="ghost tiny" type="button" :disabled="busy" @click="emit('pull')">
         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">

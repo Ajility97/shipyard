@@ -68,3 +68,15 @@ export interface WorkingTreeFile {
   untracked: boolean;
   staged: boolean;
 }
+
+export interface LocalBranch {
+  name: string;
+  current: boolean;
+  merged: boolean;
+  protected: boolean;
+}
+
+export interface BranchOverview {
+  mergeTarget: string | null;
+  branches: LocalBranch[];
+}

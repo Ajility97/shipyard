@@ -155,3 +155,20 @@ pub struct WorkingTreeFile {
     #[serde(default)]
     pub staged: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalBranch {
+    pub name: String,
+    pub current: bool,
+    pub merged: bool,
+    #[serde(rename = "protected")]
+    pub protected_branch: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchOverview {
+    pub merge_target: Option<String>,
+    pub branches: Vec<LocalBranch>,
+}

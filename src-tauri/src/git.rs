@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::models::{CommitNode, WorkingTreeFile};
+use crate::models::{BranchOverview, CommitNode, LocalBranch, WorkingTreeFile};
 
 pub struct GitOutput {
     pub stdout: String,
@@ -337,6 +337,178 @@ pub fn local_branches(git: &Path, repo: &Path) -> Result<Vec<String>, String> {
         .collect();
     branches.sort();
     Ok(branches)
+}
+
+fn short_branch_name(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
+}
+
+fn is_protected_branch(name: &str) -> bool {
+    matches!(name, "develop" | "main" | "master")
+}
+
+fn candidate_git_ref(name: &str) -> String {
+    if let Some(remote) = name.strip_prefix("origin/") {
+        format!("refs/remotes/origin/{remote}")
+    } else {
+        format!("refs/heads/{name}")
+    }
+}
+
+fn resolve_merge_target(git: &Path, repo: &Path, preferred: Option<&str>) -> Option<String> {
+    let mut candidates = Vec::new();
+    if let Some(name) = preferred.map(str::trim).filter(|value| !value.is_empty()) {
+        candidates.push(format!("origin/{name}"));
+        candidates.push(name.to_string());
+    }
+    for name in ["develop", "main", "master"] {
+        candidates.push(format!("origin/{name}"));
+        candidates.push(name.to_string());
+    }
+    let mut seen = std::collections::HashSet::new();
+    for candidate in candidates {
+        if !seen.insert(candidate.clone()) {
+            continue;
+        }
+        if ref_exists(git, repo, &candidate_git_ref(&candidate)) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn branch_is_merged(git: &Path, repo: &Path, branch: &str, target: &str) -> bool {
+    let spec = format!("refs/heads/{branch}");
+    if run_git(git, repo, &["merge-base", "--is-ancestor", &spec, target])
+        .map(|output| output.success)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    branch_patches_in_target(git, repo, &spec, target)
+}
+
+fn branch_patches_in_target(git: &Path, repo: &Path, branch_ref: &str, target: &str) -> bool {
+    let output = match run_git(git, repo, &["cherry", target, branch_ref]) {
+        Ok(output) if output.success => output,
+        _ => return false,
+    };
+    let mut saw_commit = false;
+    for line in output.stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        saw_commit = true;
+        if line.starts_with('+') {
+            return false;
+        }
+    }
+    saw_commit
+}
+
+pub fn branch_overview(
+    git: &Path,
+    repo: &Path,
+    preferred: Option<&str>,
+) -> Result<BranchOverview, String> {
+    let names = local_branches(git, repo)?;
+    let current = current_branch(git, repo).unwrap_or_default();
+    let merge_target = resolve_merge_target(git, repo, preferred);
+    let target_ref = merge_target
+        .as_deref()
+        .map(candidate_git_ref);
+    let target_short = merge_target
+        .as_deref()
+        .map(short_branch_name)
+        .unwrap_or_default();
+
+    let mut branches: Vec<LocalBranch> = names
+        .into_iter()
+        .map(|name| {
+            let merged = target_ref
+                .as_deref()
+                .is_some_and(|target| branch_is_merged(git, repo, &name, target));
+            let protected_branch = is_protected_branch(&name) || name == target_short;
+            LocalBranch {
+                current: name == current,
+                merged,
+                protected_branch,
+                name,
+            }
+        })
+        .collect();
+    branches.sort_by(|left, right| {
+        right
+            .current
+            .cmp(&left.current)
+            .then(left.merged.cmp(&right.merged))
+            .then(left.name.cmp(&right.name))
+    });
+    Ok(BranchOverview {
+        merge_target,
+        branches,
+    })
+}
+
+pub fn delete_local_branch(git: &Path, repo: &Path, branch: &str, force: bool) -> Result<String, String> {
+    validate_ref(branch)?;
+    let current = current_branch(git, repo)?;
+    if current == branch {
+        return Err("Cannot delete the branch that is currently checked out.".into());
+    }
+    if !ref_exists(git, repo, &format!("refs/heads/{branch}")) {
+        return Err(format!("Local branch {branch} does not exist."));
+    }
+    let flag = if force { "-D" } else { "-d" };
+    let output = run_git(git, repo, &["branch", flag, branch])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to delete {branch}"),
+        ));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Deleted {branch}"),
+    ))
+}
+
+pub fn delete_merged_branches(
+    git: &Path,
+    repo: &Path,
+    preferred: Option<&str>,
+) -> Result<String, String> {
+    let overview = branch_overview(git, repo, preferred)?;
+    let victims: Vec<String> = overview
+        .branches
+        .iter()
+        .filter(|branch| branch.merged && !branch.current && !branch.protected_branch)
+        .map(|branch| branch.name.clone())
+        .collect();
+    if victims.is_empty() {
+        return Ok("No merged local branches to delete.".into());
+    }
+    let mut deleted = 0;
+    let mut errors = Vec::new();
+    for name in &victims {
+        match delete_local_branch(git, repo, name, false) {
+            Ok(_) => deleted += 1,
+            Err(err) => errors.push(err),
+        }
+    }
+    if deleted == 0 {
+        return Err(errors.join("\n"));
+    }
+    let mut message = format!(
+        "Deleted {deleted} merged {}",
+        if deleted == 1 { "branch" } else { "branches" }
+    );
+    if !errors.is_empty() {
+        message.push_str(". ");
+        message.push_str(&errors.join(" "));
+    }
+    Ok(message)
 }
 
 pub fn checkout_local_branch(git: &Path, repo: &Path, branch: &str) -> Result<String, String> {
@@ -936,6 +1108,72 @@ mod tests {
             .unwrap()
             .contains(&"task/123".into()));
         assert!(create_and_checkout_branch(&git_bin(), &repo, "task/123").is_err());
+    }
+
+    #[test]
+    fn marks_and_deletes_merged_local_branches() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("feature.txt"), "work\n").unwrap();
+        git(&repo, &["add", "feature.txt"]);
+        git(&repo, &["commit", "-m", "feature work"]);
+        git(&repo, &["checkout", "develop"]);
+        git(&repo, &["merge", "feature"]);
+
+        let overview = branch_overview(&git_bin(), &repo, Some("develop")).unwrap();
+        assert_eq!(overview.merge_target.as_deref(), Some("develop"));
+        let feature = overview
+            .branches
+            .iter()
+            .find(|branch| branch.name == "feature")
+            .unwrap();
+        assert!(feature.merged);
+        assert!(!feature.current);
+        let develop = overview
+            .branches
+            .iter()
+            .find(|branch| branch.name == "develop")
+            .unwrap();
+        assert!(develop.protected_branch);
+        assert!(develop.current);
+
+        assert!(delete_local_branch(&git_bin(), &repo, "develop", false).is_err());
+        let deleted = delete_merged_branches(&git_bin(), &repo, Some("develop")).unwrap();
+        assert!(deleted.contains("1"));
+        git(&repo, &["checkout", "-b", "wip"]);
+        fs::write(repo.join("wip.txt"), "unmerged\n").unwrap();
+        git(&repo, &["add", "wip.txt"]);
+        git(&repo, &["commit", "-m", "unmerged work"]);
+        git(&repo, &["checkout", "develop"]);
+
+        let leftover = delete_merged_branches(&git_bin(), &repo, Some("develop")).unwrap();
+        assert!(leftover.contains("No merged") || leftover.contains("0"));
+        let names = local_branches(&git_bin(), &repo).unwrap();
+        assert!(names.contains(&"wip".into()));
+        assert!(names.contains(&"develop".into()));
+        assert!(!names.contains(&"feature".into()));
+        assert!(delete_local_branch(&git_bin(), &repo, "develop", true).is_err());
+    }
+
+    #[test]
+    fn marks_squash_merged_local_branches() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("feature.txt"), "work\n").unwrap();
+        git(&repo, &["add", "feature.txt"]);
+        git(&repo, &["commit", "-m", "feature work"]);
+        git(&repo, &["checkout", "develop"]);
+        git(&repo, &["merge", "--squash", "feature"]);
+        git(&repo, &["commit", "-m", "squash feature"]);
+
+        let overview = branch_overview(&git_bin(), &repo, Some("develop")).unwrap();
+        let feature = overview
+            .branches
+            .iter()
+            .find(|branch| branch.name == "feature")
+            .unwrap();
+        assert!(feature.merged);
+        assert!(!feature.current);
     }
 
     #[test]

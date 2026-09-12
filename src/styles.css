@@ -1665,6 +1665,15 @@ body.is-resizing * {
   gap: 0.3rem;
 }
 
+.repo-toolbar-actions .ghost.active {
+  background: var(--bg-active);
+}
+
+.repo-toolbar-actions .ghost .branch-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
 .branch-menu .branch-switch {
   display: inline-flex;
   align-items: center;
@@ -1695,9 +1704,14 @@ body.is-resizing * {
 .branch-menu-dropdown {
   right: auto;
   left: 0;
-  min-width: 12.5rem;
+  width: max-content;
+  min-width: max(12.5rem, 100%);
   max-height: 18rem;
   overflow: auto;
+}
+
+.branch-menu-dropdown .overflow-menu-item {
+  white-space: nowrap;
 }
 
 .branch-menu-dropdown .overflow-menu-item.active {
@@ -1716,6 +1730,84 @@ body.is-resizing * {
   white-space: nowrap;
   color: var(--muted);
   font-size: 12px;
+}
+
+.branch-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.branch-list-hint {
+  margin: 0;
+  padding: 0.75rem 0.85rem 0.35rem;
+}
+
+.branch-list-hint strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.branch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.branch-row.current {
+  background: color-mix(in srgb, var(--bg-active) 55%, transparent);
+}
+
+.branch-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.branch-pill {
+  flex-shrink: 0;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.branch-pill.merged {
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 16%, var(--chip));
+}
+
+.branch-row-delete {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.branch-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.branch-footer button {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.4rem;
+}
+
+.branch-footer-hint {
+  margin: 0;
+  min-width: 0;
 }
 
 .file-list {

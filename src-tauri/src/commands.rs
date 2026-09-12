@@ -5,7 +5,8 @@ use tauri::{AppHandle, State};
 
 use crate::git;
 use crate::models::{
-    AppData, CommitNode, RepoActionResult, RepoEntry, RepoGroup, RepoStatus, WorkingTreeFile,
+    AppData, BranchOverview, CommitNode, RepoActionResult, RepoEntry, RepoGroup, RepoStatus,
+    WorkingTreeFile,
 };
 use crate::persist;
 
@@ -750,6 +751,45 @@ pub fn unstage_all(state: State<AppState>, path: String) -> Result<(), String> {
 pub fn list_local_branches(state: State<AppState>, path: String) -> Result<Vec<String>, String> {
     let git = require_git(&state)?;
     git::local_branches(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn branch_overview(
+    state: State<AppState>,
+    path: String,
+    preferred: Option<String>,
+) -> Result<BranchOverview, String> {
+    let git = require_git(&state)?;
+    git::branch_overview(&git, Path::new(&path), preferred.as_deref())
+}
+
+#[tauri::command]
+pub async fn delete_local_branch(
+    state: State<'_, AppState>,
+    path: String,
+    branch: String,
+    force: bool,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::delete_local_branch(&git, Path::new(&path), &branch, force)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn delete_merged_branches(
+    state: State<'_, AppState>,
+    path: String,
+    preferred: Option<String>,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::delete_merged_branches(&git, Path::new(&path), preferred.as_deref())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

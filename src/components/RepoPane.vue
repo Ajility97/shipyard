@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import BranchList from "./BranchList.vue";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
@@ -9,7 +10,7 @@ import RepoToolbar from "./RepoToolbar.vue";
 import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
 import * as api from "../api";
-import type { CommitNode, WorkingTreeFile } from "../types";
+import type { BranchOverview, CommitNode, LocalBranch, WorkingTreeFile } from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
 
 const props = defineProps<{
@@ -33,6 +34,8 @@ const {
 const commits = ref<CommitNode[]>([]);
 const files = ref<WorkingTreeFile[]>([]);
 const branches = ref<string[]>([]);
+const branchesView = ref(false);
+const overview = ref<BranchOverview | null>(null);
 const selectedFile = ref<WorkingTreeFile | null>(null);
 const filesCollapsed = ref(false);
 const diff = ref("");
@@ -105,6 +108,7 @@ async function loadRepo() {
     commits.value = [];
     files.value = [];
     branches.value = [];
+    overview.value = null;
     selectedFile.value = null;
     diff.value = "";
     message.value = loaded.value ? "Repository not found." : "";
@@ -114,14 +118,20 @@ async function loadRepo() {
   loading.value = true;
   message.value = "";
   try {
-    const [nextCommits, nextFiles, nextBranches] = await Promise.all([
+    const [nextCommits, nextFiles, nextBranches, nextOverview] = await Promise.all([
       api.logGraph(match.repo.path),
       api.workingTree(match.repo.path),
       api.listLocalBranches(match.repo.path).catch(() => [] as string[]),
+      branchesView.value
+        ? api.branchOverview(match.repo.path, preferredMergeTarget()).catch(() => null)
+        : Promise.resolve(overview.value),
     ]);
     commits.value = nextCommits;
     files.value = nextFiles;
     branches.value = nextBranches;
+    if (branchesView.value) {
+      overview.value = nextOverview;
+    }
     if (selectedFile.value && !nextFiles.some((file) => sameFile(file, selectedFile.value))) {
       selectedFile.value = null;
       diff.value = "";
@@ -322,6 +332,31 @@ function commitChanges() {
   return runRepoAction("Committing…", () => api.commit(match.repo.path, title, description));
 }
 
+function preferredMergeTarget() {
+  return current.value?.group?.pullFromBranch?.trim() || undefined;
+}
+
+async function loadOverview() {
+  const match = current.value;
+  if (!match) {
+    overview.value = null;
+    return;
+  }
+  overview.value = await api.branchOverview(match.repo.path, preferredMergeTarget());
+}
+
+async function toggleBranchesView() {
+  branchesView.value = !branchesView.value;
+  if (!branchesView.value) {
+    return;
+  }
+  try {
+    await loadOverview();
+  } catch (err) {
+    message.value = String(err);
+  }
+}
+
 async function refreshBranches() {
   const match = current.value;
   if (!match) {
@@ -332,6 +367,61 @@ async function refreshBranches() {
   } catch {
     /* keep the last successful list */
   }
+}
+
+async function deleteBranch(branch: LocalBranch) {
+  const match = current.value;
+  if (!match || branch.current) {
+    return;
+  }
+  const target = overview.value?.mergeTarget ?? "the integration branch";
+  const force = !branch.merged;
+  const ok = await confirm(
+    force
+      ? `${branch.name} is not fully merged into ${target}. Delete this local branch anyway?`
+      : branch.protected
+        ? `Delete local branch ${branch.name}? This is a protected integration branch.`
+        : `Delete local branch ${branch.name}? It is already merged into ${target}.`,
+    {
+      title: force ? "Delete unmerged branch" : "Delete branch",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  return runRepoAction("Deleting…", () =>
+    api.deleteLocalBranch(match.repo.path, branch.name, force),
+  );
+}
+
+async function deleteMerged() {
+  const match = current.value;
+  const count =
+    overview.value?.branches.filter(
+      (branch) => branch.merged && !branch.current && !branch.protected,
+    ).length ?? 0;
+  if (!match || count === 0) {
+    return;
+  }
+  const target = overview.value?.mergeTarget ?? "the integration branch";
+  const ok = await confirm(
+    `Delete ${count} leftover local ${count === 1 ? "branch" : "branches"} already merged into ${target}? This never deletes develop, main, master, or the current branch.`,
+    {
+      title: "Delete merged branches",
+      kind: "warning",
+      okLabel: "Delete",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  return runRepoAction("Deleting merged branches…", () =>
+    api.deleteMergedBranches(match.repo.path, preferredMergeTarget()),
+  );
 }
 
 async function discardAll() {
@@ -362,6 +452,14 @@ async function discardAll() {
 }
 
 watch(
+  () => props.repoId,
+  () => {
+    branchesView.value = false;
+    overview.value = null;
+  },
+);
+
+watch(
   () => [props.repoId, groups.value, standaloneRepos.value, loaded.value],
   () => {
     void loadRepo();
@@ -387,10 +485,12 @@ watch(
         :branches="branches"
         :busy="actionBusy"
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
+        :branches-view="branchesView"
         @pull="pullRepo"
         @push="pushRepo"
         @checkout="checkoutBranch"
         @create="openCreateBranch"
+        @branches="toggleBranchesView"
         @refresh-branches="refreshBranches"
       >
         <button
@@ -409,7 +509,14 @@ watch(
         </button>
       </RepoToolbar>
       <p v-if="message" class="banner">{{ message }}</p>
-      <div class="graph-scroll">
+      <BranchList
+        v-if="branchesView"
+        :overview="overview"
+        :busy="actionBusy"
+        @delete="deleteBranch"
+        @delete-merged="deleteMerged"
+      />
+      <div v-else class="graph-scroll">
         <CommitGraph :commits="commits" />
       </div>
     </section>

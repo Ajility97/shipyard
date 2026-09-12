@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppData,
+  BranchOverview,
   CommitNode,
   DiffMode,
   RepoActionResult,
@@ -155,6 +156,24 @@ export function unstageAll(path: string) {
 
 export function listLocalBranches(path: string) {
   return invoke<string[]>("list_local_branches", { path });
+}
+
+export function branchOverview(path: string, preferred?: string) {
+  return invoke<BranchOverview>("branch_overview", {
+    path,
+    preferred: preferred?.trim() || null,
+  });
+}
+
+export function deleteLocalBranch(path: string, branch: string, force = false) {
+  return invoke<string>("delete_local_branch", { path, branch, force });
+}
+
+export function deleteMergedBranches(path: string, preferred?: string) {
+  return invoke<string>("delete_merged_branches", {
+    path,
+    preferred: preferred?.trim() || null,
+  });
 }
 
 export function checkoutLocalBranch(path: string, branch: string) {

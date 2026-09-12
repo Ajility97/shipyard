@@ -573,6 +573,88 @@ button.toast.error:hover:not(:disabled) {
   font-size: 12px;
 }
 
+.history-terminal {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.85rem 1rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0d1016;
+  font-family: var(--font-code);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.history-header-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.65rem;
+}
+
+.history-empty {
+  margin: 0;
+}
+
+.history-entry.compact {
+  margin-bottom: 0.45rem;
+}
+
+.history-entry {
+  margin-bottom: 1rem;
+}
+
+.history-entry:last-child {
+  margin-bottom: 0;
+}
+
+.history-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  color: #66707f;
+}
+
+.history-time {
+  color: #8b95a8;
+}
+
+.history-cwd {
+  color: #7ee0c7;
+  font-weight: 650;
+}
+
+.history-status {
+  margin-left: auto;
+}
+
+.history-entry.bad .history-status,
+.history-entry.bad .history-command {
+  color: #ff8b93;
+}
+
+.history-command,
+.history-output {
+  margin: 0.15rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+}
+
+.history-command {
+  color: #e8edf5;
+}
+
+.history-output {
+  color: #9aa6b8;
+}
+
+.history-output.err {
+  color: #ffb4b8;
+}
+
 .fallback-editor {
   display: flex;
   flex-direction: column;
@@ -633,9 +715,14 @@ button.toast.error:hover:not(:disabled) {
   overflow-x: auto;
 }
 
-.tab-settings,
-button.tab-settings:hover:not(:disabled),
-button.tab-settings:active {
+.tab-tools {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.tab-tool,
+button.tab-tool:hover:not(:disabled),
+button.tab-tool:active {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -648,12 +735,12 @@ button.tab-settings:active {
   color: var(--muted);
 }
 
-.tab-settings.active {
+.tab-tool.active {
   background: var(--bg);
   color: var(--text);
 }
 
-.tab-settings svg {
+.tab-tool svg {
   display: block;
   width: 1.2rem;
   height: 1.2rem;
@@ -919,7 +1006,8 @@ button:has(.spinner) {
 .main-pane > .groups-page,
 .main-pane > .repo-pane,
 .main-pane > .repo-view,
-.main-pane > .settings-page {
+.main-pane > .settings-page,
+.main-pane > .history-page {
   flex: 1;
   min-height: 0;
 }

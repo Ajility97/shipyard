@@ -6,6 +6,7 @@ export const router = createRouter({
   routes: [
     { path: "/", name: "home", component: EmptyView },
     { path: "/settings", name: "settings", component: EmptyView },
+    { path: "/history", name: "history", component: EmptyView },
     { path: "/repo/:id", name: "repo", component: EmptyView },
   ],
 });

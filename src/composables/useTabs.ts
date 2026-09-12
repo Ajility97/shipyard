@@ -3,6 +3,7 @@ import { useRouter } from "vue-router";
 import { useApp } from "./useApp";
 
 export const GROUPS_TAB_ID = "groups";
+export const HISTORY_TAB_ID = "history";
 export const SETTINGS_TAB_ID = "settings";
 
 export interface AppTab {
@@ -18,6 +19,7 @@ interface RepoTab {
 }
 
 const repoTabs = ref<RepoTab[]>([]);
+const historyTabOpen = ref(false);
 const settingsTabOpen = ref(false);
 const activeId = ref(GROUPS_TAB_ID);
 
@@ -37,6 +39,9 @@ export function useTabs() {
       closable: true,
       accentColor: findRepo(tab.id)?.group?.headerColor,
     })),
+    ...(historyTabOpen.value
+      ? [{ id: HISTORY_TAB_ID, title: "History", closable: true }]
+      : []),
     ...(settingsTabOpen.value
       ? [{ id: SETTINGS_TAB_ID, title: "Settings", closable: true }]
       : []),
@@ -63,6 +68,9 @@ export function useTabs() {
   function routeFor(id: string) {
     if (id === GROUPS_TAB_ID) {
       return "/";
+    }
+    if (id === HISTORY_TAB_ID) {
+      return "/history";
     }
     if (id === SETTINGS_TAB_ID) {
       return "/settings";
@@ -92,16 +100,37 @@ export function useTabs() {
     }
   }
 
-  function closeSettings() {
-    if (!settingsTabOpen.value) {
+  function closeUtilityTab(id: string, open: { value: boolean }) {
+    if (!open.value) {
       return;
     }
-    const wasActive = activeId.value === SETTINGS_TAB_ID;
-    settingsTabOpen.value = false;
+    const wasActive = activeId.value === id;
+    open.value = false;
     if (wasActive) {
+      if (id === HISTORY_TAB_ID && settingsTabOpen.value) {
+        activate(SETTINGS_TAB_ID);
+        return;
+      }
+      if (id === SETTINGS_TAB_ID && historyTabOpen.value) {
+        activate(HISTORY_TAB_ID);
+        return;
+      }
       const neighbor = repoTabs.value[repoTabs.value.length - 1];
       activate(neighbor?.id ?? GROUPS_TAB_ID);
     }
+  }
+
+  function closeHistory() {
+    closeUtilityTab(HISTORY_TAB_ID, historyTabOpen);
+  }
+
+  function closeSettings() {
+    closeUtilityTab(SETTINGS_TAB_ID, settingsTabOpen);
+  }
+
+  function openHistory() {
+    historyTabOpen.value = true;
+    activate(HISTORY_TAB_ID);
   }
 
   function openSettings() {
@@ -120,6 +149,10 @@ export function useTabs() {
 
   function closeRepo(id: string) {
     if (id === GROUPS_TAB_ID) {
+      return;
+    }
+    if (id === HISTORY_TAB_ID) {
+      closeHistory();
       return;
     }
     if (id === SETTINGS_TAB_ID) {
@@ -148,18 +181,30 @@ export function useTabs() {
   }
 
   function hasTab(id: string) {
+    if (id === HISTORY_TAB_ID) {
+      return historyTabOpen.value;
+    }
     if (id === SETTINGS_TAB_ID) {
       return settingsTabOpen.value;
     }
     return repoTabs.value.some((tab) => tab.id === id);
   }
 
-  function syncFromRoute(repoId: string | undefined, isHome: boolean, isSettings = false) {
+  function syncFromRoute(
+    repoId: string | undefined,
+    isHome: boolean,
+    panel?: "settings" | "history",
+  ) {
     if (isHome) {
       activeId.value = GROUPS_TAB_ID;
       return;
     }
-    if (isSettings) {
+    if (panel === "history") {
+      historyTabOpen.value = true;
+      activeId.value = HISTORY_TAB_ID;
+      return;
+    }
+    if (panel === "settings") {
       settingsTabOpen.value = true;
       activeId.value = SETTINGS_TAB_ID;
       return;
@@ -181,10 +226,12 @@ export function useTabs() {
   return {
     tabs,
     repoTabs,
+    historyTabOpen,
     settingsTabOpen,
     activeId,
     openRepo,
     openRepos,
+    openHistory,
     openSettings,
     activate,
     closeRepo,

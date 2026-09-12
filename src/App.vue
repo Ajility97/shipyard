@@ -10,9 +10,10 @@ import OutputModal from "./components/OutputModal.vue";
 import Toast from "./components/Toast.vue";
 import GroupsView from "./views/GroupsView.vue";
 
+const HistoryView = defineAsyncComponent(() => import("./views/HistoryView.vue"));
 const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
 import { useApp } from "./composables/useApp";
-import { GROUPS_TAB_ID, SETTINGS_TAB_ID, useTabs } from "./composables/useTabs";
+import { GROUPS_TAB_ID, HISTORY_TAB_ID, SETTINGS_TAB_ID, useTabs } from "./composables/useTabs";
 
 const route = useRoute();
 const {
@@ -35,8 +36,15 @@ function onToastDismiss() {
   dismissToast();
 }
 const appVersion = ref("0.1.0");
-const { repoTabs, settingsTabOpen, activeId, syncFromRoute, refreshTitles, closeActiveTab } =
-  useTabs();
+const {
+  repoTabs,
+  historyTabOpen,
+  settingsTabOpen,
+  activeId,
+  syncFromRoute,
+  refreshTitles,
+  closeActiveTab,
+} = useTabs();
 
 let stopCloseShortcut: (() => void) | undefined;
 
@@ -87,7 +95,9 @@ watch(
   () => [route.name, route.params.id],
   () => {
     const repoId = typeof route.params.id === "string" ? route.params.id : undefined;
-    syncFromRoute(repoId, route.name === "home", route.name === "settings");
+    const panel =
+      route.name === "history" ? "history" : route.name === "settings" ? "settings" : undefined;
+    syncFromRoute(repoId, route.name === "home", panel);
   },
   { immediate: true },
 );
@@ -112,6 +122,9 @@ watch(statuses, () => {
         v-show="activeId === tab.id"
       >
         <RepoPane :repo-id="tab.id" />
+      </div>
+      <div v-if="historyTabOpen" class="main-pane" v-show="activeId === HISTORY_TAB_ID">
+        <HistoryView />
       </div>
       <div v-if="settingsTabOpen" class="main-pane" v-show="activeId === SETTINGS_TAB_ID">
         <SettingsView />

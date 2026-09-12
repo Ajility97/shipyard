@@ -5,13 +5,21 @@ use tauri::{AppHandle, Manager};
 
 use crate::models::AppData;
 
-pub fn data_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn app_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|err| format!("Could not resolve the app data directory: {err}"))?;
     fs::create_dir_all(&dir).map_err(|err| format!("Could not create the app data directory: {err}"))?;
-    Ok(dir.join("groups.json"))
+    Ok(dir)
+}
+
+pub fn data_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_dir(app)?.join("groups.json"))
+}
+
+pub fn history_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_dir(app)?.join("command-history.jsonl"))
 }
 
 pub fn load(app: &AppHandle) -> Result<AppData, String> {

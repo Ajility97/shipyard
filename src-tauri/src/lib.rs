@@ -1,3 +1,4 @@
+mod command_log;
 mod commands;
 mod git;
 mod menu;
@@ -22,6 +23,9 @@ pub fn run() {
             let handle = app.handle().clone();
             let data = persist::load(&handle).unwrap_or_default();
             let bounds = data.window.clone();
+            if let Ok(path) = persist::history_path(&handle) {
+                command_log::init(path, Some(handle.clone()));
+            }
             app.manage(AppState {
                 data: Mutex::new(data),
                 git: git::resolve_git_binary(),
@@ -75,6 +79,8 @@ pub fn run() {
             commands::repo_pull,
             commands::repo_push,
             commands::file_diff,
+            commands::command_history,
+            commands::clear_command_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

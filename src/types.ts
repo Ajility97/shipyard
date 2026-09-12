@@ -80,3 +80,16 @@ export interface BranchOverview {
   mergeTarget: string | null;
   branches: LocalBranch[];
 }
+
+export interface CommandLogEntry {
+  id: string;
+  at: number;
+  cwd: string;
+  program: string;
+  args: string[];
+  command: string;
+  success: boolean;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+}

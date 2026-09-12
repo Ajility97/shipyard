@@ -876,6 +876,16 @@ fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> 
     }
 }
 
+#[tauri::command]
+pub fn command_history() -> Vec<crate::command_log::CommandLogEntry> {
+    crate::command_log::list()
+}
+
+#[tauri::command]
+pub fn clear_command_history() -> Result<(), String> {
+    crate::command_log::clear()
+}
+
 fn fallback_message(message: &str, ok: bool, success_fallback: &str) -> String {
     if !message.trim().is_empty() {
         message.trim().to_string()

@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::command_log;
 use crate::models::{BranchOverview, CommitNode, LocalBranch, WorkingTreeFile};
 
 pub struct GitOutput {
@@ -55,13 +56,32 @@ fn look_on_path(name: &str) -> Option<PathBuf> {
 }
 
 pub fn run_git(git: &Path, repo: &Path, args: &[&str]) -> Result<GitOutput, String> {
-    let output = Command::new(git)
+    let started = Instant::now();
+    let result = Command::new(git)
         .args(args)
         .current_dir(repo)
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
-        .map_err(|err| format!("Failed to run git: {err}"))?;
+        .map_err(|err| format!("Failed to run git: {err}"));
 
+    match &result {
+        Ok(output) => {
+            command_log::record(
+                repo,
+                git,
+                args,
+                output.status.success(),
+                started.elapsed(),
+                &String::from_utf8_lossy(&output.stdout),
+                &String::from_utf8_lossy(&output.stderr),
+            );
+        }
+        Err(err) => {
+            command_log::record(repo, git, args, false, started.elapsed(), "", err);
+        }
+    }
+
+    let output = result?;
     Ok(GitOutput {
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
@@ -124,8 +144,10 @@ pub struct LiveStatus {
 }
 
 pub fn fetch_remote(git: &Path, repo: &Path) {
+    let args = ["fetch", "--prune", "--no-tags"];
+    let started = Instant::now();
     let mut child = match Command::new(git)
-        .args(["fetch", "--prune", "--no-tags"])
+        .args(args)
         .current_dir(repo)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "Never")
@@ -136,20 +158,50 @@ pub fn fetch_remote(git: &Path, repo: &Path) {
         .spawn()
     {
         Ok(child) => child,
-        Err(_) => return,
+        Err(err) => {
+            command_log::record(repo, git, &args, false, started.elapsed(), "", &err.to_string());
+            return;
+        }
     };
 
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         match child.try_wait() {
-            Ok(Some(_)) => return,
+            Ok(Some(status)) => {
+                command_log::record(
+                    repo,
+                    git,
+                    &args,
+                    status.success(),
+                    started.elapsed(),
+                    "",
+                    if status.success() {
+                        ""
+                    } else {
+                        "fetch exited with a non-zero status"
+                    },
+                );
+                return;
+            }
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
+                command_log::record(
+                    repo,
+                    git,
+                    &args,
+                    false,
+                    started.elapsed(),
+                    "",
+                    "fetch timed out after 20s",
+                );
                 return;
             }
             Ok(None) => thread::sleep(Duration::from_millis(40)),
-            Err(_) => return,
+            Err(err) => {
+                command_log::record(repo, git, &args, false, started.elapsed(), "", &err.to_string());
+                return;
+            }
         }
     }
 }

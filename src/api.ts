@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppData,
   BranchOverview,
+  CommandLogEntry,
   CommitNode,
   DiffMode,
   RepoActionResult,
@@ -194,4 +195,12 @@ export function repoPush(path: string) {
 
 export function fileDiff(path: string, file: string, staged = false) {
   return invoke<string>("file_diff", { path, file, staged });
+}
+
+export function commandHistory() {
+  return invoke<CommandLogEntry[]>("command_history");
+}
+
+export function clearCommandHistory() {
+  return invoke<void>("clear_command_history");
 }

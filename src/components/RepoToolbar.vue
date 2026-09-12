@@ -41,45 +41,43 @@ async function toggleBranches() {
   <div class="pane-header repo-toolbar">
     <div class="repo-toolbar-meta">
       <strong class="repo-toolbar-name">{{ name }}</strong>
-      <div class="repo-toolbar-sub">
-        <div class="overflow-menu branch-menu">
+      <div class="overflow-menu branch-menu">
+        <button
+          class="branch-switch"
+          type="button"
+          :disabled="busy"
+          :aria-expanded="isOpen"
+          aria-haspopup="listbox"
+          :title="branch ? `Switch branch from ${branch}` : 'Switch branch'"
+          @click="toggleBranches"
+        >
+          <span class="branch-switch-name">{{ branch || "No branch" }}</span>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4.2 6.2L8 10l3.8-3.8" />
+          </svg>
+        </button>
+        <div
+          v-if="isOpen"
+          class="overflow-menu-dropdown branch-menu-dropdown"
+          role="listbox"
+          aria-label="Local branches"
+        >
+          <p v-if="!branches.length" class="muted tiny empty-branches">No local branches.</p>
           <button
-            class="branch-switch"
+            v-for="item in branches"
+            :key="item"
+            class="overflow-menu-item"
+            :class="{ active: item === branch }"
             type="button"
-            :disabled="busy"
-            :aria-expanded="isOpen"
-            aria-haspopup="listbox"
-            :title="branch ? `Switch branch from ${branch}` : 'Switch branch'"
-            @click="toggleBranches"
+            role="option"
+            :aria-selected="item === branch"
+            @click="selectBranch(item)"
           >
-            <span class="branch-switch-name">{{ branch || "No branch" }}</span>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4.2 6.2L8 10l3.8-3.8" />
-            </svg>
+            {{ item }}
           </button>
-          <div
-            v-if="isOpen"
-            class="overflow-menu-dropdown branch-menu-dropdown"
-            role="listbox"
-            aria-label="Local branches"
-          >
-            <p v-if="!branches.length" class="muted tiny empty-branches">No local branches.</p>
-            <button
-              v-for="item in branches"
-              :key="item"
-              class="overflow-menu-item"
-              :class="{ active: item === branch }"
-              type="button"
-              role="option"
-              :aria-selected="item === branch"
-              @click="selectBranch(item)"
-            >
-              {{ item }}
-            </button>
-          </div>
         </div>
-        <span class="repo-path" :title="path">{{ path }}</span>
       </div>
+      <span class="repo-path" :title="path">{{ path }}</span>
     </div>
     <div class="pane-header-end repo-toolbar-actions">
       <span v-if="busyLabel" class="muted tiny">{{ busyLabel }}</span>

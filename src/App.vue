@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -9,7 +9,8 @@ import RepoPane from "./components/RepoPane.vue";
 import OutputModal from "./components/OutputModal.vue";
 import Toast from "./components/Toast.vue";
 import GroupsView from "./views/GroupsView.vue";
-import SettingsView from "./views/SettingsView.vue";
+
+const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
 import { useApp } from "./composables/useApp";
 import { GROUPS_TAB_ID, SETTINGS_TAB_ID, useTabs } from "./composables/useTabs";
 

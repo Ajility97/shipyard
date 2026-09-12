@@ -593,6 +593,52 @@ button.toast.error:hover:not(:disabled) {
   gap: 0.65rem;
 }
 
+.history-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  padding: 0.15rem 0.1rem;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.history-switch.on {
+  color: var(--text);
+}
+
+.history-switch-track {
+  position: relative;
+  width: 1.7rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #2a3140;
+  transition: background 0.16s ease;
+}
+
+.history-switch.on .history-switch-track {
+  background: var(--accent);
+}
+
+.history-switch-knob {
+  position: absolute;
+  top: 0.12rem;
+  left: 0.12rem;
+  width: 0.76rem;
+  height: 0.76rem;
+  border-radius: 50%;
+  background: #e8edf5;
+  transition: transform 0.16s ease;
+}
+
+.history-switch.on .history-switch-knob {
+  transform: translateX(0.7rem);
+}
+
 .history-empty {
   margin: 0;
 }

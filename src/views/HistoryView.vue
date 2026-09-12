@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
@@ -9,10 +9,29 @@ const entries = ref<CommandLogEntry[]>([]);
 const message = ref("");
 const clearing = ref(false);
 const showDetail = ref(false);
+const hideStatus = ref(true);
 const terminal = ref<HTMLDivElement | null>(null);
 let stopLog: (() => void) | undefined;
 let stopCleared: (() => void) | undefined;
 let stickToBottom = true;
+
+function isStatusNoise(entry: CommandLogEntry) {
+  const command = entry.args[0] ?? "";
+  if (command === "status" || command === "rev-parse" || command === "show-ref") {
+    return true;
+  }
+  if (command === "ls-files" || command === "rev-list") {
+    return true;
+  }
+  if (command === "diff" && (entry.args.includes("--numstat") || entry.args.includes("--quiet"))) {
+    return true;
+  }
+  return false;
+}
+
+const visibleEntries = computed(() =>
+  hideStatus.value ? entries.value.filter((entry) => !isStatusNoise(entry)) : entries.value,
+);
 
 function folderName(path: string) {
   const parts = path.split("/").filter(Boolean);
@@ -127,6 +146,20 @@ async function clearLogs() {
             </button>
           </div>
           <button
+            class="history-switch"
+            :class="{ on: hideStatus }"
+            type="button"
+            role="switch"
+            :aria-checked="hideStatus"
+            title="Hide refresh status checks like git status, rev-parse, and numstat"
+            @click="hideStatus = !hideStatus"
+          >
+            <span class="history-switch-track" aria-hidden="true">
+              <span class="history-switch-knob" />
+            </span>
+            Hide status
+          </button>
+          <button
             class="ghost danger"
             type="button"
             :disabled="clearing || !entries.length"
@@ -140,8 +173,11 @@ async function clearLogs() {
         <p v-if="!entries.length" class="muted tiny history-empty">
           No commands yet. Refresh a group or open a repo to see each git invocation.
         </p>
+        <p v-else-if="!visibleEntries.length" class="muted tiny history-empty">
+          Only status checks are in this log. Turn off Hide status to see them.
+        </p>
         <article
-          v-for="entry in entries"
+          v-for="entry in visibleEntries"
           :key="entry.id"
           class="history-entry"
           :class="{ bad: !entry.success, compact: !showDetail }"

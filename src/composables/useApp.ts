@@ -346,7 +346,7 @@ export function useApp() {
 
   async function createGroup(name: string) {
     const group = await api.createGroup(name);
-    groups.value = [...groups.value, group];
+    groups.value = [group, ...groups.value];
     return group;
   }
 

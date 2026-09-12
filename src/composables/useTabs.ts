@@ -3,6 +3,7 @@ import { useRouter } from "vue-router";
 import { useApp } from "./useApp";
 
 export const GROUPS_TAB_ID = "groups";
+export const SETTINGS_TAB_ID = "settings";
 
 export interface AppTab {
   id: string;
@@ -16,6 +17,7 @@ interface RepoTab {
 }
 
 const repoTabs = ref<RepoTab[]>([]);
+const settingsTabOpen = ref(false);
 const activeId = ref(GROUPS_TAB_ID);
 
 function folderName(path: string) {
@@ -30,6 +32,9 @@ export function useTabs() {
   const tabs = computed<AppTab[]>(() => [
     { id: GROUPS_TAB_ID, title: "Repositories", closable: false },
     ...repoTabs.value.map((tab) => ({ ...tab, closable: true })),
+    ...(settingsTabOpen.value
+      ? [{ id: SETTINGS_TAB_ID, title: "Settings", closable: true }]
+      : []),
   ]);
 
   function titleFor(id: string) {
@@ -51,7 +56,13 @@ export function useTabs() {
   }
 
   function routeFor(id: string) {
-    return id === GROUPS_TAB_ID ? "/" : `/repo/${id}`;
+    if (id === GROUPS_TAB_ID) {
+      return "/";
+    }
+    if (id === SETTINGS_TAB_ID) {
+      return "/settings";
+    }
+    return `/repo/${id}`;
   }
 
   function activate(id: string) {
@@ -76,8 +87,29 @@ export function useTabs() {
     }
   }
 
+  function closeSettings() {
+    if (!settingsTabOpen.value) {
+      return;
+    }
+    const wasActive = activeId.value === SETTINGS_TAB_ID;
+    settingsTabOpen.value = false;
+    if (wasActive) {
+      const neighbor = repoTabs.value[repoTabs.value.length - 1];
+      activate(neighbor?.id ?? GROUPS_TAB_ID);
+    }
+  }
+
+  function openSettings() {
+    settingsTabOpen.value = true;
+    activate(SETTINGS_TAB_ID);
+  }
+
   function closeRepo(id: string) {
     if (id === GROUPS_TAB_ID) {
+      return;
+    }
+    if (id === SETTINGS_TAB_ID) {
+      closeSettings();
       return;
     }
     const index = repoTabs.value.findIndex((tab) => tab.id === id);
@@ -102,12 +134,20 @@ export function useTabs() {
   }
 
   function hasTab(id: string) {
+    if (id === SETTINGS_TAB_ID) {
+      return settingsTabOpen.value;
+    }
     return repoTabs.value.some((tab) => tab.id === id);
   }
 
-  function syncFromRoute(repoId: string | undefined, isHome: boolean) {
+  function syncFromRoute(repoId: string | undefined, isHome: boolean, isSettings = false) {
     if (isHome) {
       activeId.value = GROUPS_TAB_ID;
+      return;
+    }
+    if (isSettings) {
+      settingsTabOpen.value = true;
+      activeId.value = SETTINGS_TAB_ID;
       return;
     }
     if (!repoId) {
@@ -127,9 +167,11 @@ export function useTabs() {
   return {
     tabs,
     repoTabs,
+    settingsTabOpen,
     activeId,
     openRepo,
     openRepos,
+    openSettings,
     activate,
     closeRepo,
     closeRepos,

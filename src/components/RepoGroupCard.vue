@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
@@ -16,11 +16,21 @@ function isLastFallback(value: string): value is LastFallback {
   return (LAST_FALLBACKS as readonly string[]).includes(value);
 }
 
-const props = defineProps<{ group: RepoGroup }>();
+const props = defineProps<{
+  group: RepoGroup;
+  draft?: boolean;
+}>();
+
+const emit = defineEmits<{
+  created: [];
+  cancel: [];
+}>();
+
 const {
   busy,
   toggleGroup,
   renameGroup,
+  createGroup,
   deleteGroup,
   saveSettings,
   addRepo,
@@ -49,8 +59,9 @@ const {
 
 const siblingIds = computed(() => props.group.repos.map((repo) => repo.id));
 
-const renaming = ref(false);
-const name = ref(props.group.name);
+const nameInput = ref<HTMLInputElement | null>(null);
+const renaming = ref(Boolean(props.draft));
+const name = ref(props.draft ? "" : props.group.name);
 const pullFromBranch = ref(props.group.pullFromBranch);
 const extraFallbacks = ref<string[]>([]);
 const lastFallback = ref<LastFallback>("develop");
@@ -65,12 +76,21 @@ const specifyBranch = ref("");
 watch(
   () => props.group,
   (group) => {
+    if (props.draft || renaming.value) {
+      return;
+    }
     name.value = group.name;
     pullFromBranch.value = group.pullFromBranch;
     loadFallbacks(group.checkoutFallbacks);
     headerColor.value = group.headerColor || DEFAULT_HEADER;
   },
 );
+
+onMounted(() => {
+  if (props.draft) {
+    void nextTick(() => nameInput.value?.focus());
+  }
+});
 
 const actionLabel = computed(() => busy.value[props.group.id] ?? "");
 
@@ -110,29 +130,49 @@ async function persistSettings() {
 }
 
 function onHeaderColor(event: Event) {
-  const value = (event.target as HTMLInputElement).value;
-  headerColor.value = value;
-  void persistSettings();
+  headerColor.value = (event.target as HTMLInputElement).value;
 }
 
 function startRename() {
   closeMenus();
+  name.value = props.group.name;
+  headerColor.value = props.group.headerColor || DEFAULT_HEADER;
   renaming.value = true;
 }
 
 function cancelRename() {
+  if (props.draft) {
+    emit("cancel");
+    return;
+  }
   renaming.value = false;
   name.value = props.group.name;
+  headerColor.value = props.group.headerColor || DEFAULT_HEADER;
 }
 
 async function finishRename() {
   const value = name.value.trim();
+  if (props.draft) {
+    if (!value) {
+      return;
+    }
+    const group = await createGroup(value);
+    if (headerColor.value !== DEFAULT_HEADER) {
+      await saveSettings(group.id, "develop", ["develop"], headerColor.value);
+    }
+    emit("created");
+    return;
+  }
   renaming.value = false;
   if (!value || value === props.group.name) {
     name.value = props.group.name;
-    return;
+  } else {
+    await renameGroup(props.group.id, value);
   }
-  await renameGroup(props.group.id, value);
+  const savedColor = props.group.headerColor || DEFAULT_HEADER;
+  if (headerColor.value !== savedColor) {
+    await persistSettings();
+  }
 }
 
 async function confirmDelete() {
@@ -305,6 +345,20 @@ async function checkoutAll() {
   return checkoutGroup(props.group.id, target, fallbacks);
 }
 
+function onHeaderClick(event: MouseEvent) {
+  if (props.draft) {
+    return;
+  }
+  const target = event.target;
+  if (!(target instanceof Element)) {
+    return;
+  }
+  if (target.closest("button, input, label, select, textarea, a, .overflow-menu")) {
+    return;
+  }
+  void toggleGroup(props.group.id);
+}
+
 function contrastingText(color: string) {
   const hex = color.replace("#", "");
   const normalized =
@@ -327,13 +381,13 @@ function contrastingText(color: string) {
 
 <template>
   <section class="group">
-    <div class="group-header" :style="headerStyle">
+    <div class="group-header" :style="headerStyle" @click="onHeaderClick">
       <button
         class="chevron"
         type="button"
         :class="{ open: group.expanded }"
         :aria-expanded="group.expanded"
-        @click="toggleGroup(group.id)"
+        @click="draft ? undefined : toggleGroup(group.id)"
       >
         <svg viewBox="0 0 16 16" aria-hidden="true">
           <path d="M4 6l4 4 4-4" />
@@ -342,17 +396,26 @@ function contrastingText(color: string) {
       <div class="group-heading">
         <input
           v-if="renaming"
+          ref="nameInput"
           v-model="name"
           type="text"
+          placeholder="Group name"
           @keydown.enter="finishRename"
           @keydown.escape="cancelRename"
         />
         <span v-else class="group-title">{{ group.name }}</span>
-        <span class="group-count">{{ group.repos.length }}</span>
+        <span v-if="!renaming" class="group-count">{{ group.repos.length }}</span>
+        <label v-if="renaming" class="color-picker">
+          <span class="color-picker-label">Background</span>
+          <span class="color-picker-swatch" aria-hidden="true">
+            <input type="color" :value="headerColor" @input="onHeaderColor" />
+          </span>
+        </label>
         <button
           v-if="renaming"
           class="ghost tiny"
           type="button"
+          :disabled="draft && !name.trim()"
           @mousedown.prevent="finishRename"
         >
           Save
@@ -365,9 +428,6 @@ function contrastingText(color: string) {
         >
           Cancel
         </button>
-        <label v-if="renaming" class="color-picker" title="Header color">
-          <input type="color" :value="headerColor" @input="onHeaderColor" />
-        </label>
       </div>
       <div class="group-actions">
         <template v-if="group.repos.length">
@@ -436,7 +496,7 @@ function contrastingText(color: string) {
             </button>
           </div>
         </template>
-        <div class="overflow-menu group-menu">
+        <div v-if="!draft" class="overflow-menu group-menu">
           <button
             class="ghost tiny overflow-menu-trigger"
             type="button"

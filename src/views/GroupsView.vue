@@ -3,13 +3,23 @@ import { computed, ref } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useApp } from "../composables/useApp";
 import { useTabs } from "../composables/useTabs";
+import type { RepoGroup } from "../types";
 import RepoGroupCard from "../components/RepoGroupCard.vue";
 import RepoRow from "../components/RepoRow.vue";
+
+const DRAFT_GROUP: RepoGroup = {
+  id: "__draft__",
+  name: "",
+  expanded: true,
+  pullFromBranch: "develop",
+  checkoutFallbacks: ["develop"],
+  headerColor: "#16323c",
+  repos: [],
+};
 
 const {
   groups,
   standaloneRepos,
-  createGroup,
   setAllGroupsExpanded,
   addStandaloneRepo,
   removeStandaloneRepo,
@@ -25,7 +35,6 @@ const {
 } = useApp();
 const { hasTab, closeRepos } = useTabs();
 const creating = ref(false);
-const name = ref("");
 const interval = computed({
   get: () => refreshIntervalSeconds.value,
   set: (value: number) => {
@@ -61,19 +70,12 @@ const canCollapseAll = computed(
   () => groups.value.length > 0 && groups.value.some((group) => group.expanded),
 );
 
-async function submit() {
-  const value = name.value.trim();
-  if (!value) {
-    return;
-  }
-  await createGroup(value);
-  name.value = "";
-  creating.value = false;
+function startCreate() {
+  creating.value = true;
 }
 
-function cancel() {
+function cancelCreate() {
   creating.value = false;
-  name.value = "";
 }
 
 async function pickStandaloneRepo() {
@@ -133,18 +135,14 @@ async function removeStandalone(repoId: string) {
       <div class="groups-display">
         <div class="groups-toolbar">
           <div class="toolbar-start">
-            <form v-if="creating" class="new-group" @submit.prevent="submit">
-              <input
-                v-model="name"
-                type="text"
-                placeholder="Group name"
-                autofocus
-                @keydown.escape="cancel"
-              />
-              <button class="primary" type="submit">Create</button>
-              <button class="ghost" type="button" @click="cancel">Cancel</button>
-            </form>
-            <button v-else class="primary" type="button" @click="creating = true">New group</button>
+            <button
+              class="primary"
+              type="button"
+              :disabled="creating"
+              @click="startCreate"
+            >
+              New group
+            </button>
             <button class="ghost" type="button" @click="pickStandaloneRepo">Add repository</button>
           </div>
           <div class="toolbar-end">
@@ -192,7 +190,7 @@ async function removeStandalone(repoId: string) {
           </div>
         </div>
 
-        <p v-if="isEmpty" class="muted">
+        <p v-if="isEmpty && !creating" class="muted">
           Add a repository, or create a group for several at once.
         </p>
 
@@ -208,6 +206,13 @@ async function removeStandalone(repoId: string) {
         </div>
 
         <div class="groups-list">
+          <RepoGroupCard
+            v-if="creating"
+            :group="DRAFT_GROUP"
+            draft
+            @cancel="cancelCreate"
+            @created="cancelCreate"
+          />
           <RepoGroupCard v-for="group in groups" :key="group.id" :group="group" />
         </div>
       </div>

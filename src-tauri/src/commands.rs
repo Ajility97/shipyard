@@ -123,7 +123,7 @@ pub fn create_group(
     };
 
     let mut data = state.data.lock().map_err(|err| err.to_string())?;
-    data.groups.push(group.clone());
+    data.groups.insert(0, group.clone());
     persist_data(&app, &data)?;
     Ok(group)
 }

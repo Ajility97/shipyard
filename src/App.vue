@@ -5,11 +5,11 @@ import { useRoute } from "vue-router";
 import TabBar from "./components/TabBar.vue";
 import RepoPane from "./components/RepoPane.vue";
 import OutputModal from "./components/OutputModal.vue";
-import SettingsModal from "./components/SettingsModal.vue";
 import Toast from "./components/Toast.vue";
 import GroupsView from "./views/GroupsView.vue";
+import SettingsView from "./views/SettingsView.vue";
 import { useApp } from "./composables/useApp";
-import { GROUPS_TAB_ID, useTabs } from "./composables/useTabs";
+import { GROUPS_TAB_ID, SETTINGS_TAB_ID, useTabs } from "./composables/useTabs";
 
 const route = useRoute();
 const {
@@ -31,9 +31,8 @@ function onToastDismiss() {
   }
   dismissToast();
 }
-const settingsOpen = ref(false);
 const appVersion = ref("0.1.0");
-const { repoTabs, activeId, syncFromRoute, refreshTitles } = useTabs();
+const { repoTabs, settingsTabOpen, activeId, syncFromRoute, refreshTitles } = useTabs();
 
 onMounted(() => {
   void load();
@@ -50,7 +49,7 @@ watch(
   () => [route.name, route.params.id],
   () => {
     const repoId = typeof route.params.id === "string" ? route.params.id : undefined;
-    syncFromRoute(repoId, route.name === "home");
+    syncFromRoute(repoId, route.name === "home", route.name === "settings");
   },
   { immediate: true },
 );
@@ -62,7 +61,7 @@ watch(statuses, () => {
 
 <template>
   <div class="app-shell">
-    <TabBar @settings="settingsOpen = true" />
+    <TabBar />
     <main class="main">
       <p v-if="error" class="banner">{{ error }}</p>
       <GroupsView v-show="activeId === GROUPS_TAB_ID" />
@@ -72,6 +71,7 @@ watch(statuses, () => {
         :key="tab.id"
         :repo-id="tab.id"
       />
+      <SettingsView v-if="settingsTabOpen" v-show="activeId === SETTINGS_TAB_ID" />
     </main>
     <footer class="status-bar">
       <span class="status-bar-version">{{ appVersion }}</span>
@@ -84,7 +84,6 @@ watch(statuses, () => {
         @dismiss="onToastDismiss"
       />
     </Transition>
-    <SettingsModal v-if="settingsOpen" @close="settingsOpen = false" />
     <OutputModal
       v-if="actionOutputOpen && actionOutput"
       :title="actionOutput.title"

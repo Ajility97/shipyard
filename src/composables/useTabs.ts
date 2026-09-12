@@ -104,6 +104,15 @@ export function useTabs() {
     activate(SETTINGS_TAB_ID);
   }
 
+  function closeActiveTab() {
+    const tab = tabs.value.find((item) => item.id === activeId.value);
+    if (!tab?.closable) {
+      return false;
+    }
+    closeRepo(tab.id);
+    return true;
+  }
+
   function closeRepo(id: string) {
     if (id === GROUPS_TAB_ID) {
       return;
@@ -174,6 +183,7 @@ export function useTabs() {
     openSettings,
     activate,
     closeRepo,
+    closeActiveTab,
     closeRepos,
     hasTab,
     syncFromRoute,

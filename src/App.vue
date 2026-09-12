@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useRoute } from "vue-router";
 import TabBar from "./components/TabBar.vue";
 import RepoPane from "./components/RepoPane.vue";
@@ -32,7 +34,31 @@ function onToastDismiss() {
   dismissToast();
 }
 const appVersion = ref("0.1.0");
-const { repoTabs, settingsTabOpen, activeId, syncFromRoute, refreshTitles } = useTabs();
+const { repoTabs, settingsTabOpen, activeId, syncFromRoute, refreshTitles, closeActiveTab } =
+  useTabs();
+
+let stopCloseShortcut: (() => void) | undefined;
+
+async function closeActiveTabOrWindow() {
+  if (closeActiveTab()) {
+    return;
+  }
+  await getCurrentWindow().close();
+}
+
+function onWindowKeydown(event: KeyboardEvent) {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+    return;
+  }
+  if (event.key.toLowerCase() !== "w") {
+    return;
+  }
+  if (!closeActiveTab()) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+}
 
 onMounted(() => {
   void load();
@@ -43,6 +69,17 @@ onMounted(() => {
     .catch(() => {
       /* keep the bundled fallback */
     });
+  window.addEventListener("keydown", onWindowKeydown, true);
+  void listen("close-tab-or-window", () => {
+    void closeActiveTabOrWindow();
+  }).then((unlisten) => {
+    stopCloseShortcut = unlisten;
+  });
+});
+
+onUnmounted(() => {
+  window.removeEventListener("keydown", onWindowKeydown, true);
+  stopCloseShortcut?.();
 });
 
 watch(

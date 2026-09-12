@@ -1,5 +1,6 @@
 mod commands;
 mod git;
+mod menu;
 mod models;
 mod persist;
 mod window_state;
@@ -13,6 +14,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .menu(|handle| menu::build(handle))
+        .on_menu_event(|app, event| {
+            menu::handle_event(app, event.id().as_ref());
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             let data = persist::load(&handle).unwrap_or_default();

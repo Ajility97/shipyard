@@ -732,6 +732,56 @@ pub fn unstage_all(state: State<AppState>, path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn list_local_branches(state: State<AppState>, path: String) -> Result<Vec<String>, String> {
+    let git = require_git(&state)?;
+    git::local_branches(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn checkout_local_branch(
+    state: State<'_, AppState>,
+    path: String,
+    branch: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::checkout_local_branch(&git, Path::new(&path), &branch)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn create_and_checkout_branch(
+    state: State<'_, AppState>,
+    path: String,
+    branch: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::create_and_checkout_branch(&git, Path::new(&path), &branch)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn repo_pull(state: State<'_, AppState>, path: String) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::pull(&git, Path::new(&path)))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn repo_push(state: State<'_, AppState>, path: String) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::push(&git, Path::new(&path)))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub fn file_diff(
     state: State<AppState>,
     path: String,

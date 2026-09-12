@@ -316,6 +316,93 @@ pub fn ref_exists(git: &Path, repo: &Path, git_ref: &str) -> bool {
         .unwrap_or(false)
 }
 
+pub fn local_branches(git: &Path, repo: &Path) -> Result<Vec<String>, String> {
+    let output = run_git(
+        git,
+        repo,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not list local branches.",
+        ));
+    }
+    let mut branches: Vec<String> = output
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .collect();
+    branches.sort();
+    Ok(branches)
+}
+
+pub fn checkout_local_branch(git: &Path, repo: &Path, branch: &str) -> Result<String, String> {
+    validate_ref(branch)?;
+    let current = current_branch(git, repo)?;
+    if current == branch {
+        return Ok(format!("Already on {branch}"));
+    }
+    if !ref_exists(git, repo, &format!("refs/heads/{branch}")) {
+        return Err(format!("Local branch {branch} does not exist."));
+    }
+    let output = run_git(git, repo, &["checkout", branch])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to check out {branch}"),
+        ));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Checked out {branch}"),
+    ))
+}
+
+pub fn create_and_checkout_branch(git: &Path, repo: &Path, branch: &str) -> Result<String, String> {
+    validate_ref(branch)?;
+    if ref_exists(git, repo, &format!("refs/heads/{branch}")) {
+        return Err(format!("Branch {branch} already exists."));
+    }
+    let output = run_git(git, repo, &["checkout", "-b", branch])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to create branch {branch}"),
+        ));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Created and checked out {branch}"),
+    ))
+}
+
+/// Standard `git pull` only. Never add `--force` or other overwrite flags.
+pub fn pull(git: &Path, repo: &Path) -> Result<String, String> {
+    let output = run_git(git, repo, &["pull"])?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), "Pull failed."));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        "Pulled current branch",
+    ))
+}
+
+/// Standard `git push` only. Never add `--force`, `--force-with-lease`, or `+` refspecs.
+pub fn push(git: &Path, repo: &Path) -> Result<String, String> {
+    let output = run_git(git, repo, &["push"])?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), "Push failed."));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        "Pushed current branch",
+    ))
+}
+
 pub fn checkout_with_fallbacks(
     git: &Path,
     repo: &Path,
@@ -774,6 +861,64 @@ mod tests {
         unstage_all(&git_bin(), &repo).unwrap();
         let files = working_tree(&git_bin(), &repo).unwrap();
         assert!(files.iter().all(|file| !file.staged));
+    }
+
+    #[test]
+    fn lists_and_checks_out_local_branches() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        let branches = local_branches(&git_bin(), &repo).unwrap();
+        assert!(branches.contains(&"develop".into()));
+        assert!(branches.contains(&"feature".into()));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "feature");
+
+        let message = checkout_local_branch(&git_bin(), &repo, "develop").unwrap();
+        assert!(message.contains("develop"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
+        assert!(checkout_local_branch(&git_bin(), &repo, "missing").is_err());
+
+        let created = create_and_checkout_branch(&git_bin(), &repo, "task/123").unwrap();
+        assert!(created.contains("task/123"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "task/123");
+        assert!(local_branches(&git_bin(), &repo)
+            .unwrap()
+            .contains(&"task/123".into()));
+        assert!(create_and_checkout_branch(&git_bin(), &repo, "task/123").is_err());
+    }
+
+    #[test]
+    fn push_and_pull_use_standard_git_without_force() {
+        let seed = init_repo();
+        let origin = temp_dir();
+        git(&origin, &["init", "--bare", "-b", "develop"]);
+        git(&seed, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        git(&seed, &["push", "-u", "origin", "develop"]);
+
+        let work = temp_dir();
+        git(&work, &["clone", origin.to_str().unwrap(), "."]);
+        git(&work, &["config", "user.name", "Krakdown Test"]);
+        git(&work, &["config", "user.email", "test@krakdown.local"]);
+        fs::write(work.join("README.md"), "from work\n").unwrap();
+        git(&work, &["add", "README.md"]);
+        git(&work, &["commit", "-m", "work commit"]);
+        push(&git_bin(), &work).unwrap();
+
+        let other = temp_dir();
+        git(&other, &["clone", origin.to_str().unwrap(), "."]);
+        git(&other, &["config", "user.name", "Krakdown Test"]);
+        git(&other, &["config", "user.email", "test@krakdown.local"]);
+        assert!(fs::read_to_string(other.join("README.md"))
+            .unwrap()
+            .contains("from work"));
+
+        fs::write(work.join("README.md"), "from upstream\n").unwrap();
+        git(&work, &["add", "README.md"]);
+        git(&work, &["commit", "-m", "upstream commit"]);
+        push(&git_bin(), &work).unwrap();
+        pull(&git_bin(), &other).unwrap();
+        assert!(fs::read_to_string(other.join("README.md"))
+            .unwrap()
+            .contains("from upstream"));
     }
 
     #[test]

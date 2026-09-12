@@ -1547,6 +1547,90 @@ body.is-resizing * {
   gap: 0.5rem;
 }
 
+.repo-toolbar-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.repo-toolbar-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-toolbar-sub {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  margin-top: 0.2rem;
+}
+
+.repo-toolbar-actions {
+  align-self: flex-start;
+  margin-top: 0.1rem;
+}
+
+.repo-toolbar-actions .ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.branch-menu .branch-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 16rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+}
+
+.branch-switch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+
+.branch-switch svg {
+  flex-shrink: 0;
+  width: 0.85rem;
+  height: 0.85rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.branch-menu-dropdown {
+  right: auto;
+  left: 0;
+  min-width: 12.5rem;
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.branch-menu-dropdown .overflow-menu-item.active {
+  background: var(--bg-active);
+}
+
+.empty-branches {
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+}
+
+.repo-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .file-list {
   overflow: auto;
   flex: 1;

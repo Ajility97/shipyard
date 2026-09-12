@@ -697,6 +697,7 @@ export function useApp() {
     toastKind,
     actionOutput,
     actionOutputOpen,
+    showToast,
     dismissToast,
     dismissOutput,
     openOutput,

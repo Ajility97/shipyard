@@ -149,6 +149,26 @@ export function unstageAll(path: string) {
   return invoke<void>("unstage_all", { path });
 }
 
+export function listLocalBranches(path: string) {
+  return invoke<string[]>("list_local_branches", { path });
+}
+
+export function checkoutLocalBranch(path: string, branch: string) {
+  return invoke<string>("checkout_local_branch", { path, branch });
+}
+
+export function createAndCheckoutBranch(path: string, branch: string) {
+  return invoke<string>("create_and_checkout_branch", { path, branch });
+}
+
+export function repoPull(path: string) {
+  return invoke<string>("repo_pull", { path });
+}
+
+export function repoPush(path: string) {
+  return invoke<string>("repo_push", { path });
+}
+
 export function fileDiff(path: string, file: string, staged = false) {
   return invoke<string>("file_diff", { path, file, staged });
 }

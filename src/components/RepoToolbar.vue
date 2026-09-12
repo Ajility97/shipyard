@@ -1,0 +1,114 @@
+<script setup lang="ts">
+import { useOverflowMenu } from "../composables/useOverflowMenu";
+
+const props = defineProps<{
+  repoId: string;
+  name: string;
+  branch: string;
+  path: string;
+  branches: string[];
+  busy: boolean;
+  busyLabel: string;
+}>();
+
+const emit = defineEmits<{
+  pull: [];
+  push: [];
+  checkout: [branch: string];
+  create: [];
+  refreshBranches: [];
+}>();
+
+const { isOpen, toggle, close } = useOverflowMenu(() => `branch-${props.repoId}`);
+
+function selectBranch(branch: string) {
+  close();
+  if (branch === props.branch) {
+    return;
+  }
+  emit("checkout", branch);
+}
+
+async function toggleBranches() {
+  if (!isOpen.value) {
+    emit("refreshBranches");
+  }
+  toggle();
+}
+</script>
+
+<template>
+  <div class="pane-header repo-toolbar">
+    <div class="repo-toolbar-meta">
+      <strong class="repo-toolbar-name">{{ name }}</strong>
+      <div class="repo-toolbar-sub">
+        <div class="overflow-menu branch-menu">
+          <button
+            class="branch-switch"
+            type="button"
+            :disabled="busy"
+            :aria-expanded="isOpen"
+            aria-haspopup="listbox"
+            :title="branch ? `Switch branch from ${branch}` : 'Switch branch'"
+            @click="toggleBranches"
+          >
+            <span class="branch-switch-name">{{ branch || "No branch" }}</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4.2 6.2L8 10l3.8-3.8" />
+            </svg>
+          </button>
+          <div
+            v-if="isOpen"
+            class="overflow-menu-dropdown branch-menu-dropdown"
+            role="listbox"
+            aria-label="Local branches"
+          >
+            <p v-if="!branches.length" class="muted tiny empty-branches">No local branches.</p>
+            <button
+              v-for="item in branches"
+              :key="item"
+              class="overflow-menu-item"
+              :class="{ active: item === branch }"
+              type="button"
+              role="option"
+              :aria-selected="item === branch"
+              @click="selectBranch(item)"
+            >
+              {{ item }}
+            </button>
+          </div>
+        </div>
+        <span class="repo-path" :title="path">{{ path }}</span>
+      </div>
+    </div>
+    <div class="pane-header-end repo-toolbar-actions">
+      <span v-if="busyLabel" class="muted tiny">{{ busyLabel }}</span>
+      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('create')">
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 3v12a3 3 0 0 0 3 3h4.5" />
+          <circle cx="6" cy="5" r="2" />
+          <circle cx="6" cy="19" r="2" />
+          <path d="M15 6h6M18 3v6" />
+        </svg>
+        New branch
+      </button>
+      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('pull')">
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+          />
+        </svg>
+        Pull
+      </button>
+      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('push')">
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 7.5 12 3m0 0 4.5 4.5M12 3v13.5"
+          />
+        </svg>
+        Push
+      </button>
+      <slot />
+    </div>
+  </div>
+</template>

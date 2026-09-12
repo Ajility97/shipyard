@@ -65,6 +65,11 @@ pub fn run() {
             commands::stage_all,
             commands::unstage_file,
             commands::unstage_all,
+            commands::list_local_branches,
+            commands::checkout_local_branch,
+            commands::create_and_checkout_branch,
+            commands::repo_pull,
+            commands::repo_push,
             commands::file_diff,
         ])
         .run(tauri::generate_context!())

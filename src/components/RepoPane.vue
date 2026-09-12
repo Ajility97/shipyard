@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
+import Modal from "./Modal.vue";
+import RepoToolbar from "./RepoToolbar.vue";
 import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
 import * as api from "../api";
@@ -24,15 +26,24 @@ const {
   diffMode,
   saveDiffMode,
   refreshStatus,
+  showToast,
 } = useApp();
 
 const commits = ref<CommitNode[]>([]);
 const files = ref<WorkingTreeFile[]>([]);
+const branches = ref<string[]>([]);
 const selectedFile = ref<WorkingTreeFile | null>(null);
 const filesCollapsed = ref(false);
 const diff = ref("");
 const loading = ref(false);
+const actionBusy = ref(false);
+const actionLabel = ref("");
 const message = ref("");
+const creatingBranch = ref(false);
+const newBranchName = ref("");
+const newBranchInput = ref<HTMLInputElement | null>(null);
+
+const canCreateBranch = computed(() => Boolean(newBranchName.value.trim()));
 
 const current = computed(() => findRepo(props.repoId));
 const resizing = ref(false);
@@ -81,6 +92,7 @@ async function loadRepo() {
   if (!match) {
     commits.value = [];
     files.value = [];
+    branches.value = [];
     selectedFile.value = null;
     diff.value = "";
     message.value = loaded.value ? "Repository not found." : "";
@@ -90,12 +102,14 @@ async function loadRepo() {
   loading.value = true;
   message.value = "";
   try {
-    const [nextCommits, nextFiles] = await Promise.all([
+    const [nextCommits, nextFiles, nextBranches] = await Promise.all([
       api.logGraph(match.repo.path),
       api.workingTree(match.repo.path),
+      api.listLocalBranches(match.repo.path).catch(() => [] as string[]),
     ]);
     commits.value = nextCommits;
     files.value = nextFiles;
+    branches.value = nextBranches;
     if (selectedFile.value && !nextFiles.some((file) => sameFile(file, selectedFile.value))) {
       selectedFile.value = null;
       diff.value = "";
@@ -194,6 +208,92 @@ async function unstageAll() {
   }
 }
 
+async function runRepoAction(label: string, work: () => Promise<string>) {
+  const match = current.value;
+  if (!match || actionBusy.value) {
+    return;
+  }
+  actionBusy.value = true;
+  actionLabel.value = label;
+  message.value = "";
+  try {
+    const result = await work();
+    showToast(result);
+    await loadRepo();
+    await refreshStatus(match.group?.id ?? STANDALONE_GROUP_ID);
+  } catch (err) {
+    const text = String(err);
+    message.value = text;
+    showToast(text, "error");
+  } finally {
+    actionBusy.value = false;
+    actionLabel.value = "";
+  }
+}
+
+function pullRepo() {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  return runRepoAction("Pulling…", () => api.repoPull(match.repo.path));
+}
+
+function pushRepo() {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  return runRepoAction("Pushing…", () => api.repoPush(match.repo.path));
+}
+
+function checkoutBranch(branch: string) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  return runRepoAction("Checking out…", () => api.checkoutLocalBranch(match.repo.path, branch));
+}
+
+async function openCreateBranch() {
+  if (actionBusy.value) {
+    return;
+  }
+  newBranchName.value = "";
+  creatingBranch.value = true;
+  await nextTick();
+  newBranchInput.value?.focus();
+}
+
+function closeCreateBranch() {
+  creatingBranch.value = false;
+  newBranchName.value = "";
+}
+
+function createBranch() {
+  const match = current.value;
+  const branch = newBranchName.value.trim();
+  if (!match || !branch) {
+    return;
+  }
+  closeCreateBranch();
+  return runRepoAction("Creating branch…", () =>
+    api.createAndCheckoutBranch(match.repo.path, branch),
+  );
+}
+
+async function refreshBranches() {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    branches.value = await api.listLocalBranches(match.repo.path);
+  } catch {
+    /* keep the last successful list */
+  }
+}
+
 async function discardAll() {
   const match = current.value;
   if (!match || !files.value.length) {
@@ -238,29 +338,35 @@ watch(
     :style="{ '--files-pane-width': `${filesPaneWidth}px` }"
   >
     <section v-if="!selectedFile" class="graph-pane">
-      <div class="pane-header">
-        <div>
-          <strong>{{ current.status?.name ?? current.repo.path }}</strong>
-          <div class="commit-sub">{{ current.status?.branch ?? "" }} · {{ current.repo.path }}</div>
-        </div>
-        <div class="pane-header-end">
-          <span v-if="loading" class="muted tiny">Loading…</span>
-          <button
-            v-if="filesCollapsed"
-            class="files-float"
-            type="button"
-            title="Show files panel"
-            aria-label="Show files panel"
-            @click="filesCollapsed = false"
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
-              <path d="M10.25 2.25v11.5" />
-              <path d="M8.85 5.6L6.6 8l2.25 2.4" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      <RepoToolbar
+        :repo-id="current.repo.id"
+        :name="current.status?.name ?? current.repo.path"
+        :branch="current.status?.branch ?? ''"
+        :path="current.repo.path"
+        :branches="branches"
+        :busy="actionBusy"
+        :busy-label="actionLabel || (loading ? 'Loading…' : '')"
+        @pull="pullRepo"
+        @push="pushRepo"
+        @checkout="checkoutBranch"
+        @create="openCreateBranch"
+        @refresh-branches="refreshBranches"
+      >
+        <button
+          v-if="filesCollapsed"
+          class="files-float"
+          type="button"
+          title="Show files panel"
+          aria-label="Show files panel"
+          @click="filesCollapsed = false"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
+            <path d="M10.25 2.25v11.5" />
+            <path d="M8.85 5.6L6.6 8l2.25 2.4" />
+          </svg>
+        </button>
+      </RepoToolbar>
       <p v-if="message" class="banner">{{ message }}</p>
       <div class="graph-scroll">
         <CommitGraph :commits="commits" />
@@ -348,4 +454,22 @@ watch(
   <div v-else class="empty-home">
     <p class="muted">{{ loaded ? "Repository not found." : "Loading…" }}</p>
   </div>
+  <Modal v-if="creatingBranch" title="New branch" @close="closeCreateBranch">
+    <label class="modal-label">
+      <span class="muted tiny">Branch name</span>
+      <input
+        ref="newBranchInput"
+        v-model="newBranchName"
+        type="text"
+        placeholder="feature/JIRA-123"
+        @keydown.enter="createBranch"
+      />
+    </label>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeCreateBranch">Cancel</button>
+      <button class="primary" type="button" :disabled="!canCreateBranch" @click="createBranch">
+        Create and switch
+      </button>
+    </template>
+  </Modal>
 </template>

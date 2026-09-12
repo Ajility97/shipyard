@@ -12,6 +12,20 @@ fn default_diff_mode() -> String {
     "split".into()
 }
 
+pub const MIN_WINDOW_WIDTH: u32 = 960;
+pub const MIN_WINDOW_HEIGHT: u32 = 640;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowState {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
@@ -24,6 +38,8 @@ pub struct AppData {
     pub files_pane_width: u32,
     #[serde(default = "default_diff_mode")]
     pub diff_mode: String,
+    #[serde(default)]
+    pub window: Option<WindowState>,
 }
 
 impl Default for AppData {
@@ -34,6 +50,7 @@ impl Default for AppData {
             refresh_interval_seconds: default_refresh_interval(),
             files_pane_width: default_files_pane_width(),
             diff_mode: default_diff_mode(),
+            window: None,
         }
     }
 }
@@ -65,6 +82,7 @@ mod tests {
             refresh_interval_seconds: 300,
             files_pane_width: 320,
             diff_mode: "split".into(),
+            window: None,
             repos: Vec::new(),
             groups: vec![RepoGroup {
                 id: "g1".into(),

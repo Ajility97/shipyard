@@ -292,6 +292,10 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
     };
     data.files_pane_width = data.files_pane_width.clamp(220, 800);
     data.diff_mode = sanitize_diff_mode(&data.diff_mode)?;
+    if let Some(window) = &mut data.window {
+        window.width = window.width.max(crate::models::MIN_WINDOW_WIDTH);
+        window.height = window.height.max(crate::models::MIN_WINDOW_HEIGHT);
+    }
     sanitize_repos(&mut data.repos)?;
 
     for group in &mut data.groups {

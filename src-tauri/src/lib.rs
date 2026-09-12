@@ -2,6 +2,7 @@ mod commands;
 mod git;
 mod models;
 mod persist;
+mod window_state;
 
 use commands::AppState;
 use std::sync::Mutex;
@@ -15,11 +16,18 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             let data = persist::load(&handle).unwrap_or_default();
+            let bounds = data.window.clone();
             app.manage(AppState {
                 data: Mutex::new(data),
                 git: git::resolve_git_binary(),
             });
+            if let (Some(window), Some(bounds)) = (app.get_webview_window("main"), bounds) {
+                window_state::apply(&window, &bounds);
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            window_state::handle_event(window, event);
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,

@@ -17,12 +17,21 @@ export type DiffMode = "inline" | "split";
 
 export const STANDALONE_GROUP_ID = "standalone";
 
+export interface WindowState {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  maximized?: boolean;
+}
+
 export interface AppData {
   groups: RepoGroup[];
   repos?: RepoEntry[];
   refreshIntervalSeconds?: number;
   filesPaneWidth?: number;
   diffMode?: DiffMode;
+  window?: WindowState;
 }
 
 export interface RepoStatus {

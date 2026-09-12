@@ -4,6 +4,7 @@ import { onMounted, onUnmounted } from "vue";
 defineProps<{
   title: string;
   wide?: boolean;
+  medium?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -29,7 +30,7 @@ onUnmounted(() => {
 <template>
   <Teleport to="body">
     <div class="modal-layer" @click.self="emit('close')">
-      <div class="modal" :class="{ wide }" role="dialog" aria-modal="true">
+      <div class="modal" :class="{ wide, medium }" role="dialog" aria-modal="true">
         <div class="modal-title">{{ title }}</div>
         <div class="modal-body">
           <slot />

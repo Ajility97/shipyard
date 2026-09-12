@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { WorkingTreeFile } from "../types";
+import FileStatusIcon from "./FileStatusIcon.vue";
+import PathLabel from "./PathLabel.vue";
 
 const props = defineProps<{
   files: WorkingTreeFile[];
@@ -15,6 +17,7 @@ const emit = defineEmits<{
   stageAll: [];
   unstageAll: [];
   discard: [];
+  commit: [];
 }>();
 
 const unstaged = computed(() => props.files.filter((file) => !file.staged));
@@ -34,11 +37,14 @@ function isSelected(file: WorkingTreeFile) {
           <span class="file-count-badge">{{ unstaged.length }}</span>
         </div>
         <button
-          class="ghost tiny file-bulk-action"
+          class="ghost tiny file-bulk-action stage"
           type="button"
           :disabled="!unstaged.length"
           @click="emit('stageAll')"
         >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
           Stage all files
         </button>
       </div>
@@ -51,14 +57,17 @@ function isSelected(file: WorkingTreeFile) {
           :class="{ active: isSelected(file) }"
         >
           <button class="file-item-main" type="button" @click="emit('select', file)">
-            <span class="file-item-path">{{ file.path }}</span>
-            <span class="muted tiny file-item-status">{{ file.status }}</span>
+            <FileStatusIcon :status="file.status" />
+            <PathLabel class="file-item-path" :path="file.path" />
           </button>
           <button
-            class="ghost tiny file-item-action"
+            class="tiny file-item-action stage"
             type="button"
             @click.stop="emit('stage', file)"
           >
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
             Stage file
           </button>
         </div>
@@ -71,11 +80,14 @@ function isSelected(file: WorkingTreeFile) {
           <span class="file-count-badge">{{ staged.length }}</span>
         </div>
         <button
-          class="ghost tiny file-bulk-action"
+          class="ghost tiny file-bulk-action unstage"
           type="button"
           :disabled="!staged.length"
           @click="emit('unstageAll')"
         >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
           Unstage all files
         </button>
       </div>
@@ -88,14 +100,17 @@ function isSelected(file: WorkingTreeFile) {
           :class="{ active: isSelected(file) }"
         >
           <button class="file-item-main" type="button" @click="emit('select', file)">
-            <span class="file-item-path">{{ file.path }}</span>
-            <span class="muted tiny file-item-status">{{ file.status }}</span>
+            <FileStatusIcon :status="file.status" />
+            <PathLabel class="file-item-path" :path="file.path" />
           </button>
           <button
-            class="ghost tiny file-item-action"
+            class="tiny file-item-action unstage"
             type="button"
             @click.stop="emit('unstage', file)"
           >
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M5 12h14" />
+            </svg>
             Unstage file
           </button>
         </div>
@@ -108,7 +123,18 @@ function isSelected(file: WorkingTreeFile) {
         :disabled="!files.length"
         @click="emit('discard')"
       >
-        Discard all
+        Discard
+      </button>
+      <button
+        class="ghost tiny commit"
+        type="button"
+        :disabled="!staged.length"
+        @click="emit('commit')"
+      >
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4.5 12.75l6 6 9-13.5" />
+        </svg>
+        Commit
       </button>
     </div>
   </div>

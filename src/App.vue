@@ -102,14 +102,20 @@ watch(statuses, () => {
     <TabBar />
     <main class="main">
       <p v-if="error" class="banner">{{ error }}</p>
-      <GroupsView v-show="activeId === GROUPS_TAB_ID" />
-      <RepoPane
+      <div class="main-pane" v-show="activeId === GROUPS_TAB_ID">
+        <GroupsView />
+      </div>
+      <div
         v-for="tab in repoTabs"
-        v-show="activeId === tab.id"
         :key="tab.id"
-        :repo-id="tab.id"
-      />
-      <SettingsView v-if="settingsTabOpen" v-show="activeId === SETTINGS_TAB_ID" />
+        class="main-pane"
+        v-show="activeId === tab.id"
+      >
+        <RepoPane :repo-id="tab.id" />
+      </div>
+      <div v-if="settingsTabOpen" class="main-pane" v-show="activeId === SETTINGS_TAB_ID">
+        <SettingsView />
+      </div>
     </main>
     <footer class="status-bar">
       <span class="status-bar-version">{{ appVersion }}</span>

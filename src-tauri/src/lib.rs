@@ -61,6 +61,7 @@ pub fn run() {
             commands::log_graph,
             commands::working_tree,
             commands::discard_all_changes,
+            commands::commit,
             commands::stage_file,
             commands::stage_all,
             commands::unstage_file,

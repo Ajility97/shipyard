@@ -525,6 +525,38 @@ pub fn discard_all_changes(git: &Path, repo: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn commit(git: &Path, repo: &Path, title: &str, description: &str) -> Result<String, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Enter a commit title.".into());
+    }
+    if title.chars().count() > 72 {
+        return Err("Commit title must be 72 characters or fewer.".into());
+    }
+    if title.contains('\0') || description.contains('\0') {
+        return Err("Invalid commit message.".into());
+    }
+
+    let staged = run_git(git, repo, &["diff", "--cached", "--quiet"])?;
+    if staged.success {
+        return Err("Nothing is staged to commit.".into());
+    }
+
+    let description = description.trim();
+    let output = if description.is_empty() {
+        run_git(git, repo, &["commit", "-m", title])?
+    } else {
+        run_git(git, repo, &["commit", "-m", title, "-m", description])?
+    };
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), "Commit failed."));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Committed {title}"),
+    ))
+}
+
 fn porcelain_path(rest: &str) -> Option<String> {
     let path = rest
         .trim()
@@ -861,6 +893,26 @@ mod tests {
         unstage_all(&git_bin(), &repo).unwrap();
         let files = working_tree(&git_bin(), &repo).unwrap();
         assert!(files.iter().all(|file| !file.staged));
+    }
+
+    #[test]
+    fn commits_staged_files_with_title_and_description() {
+        let repo = init_repo();
+        fs::write(repo.join("README.md"), "updated\n").unwrap();
+        stage_all(&git_bin(), &repo).unwrap();
+        let message = commit(
+            &git_bin(),
+            &repo,
+            "Update readme",
+            "Describe the change.",
+        )
+        .unwrap();
+        assert!(message.to_lowercase().contains("update readme") || message.contains("develop"));
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.is_empty());
+        let commits = log_graph(&git_bin(), &repo).unwrap();
+        assert_eq!(commits[0].subject, "Update readme");
+        assert!(commit(&git_bin(), &repo, "Nothing", "").is_err());
     }
 
     #[test]

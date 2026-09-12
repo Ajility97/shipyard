@@ -4,6 +4,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
+import PathLabel from "./PathLabel.vue";
 import RepoToolbar from "./RepoToolbar.vue";
 import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
@@ -42,8 +43,19 @@ const message = ref("");
 const creatingBranch = ref(false);
 const newBranchName = ref("");
 const newBranchInput = ref<HTMLInputElement | null>(null);
+const committing = ref(false);
+const commitTitle = ref("");
+const commitDescription = ref("");
+const commitTitleInput = ref<HTMLInputElement | null>(null);
+
+const COMMIT_TITLE_MAX = 72;
 
 const canCreateBranch = computed(() => Boolean(newBranchName.value.trim()));
+const commitTitleLength = computed(() => [...commitTitle.value].length);
+const commitTitleLeft = computed(() => Math.max(0, COMMIT_TITLE_MAX - commitTitleLength.value));
+const canCommit = computed(
+  () => Boolean(commitTitle.value.trim()) && commitTitleLength.value <= COMMIT_TITLE_MAX,
+);
 
 const current = computed(() => findRepo(props.repoId));
 const resizing = ref(false);
@@ -282,6 +294,34 @@ function createBranch() {
   );
 }
 
+async function openCommit() {
+  if (actionBusy.value || !files.value.some((file) => file.staged)) {
+    return;
+  }
+  commitTitle.value = "";
+  commitDescription.value = "";
+  committing.value = true;
+  await nextTick();
+  commitTitleInput.value?.focus();
+}
+
+function closeCommit() {
+  committing.value = false;
+  commitTitle.value = "";
+  commitDescription.value = "";
+}
+
+function commitChanges() {
+  const match = current.value;
+  const title = commitTitle.value.trim();
+  if (!match || !title) {
+    return;
+  }
+  const description = commitDescription.value;
+  closeCommit();
+  return runRepoAction("Committing…", () => api.commit(match.repo.path, title, description));
+}
+
 async function refreshBranches() {
   const match = current.value;
   if (!match) {
@@ -331,6 +371,7 @@ watch(
 </script>
 
 <template>
+  <div class="repo-pane">
   <div
     v-if="current"
     class="repo-view"
@@ -376,7 +417,7 @@ watch(
       <div class="pane-header">
         <div class="diff-heading">
           <button class="ghost tiny" type="button" @click="closeDiff">← Back</button>
-          <span class="diff-path">{{ selectedFile.path }}</span>
+          <PathLabel class="diff-path" :path="selectedFile.path" />
           <span class="muted tiny">{{ selectedFile.staged ? "Staged" : "Unstaged" }}</span>
         </div>
         <div class="pane-header-end">
@@ -448,12 +489,48 @@ watch(
         @stage-all="stageAll"
         @unstage-all="unstageAll"
         @discard="discardAll"
+        @commit="openCommit"
       />
     </aside>
   </div>
   <div v-else class="empty-home">
     <p class="muted">{{ loaded ? "Repository not found." : "Loading…" }}</p>
   </div>
+  <Modal v-if="committing" title="Commit" medium @close="closeCommit">
+    <label class="modal-label">
+      <span class="modal-label-row">
+        <span class="muted tiny">Title</span>
+        <span
+          class="muted tiny char-count"
+          :class="{ warn: commitTitleLeft <= 12, bad: commitTitleLeft === 0 }"
+        >
+          {{ commitTitleLength }}/{{ COMMIT_TITLE_MAX }} · {{ commitTitleLeft }} left
+        </span>
+      </span>
+      <input
+        ref="commitTitleInput"
+        v-model="commitTitle"
+        type="text"
+        :maxlength="COMMIT_TITLE_MAX"
+        placeholder="Short summary of the change"
+        @keydown.enter.prevent="commitChanges"
+      />
+    </label>
+    <label class="modal-label">
+      <span class="muted tiny">Description</span>
+      <textarea
+        v-model="commitDescription"
+        rows="5"
+        placeholder="Optional details"
+      />
+    </label>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeCommit">Cancel</button>
+      <button class="ghost commit" type="button" :disabled="!canCommit" @click="commitChanges">
+        Commit
+      </button>
+    </template>
+  </Modal>
   <Modal v-if="creatingBranch" title="New branch" @close="closeCreateBranch">
     <label class="modal-label">
       <span class="muted tiny">Branch name</span>
@@ -472,4 +549,5 @@ watch(
       </button>
     </template>
   </Modal>
+  </div>
 </template>

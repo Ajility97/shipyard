@@ -89,8 +89,34 @@ input[type="text"] {
   padding: 0.35rem 0.55rem;
 }
 
-input[type="text"]:focus {
+input[type="text"]:focus,
+textarea:focus {
   outline: 1px solid var(--accent);
+}
+
+textarea {
+  width: 100%;
+  min-height: 6.5rem;
+  resize: vertical;
+  border: 1px solid var(--border);
+  background: #0d1016;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+}
+
+button.commit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  color: var(--good);
+}
+
+button.commit:hover:not(:disabled) {
+  border-color: var(--good);
+  color: var(--good);
 }
 
 .app-shell {
@@ -226,8 +252,32 @@ button.toast.error:hover:not(:disabled) {
   box-shadow: 0 22px 56px rgba(0, 0, 0, 0.45);
 }
 
+.modal.medium {
+  width: min(38rem, calc(100vw - 2rem));
+}
+
 .modal.wide {
   width: min(48rem, calc(100vw - 2rem));
+}
+
+.modal-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.char-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.char-count.warn {
+  color: var(--warn);
+}
+
+.char-count.bad {
+  color: var(--bad);
 }
 
 .modal-title {
@@ -858,9 +908,18 @@ button:has(.spinner) {
   background: var(--bg);
 }
 
-.main > .groups-page,
-.main > .repo-view,
-.main > .settings-page {
+.main > .main-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-pane > .groups-page,
+.main-pane > .repo-pane,
+.main-pane > .repo-view,
+.main-pane > .settings-page {
   flex: 1;
   min-height: 0;
 }
@@ -1340,6 +1399,20 @@ button.chevron:active {
   border-bottom: 1px solid var(--border);
 }
 
+.repo-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.repo-pane > .repo-view,
+.repo-pane > .empty-home {
+  flex: 1;
+  min-height: 0;
+}
+
 .repo-view {
   position: relative;
   display: grid;
@@ -1385,9 +1458,7 @@ button.chevron:active {
 }
 
 .diff-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
 }
 
 .changes-pane {
@@ -1466,11 +1537,36 @@ body.is-resizing * {
   white-space: nowrap;
 }
 
+.file-bulk-action,
+.file-item-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.file-bulk-action .button-icon,
+.file-item-action .button-icon {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
 .file-bulk-action {
   flex-shrink: 0;
   white-space: nowrap;
   padding: 0.2rem 0.45rem;
   font-size: 11px;
+}
+
+.file-bulk-action.stage:not(:disabled),
+.file-item-action.stage {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 42%, var(--border));
+}
+
+.file-bulk-action.unstage:not(:disabled),
+.file-item-action.unstage {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 42%, var(--border));
 }
 
 .file-count-badge {
@@ -1642,6 +1738,8 @@ body.is-resizing * {
 }
 
 .file-item {
+  --row-bg: var(--bg-raised);
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
@@ -1655,6 +1753,7 @@ body.is-resizing * {
 }
 
 .file-item:hover:not(.active) {
+  --row-bg: var(--bg-hover);
   background: var(--bg-hover);
 }
 
@@ -1681,22 +1780,117 @@ body.is-resizing * {
 .file-item-path {
   flex: 1;
   min-width: 0;
+}
+
+.path-label {
+  display: flex;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-item-status {
+.path-dir {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.path-sep {
   flex-shrink: 0;
+  color: var(--muted);
+}
+
+.path-file {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-status-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+.file-status-icon svg {
+  display: block;
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.file-status-icon.modified {
+  color: var(--warn);
+}
+
+.file-status-icon.untracked,
+.file-status-icon.added {
+  color: var(--good);
+}
+
+.file-status-icon.deleted,
+.file-status-icon.conflicted {
+  color: var(--bad);
+}
+
+.file-status-icon.renamed,
+.file-status-icon.copied {
+  color: #8ab4ff;
+}
+
+.file-status-icon.unknown {
+  color: var(--muted);
 }
 
 .file-item-action {
-  flex-shrink: 0;
+  position: absolute;
+  top: 50%;
+  right: 0.4rem;
+  z-index: 1;
+  overflow: visible;
+  transform: translateY(-50%);
   opacity: 0;
   pointer-events: none;
   white-space: nowrap;
-  padding: 0.15rem 0.4rem;
+  padding: 0.18rem 0.5rem;
   font-size: 11px;
+  font-weight: 650;
+  background: color-mix(in srgb, currentColor 18%, #12151b);
+  background-clip: padding-box;
+}
+
+.file-item-action::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: calc(100% + 1px);
+  width: 1.5rem;
+  background: linear-gradient(to right, transparent, var(--row-bg));
+  pointer-events: none;
+}
+
+.file-item-action.stage {
+  background: color-mix(in srgb, var(--good) 18%, #12151b);
+}
+
+.file-item-action.unstage {
+  background: color-mix(in srgb, var(--bad) 16%, #12151b);
+}
+
+.file-item-action.stage:hover:not(:disabled),
+.file-item-action.unstage:hover:not(:disabled) {
+  background: var(--bg-hover);
 }
 
 .file-item:hover .file-item-action,
@@ -1706,16 +1900,21 @@ body.is-resizing * {
 }
 
 .file-item.active {
+  --row-bg: var(--bg-active);
   background: var(--bg-active);
 }
 
 .file-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   padding: 0.55rem 0.75rem 0.65rem;
   border-top: 1px solid var(--border);
 }
 
 .file-footer button {
-  width: 100%;
+  flex: 1;
+  width: auto;
 }
 
 .diff-pane {

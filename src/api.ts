@@ -133,6 +133,10 @@ export function discardAllChanges(path: string) {
   return invoke<void>("discard_all_changes", { path });
 }
 
+export function commit(path: string, title: string, description: string) {
+  return invoke<string>("commit", { path, title, description });
+}
+
 export function stageFile(path: string, file: string) {
   return invoke<void>("stage_file", { path, file });
 }

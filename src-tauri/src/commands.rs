@@ -708,6 +708,21 @@ pub fn discard_all_changes(state: State<AppState>, path: String) -> Result<(), S
 }
 
 #[tauri::command]
+pub async fn commit(
+    state: State<'_, AppState>,
+    path: String,
+    title: String,
+    description: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::commit(&git, Path::new(&path), &title, &description)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub fn stage_file(state: State<AppState>, path: String, file: String) -> Result<(), String> {
     let git = require_git(&state)?;
     git::stage_file(&git, Path::new(&path), &file)

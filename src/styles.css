@@ -1555,12 +1555,7 @@ button.chevron:active {
   background: var(--bg-raised);
   display: flex;
   flex-direction: column;
-  overflow: visible;
-}
-
-.repo-view:not(.files-collapsed) .graph-pane .pane-header,
-.repo-view:not(.files-collapsed) .diff-main .pane-header {
-  padding-right: 2.85rem;
+  overflow: hidden;
 }
 
 .pane-resize {
@@ -1673,15 +1668,14 @@ body.is-resizing * {
   line-height: 1;
 }
 
-.files-float svg {
-  display: block;
-  width: 1.25rem;
-  height: 1.25rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.file-count-badge.unstaged {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, var(--chip));
+}
+
+.file-count-badge.staged {
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 16%, var(--chip));
 }
 
 .pane-header-end {
@@ -1689,36 +1683,6 @@ body.is-resizing * {
   align-items: center;
   flex-shrink: 0;
   gap: 0.55rem;
-}
-
-.files-float {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.15rem;
-  height: 2.15rem;
-  margin-right: -0.85rem;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-right: 0;
-  border-radius: 8px 0 0 8px;
-  background: var(--bg-raised);
-  color: var(--text);
-  box-shadow: -6px 6px 18px rgba(0, 0, 0, 0.28);
-}
-
-.files-float.dock-left {
-  position: absolute;
-  top: 0.55rem;
-  left: 0;
-  z-index: 8;
-  margin: 0;
-  transform: translateX(-100%);
-}
-
-.files-float:hover:not(:disabled) {
-  background: var(--bg-hover);
 }
 
 .pane-header {
@@ -1753,8 +1717,15 @@ body.is-resizing * {
   gap: 0.3rem;
 }
 
-.repo-toolbar-actions .ghost.active {
+.repo-toolbar-actions .ghost.active,
+.pane-header-end .ghost.active {
   background: var(--bg-active);
+}
+
+.pane-header-end .ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .repo-toolbar-actions .ghost .branch-icon {

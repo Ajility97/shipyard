@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import BranchIcon from "./BranchIcon.vue";
+import ChangesToggle from "./ChangesToggle.vue";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
 
 const props = defineProps<{
@@ -11,6 +12,9 @@ const props = defineProps<{
   busy: boolean;
   busyLabel: string;
   branchesView: boolean;
+  filesOpen: boolean;
+  unstagedCount: number;
+  stagedCount: number;
 }>();
 
 const emit = defineEmits<{
@@ -19,6 +23,7 @@ const emit = defineEmits<{
   checkout: [branch: string];
   create: [];
   branches: [];
+  files: [];
   refreshBranches: [];
 }>();
 
@@ -120,6 +125,12 @@ async function toggleBranches() {
         </svg>
         Push
       </button>
+      <ChangesToggle
+        :open="filesOpen"
+        :unstaged="unstagedCount"
+        :staged="stagedCount"
+        @click="emit('files')"
+      />
       <slot />
     </div>
   </div>

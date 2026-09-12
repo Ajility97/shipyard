@@ -2,6 +2,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import BranchList from "./BranchList.vue";
+import ChangesToggle from "./ChangesToggle.vue";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
@@ -59,6 +60,8 @@ const commitTitleLeft = computed(() => Math.max(0, COMMIT_TITLE_MAX - commitTitl
 const canCommit = computed(
   () => Boolean(commitTitle.value.trim()) && commitTitleLength.value <= COMMIT_TITLE_MAX,
 );
+const unstagedCount = computed(() => files.value.filter((file) => !file.staged).length);
+const stagedCount = computed(() => files.value.filter((file) => file.staged).length);
 
 const current = computed(() => findRepo(props.repoId));
 const resizing = ref(false);
@@ -486,28 +489,17 @@ watch(
         :busy="actionBusy"
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
         :branches-view="branchesView"
+        :files-open="!filesCollapsed"
+        :unstaged-count="unstagedCount"
+        :staged-count="stagedCount"
         @pull="pullRepo"
         @push="pushRepo"
         @checkout="checkoutBranch"
         @create="openCreateBranch"
         @branches="toggleBranchesView"
+        @files="filesCollapsed = !filesCollapsed"
         @refresh-branches="refreshBranches"
-      >
-        <button
-          v-if="filesCollapsed"
-          class="files-float"
-          type="button"
-          title="Show files panel"
-          aria-label="Show files panel"
-          @click="filesCollapsed = false"
-        >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
-            <path d="M10.25 2.25v11.5" />
-            <path d="M8.85 5.6L6.6 8l2.25 2.4" />
-          </svg>
-        </button>
-      </RepoToolbar>
+      />
       <p v-if="message" class="banner">{{ message }}</p>
       <BranchList
         v-if="branchesView"
@@ -546,20 +538,12 @@ watch(
               Side by side
             </button>
           </div>
-          <button
-            v-if="filesCollapsed"
-            class="files-float"
-            type="button"
-            title="Show files panel"
-            aria-label="Show files panel"
-            @click="filesCollapsed = false"
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
-              <path d="M10.25 2.25v11.5" />
-              <path d="M8.85 5.6L6.6 8l2.25 2.4" />
-            </svg>
-          </button>
+          <ChangesToggle
+            :open="!filesCollapsed"
+            :unstaged="unstagedCount"
+            :staged="stagedCount"
+            @click="filesCollapsed = !filesCollapsed"
+          />
         </div>
       </div>
       <div class="diff-scroll">
@@ -573,19 +557,6 @@ watch(
         aria-label="Resize files panel"
         @pointerdown="startResize"
       />
-      <button
-        class="files-float dock-left"
-        type="button"
-        title="Collapse files panel"
-        aria-label="Collapse files panel"
-        @click="filesCollapsed = true"
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" />
-          <path d="M10.25 2.25v11.5" />
-          <path d="M7.15 5.6L9.4 8l-2.25 2.4" />
-        </svg>
-      </button>
       <WorkingTree
         :files="files"
         :selected-path="selectedFile?.path ?? ''"

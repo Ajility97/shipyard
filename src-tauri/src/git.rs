@@ -302,17 +302,6 @@ pub fn current_branch(git: &Path, repo: &Path) -> Result<String, String> {
     }
 }
 
-pub fn is_dirty(git: &Path, repo: &Path) -> Result<bool, String> {
-    let output = run_git(git, repo, &["status", "--porcelain"])?;
-    if !output.success {
-        return Err(or_fallback(
-            &combined_message(&output),
-            "Could not read repository status.",
-        ));
-    }
-    Ok(!output.stdout.trim().is_empty())
-}
-
 pub fn folder_name(path: &str) -> String {
     Path::new(path)
         .file_name()
@@ -605,10 +594,10 @@ mod tests {
     fn reads_branch_and_dirty_status() {
         let repo = init_repo();
         assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
-        assert!(!is_dirty(&git_bin(), &repo).unwrap());
+        assert!(!live_status(&git_bin(), &repo).unwrap().dirty);
         fs::write(repo.join("README.md"), "changed\n").unwrap();
-        assert!(is_dirty(&git_bin(), &repo).unwrap());
         let dirty = live_status(&git_bin(), &repo).unwrap();
+        assert!(dirty.dirty);
         assert_eq!((dirty.insertions, dirty.deletions, dirty.changed_files), (1, 1, 1));
         fs::write(repo.join("new.txt"), "one\ntwo\n").unwrap();
         let with_untracked = live_status(&git_bin(), &repo).unwrap();

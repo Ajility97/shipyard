@@ -197,6 +197,10 @@ export function fileDiff(path: string, file: string, staged = false) {
   return invoke<string>("file_diff", { path, file, staged });
 }
 
+export function writeTextFile(path: string, contents: string) {
+  return invoke<void>("write_text_file", { path, contents });
+}
+
 export function commandHistory() {
   return invoke<CommandLogEntry[]>("command_history");
 }

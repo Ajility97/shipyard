@@ -877,6 +877,20 @@ fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> 
 }
 
 #[tauri::command]
+pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("Choose a file to export.".into());
+    }
+    if let Some(parent) = Path::new(&path).parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|err| format!("Could not create the export folder: {err}"))?;
+        }
+    }
+    std::fs::write(&path, contents).map_err(|err| format!("Could not write the file: {err}"))
+}
+
+#[tauri::command]
 pub fn command_history() -> Vec<crate::command_log::CommandLogEntry> {
     crate::command_log::list()
 }

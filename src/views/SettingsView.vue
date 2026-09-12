@@ -5,17 +5,20 @@ import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 import { nextTick, onMounted, onUnmounted, ref } from "vue";
+import { save as saveFile } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
 import { useApp } from "../composables/useApp";
 import type { AppData } from "../types";
 
-const { replaceSettings } = useApp();
+const { replaceSettings, showToast } = useApp();
 const editorHost = ref<HTMLDivElement | null>(null);
 const draft = ref("");
 const message = ref("");
 const saving = ref(false);
-const saved = ref(false);
+const baseline = ref("");
 const copied = ref(false);
+const exporting = ref(false);
+const exported = ref(false);
 let view: EditorView | null = null;
 
 const editorTheme = EditorView.theme(
@@ -88,6 +91,7 @@ function setDraft(value: string) {
 onMounted(async () => {
   try {
     draft.value = JSON.stringify(await api.getState(), null, 2);
+    baseline.value = draft.value;
   } catch (err) {
     message.value = String(err);
   }
@@ -106,7 +110,6 @@ onMounted(async () => {
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           draft.value = update.state.doc.toString();
-          saved.value = false;
         }
       }),
     ],
@@ -130,9 +133,40 @@ async function copy() {
   }
 }
 
+async function exportSettings() {
+  message.value = "";
+  exported.value = false;
+  let contents = draft.value;
+  try {
+    contents = JSON.stringify(JSON.parse(draft.value) as AppData, null, 2);
+  } catch {
+    message.value = "Settings JSON is not valid.";
+    return;
+  }
+  const path = await saveFile({
+    title: "Export settings",
+    defaultPath: "krakdown-settings.json",
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (!path) {
+    return;
+  }
+  exporting.value = true;
+  try {
+    await api.writeTextFile(path, `${contents}\n`);
+    exported.value = true;
+    window.setTimeout(() => {
+      exported.value = false;
+    }, 1600);
+  } catch (err) {
+    message.value = String(err);
+  } finally {
+    exporting.value = false;
+  }
+}
+
 async function save() {
   message.value = "";
-  saved.value = false;
   let parsed: AppData;
   try {
     parsed = JSON.parse(draft.value) as AppData;
@@ -143,8 +177,10 @@ async function save() {
   saving.value = true;
   try {
     const next = await replaceSettings(parsed);
-    setDraft(JSON.stringify(next, null, 2));
-    saved.value = true;
+    const pretty = JSON.stringify(next, null, 2);
+    setDraft(pretty);
+    baseline.value = pretty;
+    showToast("Settings have been saved.");
   } catch (err) {
     message.value = String(err);
   } finally {
@@ -163,9 +199,29 @@ async function save() {
             This is the saved settings file. Edit it here, or paste a copy from another machine.
           </p>
         </div>
-        <button class="primary" type="button" :disabled="saving || !draft.trim()" @click="save">
-          {{ saving ? "Saving…" : saved ? "Saved" : "Save" }}
-        </button>
+        <div class="settings-header-actions">
+          <button
+            class="ghost"
+            type="button"
+            :disabled="exporting || !draft.trim()"
+            @click="exportSettings"
+          >
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M9 8.25H7.5a2.25 2.25 0 0 0-2.25 2.25v9a2.25 2.25 0 0 0 2.25 2.25h9a2.25 2.25 0 0 0 2.25-2.25v-9A2.25 2.25 0 0 0 16.5 8.25H15M9 12l3 3m0 0 3-3m-3 3V2.25"
+              />
+            </svg>
+            {{ exporting ? "Exporting…" : exported ? "Exported" : "Export" }}
+          </button>
+          <button
+            class="primary"
+            type="button"
+            :disabled="saving || draft === baseline || !draft.trim()"
+            @click="save"
+          >
+            {{ saving ? "Saving…" : "Save" }}
+          </button>
+        </div>
       </div>
       <div class="settings-editor">
         <button class="ghost tiny settings-copy" type="button" @click="copy">

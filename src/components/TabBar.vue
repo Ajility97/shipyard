@@ -11,7 +11,12 @@ const { tabs, activeId, activate, closeRepo, openSettings } = useTabs();
         v-for="tab in tabs"
         :key="tab.id"
         class="tab"
-        :class="{ active: activeId === tab.id, pinned: !tab.closable }"
+        :class="{
+          active: activeId === tab.id,
+          pinned: !tab.closable,
+          'has-group-color': Boolean(tab.accentColor),
+        }"
+        :style="tab.accentColor ? { '--tab-accent': tab.accentColor } : undefined"
         role="tab"
         :aria-selected="activeId === tab.id"
         @click="activate(tab.id)"

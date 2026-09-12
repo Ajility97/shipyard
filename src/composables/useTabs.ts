@@ -9,6 +9,7 @@ export interface AppTab {
   id: string;
   title: string;
   closable: boolean;
+  accentColor?: string;
 }
 
 interface RepoTab {
@@ -31,7 +32,11 @@ export function useTabs() {
 
   const tabs = computed<AppTab[]>(() => [
     { id: GROUPS_TAB_ID, title: "Repositories", closable: false },
-    ...repoTabs.value.map((tab) => ({ ...tab, closable: true })),
+    ...repoTabs.value.map((tab) => ({
+      ...tab,
+      closable: true,
+      accentColor: findRepo(tab.id)?.group?.headerColor,
+    })),
     ...(settingsTabOpen.value
       ? [{ id: SETTINGS_TAB_ID, title: "Settings", closable: true }]
       : []),

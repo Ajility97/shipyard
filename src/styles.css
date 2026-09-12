@@ -626,6 +626,10 @@ button.tab-settings:active {
   user-select: none;
 }
 
+.tab.has-group-color {
+  box-shadow: inset 0 3px 0 var(--tab-accent);
+}
+
 .tab.pinned {
   justify-content: center;
   min-width: 11.25rem;

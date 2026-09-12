@@ -66,4 +66,5 @@ export interface WorkingTreeFile {
   path: string;
   status: string;
   untracked: boolean;
+  staged: boolean;
 }

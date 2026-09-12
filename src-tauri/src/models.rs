@@ -152,4 +152,6 @@ pub struct WorkingTreeFile {
     pub path: String,
     pub status: String,
     pub untracked: bool,
+    #[serde(default)]
+    pub staged: bool,
 }

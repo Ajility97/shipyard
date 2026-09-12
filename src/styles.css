@@ -1356,13 +1356,20 @@ button.chevron:active {
 .changes-pane,
 .diff-main {
   min-height: 0;
-  overflow: auto;
 }
 
+.graph-pane,
 .diff-main {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.graph-scroll,
+.diff-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .diff-heading {
@@ -1372,16 +1379,15 @@ button.chevron:active {
   min-width: 0;
 }
 
+.diff-heading .ghost {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .diff-path {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.diff-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
 }
 
 .changes-pane {
@@ -1425,9 +1431,26 @@ body.is-resizing * {
 
 .file-pane {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-height: 0;
   height: 100%;
+}
+
+.file-section {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.file-section + .file-section {
+  border-top: 1px solid var(--border);
+}
+
+.file-section .pane-header {
+  flex-shrink: 0;
+  min-height: 2.7rem;
 }
 
 .file-heading {
@@ -1435,6 +1458,19 @@ body.is-resizing * {
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
+}
+
+.file-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-bulk-action {
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 0.2rem 0.45rem;
+  font-size: 11px;
 }
 
 .file-count-badge {
@@ -1467,6 +1503,7 @@ body.is-resizing * {
 .pane-header-end {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 0.55rem;
 }
 
@@ -1506,6 +1543,7 @@ body.is-resizing * {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: nowrap;
   gap: 0.5rem;
 }
 
@@ -1515,16 +1553,72 @@ body.is-resizing * {
   min-height: 0;
 }
 
+.empty-files {
+  padding: 0.75rem 0.85rem;
+}
+
 .file-item {
   width: 100%;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.45rem;
   border: 0;
   border-radius: 0;
   background: transparent;
   text-align: left;
-  padding: 0.45rem 0.85rem;
+  padding: 0.25rem 0.55rem 0.25rem 0.85rem;
+}
+
+.file-item:hover:not(.active) {
+  background: var(--bg-hover);
+}
+
+.file-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.2rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.file-item-main:hover:not(:disabled) {
+  background: transparent;
+}
+
+.file-item-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-item-status {
+  flex-shrink: 0;
+}
+
+.file-item-action {
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 0.15rem 0.4rem;
+  font-size: 11px;
+}
+
+.file-item:hover .file-item-action,
+.file-item:focus-within .file-item-action {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .file-item.active {
@@ -1659,6 +1753,7 @@ body.is-resizing * {
 .segmented {
   display: inline-flex;
   align-items: stretch;
+  flex-shrink: 0;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -1673,6 +1768,7 @@ body.is-resizing * {
   box-shadow: none;
   padding: 0.28rem 0.7rem;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .segmented button + button {

@@ -61,6 +61,10 @@ pub fn run() {
             commands::log_graph,
             commands::working_tree,
             commands::discard_all_changes,
+            commands::stage_file,
+            commands::stage_all,
+            commands::unstage_file,
+            commands::unstage_all,
             commands::file_diff,
         ])
         .run(tauri::generate_context!())

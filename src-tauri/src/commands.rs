@@ -708,9 +708,38 @@ pub fn discard_all_changes(state: State<AppState>, path: String) -> Result<(), S
 }
 
 #[tauri::command]
-pub fn file_diff(state: State<AppState>, path: String, file: String) -> Result<String, String> {
+pub fn stage_file(state: State<AppState>, path: String, file: String) -> Result<(), String> {
     let git = require_git(&state)?;
-    git::file_diff(&git, Path::new(&path), &file)
+    git::stage_file(&git, Path::new(&path), &file)
+}
+
+#[tauri::command]
+pub fn stage_all(state: State<AppState>, path: String) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::stage_all(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn unstage_file(state: State<AppState>, path: String, file: String) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::unstage_file(&git, Path::new(&path), &file)
+}
+
+#[tauri::command]
+pub fn unstage_all(state: State<AppState>, path: String) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::unstage_all(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn file_diff(
+    state: State<AppState>,
+    path: String,
+    file: String,
+    staged: bool,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    git::file_diff(&git, Path::new(&path), &file, staged)
 }
 
 fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> RepoStatus {

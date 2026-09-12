@@ -133,6 +133,22 @@ export function discardAllChanges(path: string) {
   return invoke<void>("discard_all_changes", { path });
 }
 
-export function fileDiff(path: string, file: string) {
-  return invoke<string>("file_diff", { path, file });
+export function stageFile(path: string, file: string) {
+  return invoke<void>("stage_file", { path, file });
+}
+
+export function stageAll(path: string) {
+  return invoke<void>("stage_all", { path });
+}
+
+export function unstageFile(path: string, file: string) {
+  return invoke<void>("unstage_file", { path, file });
+}
+
+export function unstageAll(path: string) {
+  return invoke<void>("unstage_all", { path });
+}
+
+export function fileDiff(path: string, file: string, staged = false) {
+  return invoke<string>("file_diff", { path, file, staged });
 }

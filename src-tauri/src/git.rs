@@ -438,6 +438,34 @@ pub fn discard_all_changes(git: &Path, repo: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn porcelain_path(rest: &str) -> Option<String> {
+    let path = rest
+        .trim()
+        .split(" -> ")
+        .last()
+        .unwrap_or(rest)
+        .trim_matches('"')
+        .to_string();
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
+}
+
+fn describe_letter(letter: char) -> String {
+    match letter {
+        'M' => "Modified".into(),
+        'A' => "Added".into(),
+        'D' => "Deleted".into(),
+        'R' => "Renamed".into(),
+        'C' => "Copied".into(),
+        'U' => "Conflicted".into(),
+        '?' => "Untracked".into(),
+        other => other.to_string(),
+    }
+}
+
 pub fn working_tree(git: &Path, repo: &Path) -> Result<Vec<WorkingTreeFile>, String> {
     let output = run_git(git, repo, &["status", "--porcelain=v1", "-uall"])?;
     if !output.success {
@@ -447,48 +475,109 @@ pub fn working_tree(git: &Path, repo: &Path) -> Result<Vec<WorkingTreeFile>, Str
         ));
     }
 
-    let files = output
-        .stdout
-        .lines()
-        .filter_map(|line| {
-            if line.len() < 4 {
-                return None;
-            }
-            let code = line[..2].to_string();
-            let rest = line[3..].trim();
-            if rest.is_empty() {
-                return None;
-            }
-            let path = rest
-                .split(" -> ")
-                .last()
-                .unwrap_or(rest)
-                .trim_matches('"')
-                .to_string();
-            Some(WorkingTreeFile {
-                untracked: code == "??",
-                status: describe_status(&code),
+    let mut files = Vec::new();
+    for line in output.stdout.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+        let index = line.as_bytes()[0] as char;
+        let worktree = line.as_bytes()[1] as char;
+        let Some(path) = porcelain_path(&line[3..]) else {
+            continue;
+        };
+        if index == '?' && worktree == '?' {
+            files.push(WorkingTreeFile {
                 path,
-            })
-        })
-        .collect();
+                status: "Untracked".into(),
+                untracked: true,
+                staged: false,
+            });
+            continue;
+        }
+        if index != ' ' && index != '?' {
+            files.push(WorkingTreeFile {
+                path: path.clone(),
+                status: describe_letter(index),
+                untracked: false,
+                staged: true,
+            });
+        }
+        if worktree != ' ' && worktree != '?' {
+            files.push(WorkingTreeFile {
+                path,
+                status: describe_letter(worktree),
+                untracked: false,
+                staged: false,
+            });
+        }
+    }
 
     Ok(files)
 }
 
-pub fn file_diff(git: &Path, repo: &Path, file: &str) -> Result<String, String> {
+fn require_file_path(file: &str) -> Result<(), String> {
     if file.is_empty() || file.contains('\0') {
         return Err("Invalid file path".into());
     }
+    Ok(())
+}
 
-    let status = run_git(git, repo, &["status", "--porcelain=v1", "--", file])?;
-    let untracked = status.stdout.lines().any(|line| line.starts_with("??"));
+pub fn stage_file(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    require_file_path(file)?;
+    let output = run_git(git, repo, &["add", "--", file])?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), "Failed to stage file."));
+    }
+    Ok(())
+}
 
-    if untracked {
-        return untracked_diff(repo, file);
+pub fn stage_all(git: &Path, repo: &Path) -> Result<(), String> {
+    let output = run_git(git, repo, &["add", "-A"])?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), "Failed to stage all files."));
+    }
+    Ok(())
+}
+
+pub fn unstage_file(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    require_file_path(file)?;
+    let output = run_git(git, repo, &["restore", "--staged", "--", file])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to unstage file.",
+        ));
+    }
+    Ok(())
+}
+
+pub fn unstage_all(git: &Path, repo: &Path) -> Result<(), String> {
+    let output = run_git(git, repo, &["restore", "--staged", "."])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to unstage all files.",
+        ));
+    }
+    Ok(())
+}
+
+pub fn file_diff(git: &Path, repo: &Path, file: &str, staged: bool) -> Result<String, String> {
+    require_file_path(file)?;
+
+    if !staged {
+        let status = run_git(git, repo, &["status", "--porcelain=v1", "--", file])?;
+        let untracked = status.stdout.lines().any(|line| line.starts_with("??"));
+        if untracked {
+            return untracked_diff(repo, file);
+        }
     }
 
-    let output = run_git(git, repo, &["diff", "HEAD", "--", file])?;
+    let output = if staged {
+        run_git(git, repo, &["diff", "--cached", "--", file])?
+    } else {
+        run_git(git, repo, &["diff", "--", file])?
+    };
     if !output.success && output.stdout.trim().is_empty() {
         return Err(or_fallback(
             &combined_message(&output),
@@ -497,7 +586,11 @@ pub fn file_diff(git: &Path, repo: &Path, file: &str) -> Result<String, String> 
     }
 
     if output.stdout.trim().is_empty() {
-        return Ok("No changes versus HEAD.".into());
+        return Ok(if staged {
+            "No staged changes.".into()
+        } else {
+            "No unstaged changes.".into()
+        });
     }
 
     Ok(output.stdout)
@@ -523,19 +616,6 @@ fn untracked_diff(repo: &Path, file: &str) -> Result<String, String> {
         }
     }
     Ok(diff)
-}
-
-fn describe_status(code: &str) -> String {
-    match code {
-        "??" => "Untracked".into(),
-        "A " | "A?" => "Added".into(),
-        "M " | " M" | "MM" => "Modified".into(),
-        "D " | " D" => "Deleted".into(),
-        "R " | "RM" => "Renamed".into(),
-        "C " => "Copied".into(),
-        "UU" | "AA" | "DD" => "Conflicted".into(),
-        other => other.trim().to_string(),
-    }
 }
 
 fn or_fallback(message: &str, fallback: &str) -> String {
@@ -610,7 +690,8 @@ mod tests {
             (3, 1, 2)
         );
         let files = working_tree(&git_bin(), &repo).unwrap();
-        assert!(files.iter().any(|file| file.path == "README.md"));
+        assert!(files.iter().any(|file| file.path == "README.md" && !file.staged));
+        assert!(!files.iter().any(|file| file.staged));
     }
 
     #[test]
@@ -653,11 +734,46 @@ mod tests {
     fn diff_includes_untracked_files() {
         let repo = init_repo();
         fs::write(repo.join("new.txt"), "fresh\n").unwrap();
-        let diff = file_diff(&git_bin(), &repo, "new.txt").unwrap();
+        let diff = file_diff(&git_bin(), &repo, "new.txt", false).unwrap();
         assert!(diff.contains("+fresh"));
         let commits = log_graph(&git_bin(), &repo).unwrap();
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].subject, "initial");
+    }
+
+    #[test]
+    fn stages_and_unstages_working_tree_files() {
+        let repo = init_repo();
+        fs::write(repo.join("new.txt"), "fresh\n").unwrap();
+        fs::write(repo.join("README.md"), "changed\n").unwrap();
+
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.iter().any(|file| file.path == "new.txt" && !file.staged && file.untracked));
+        assert!(files.iter().any(|file| file.path == "README.md" && !file.staged));
+        assert!(!files.iter().any(|file| file.staged));
+
+        stage_file(&git_bin(), &repo, "new.txt").unwrap();
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.iter().any(|file| file.path == "new.txt" && file.staged));
+        assert!(!files.iter().any(|file| file.path == "new.txt" && !file.staged));
+        assert!(files.iter().any(|file| file.path == "README.md" && !file.staged));
+
+        stage_all(&git_bin(), &repo).unwrap();
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.iter().all(|file| file.staged));
+        assert!(files.iter().any(|file| file.path == "README.md" && file.staged));
+
+        let staged_diff = file_diff(&git_bin(), &repo, "README.md", true).unwrap();
+        assert!(staged_diff.contains("-hello") || staged_diff.contains("+changed"));
+
+        unstage_file(&git_bin(), &repo, "new.txt").unwrap();
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.iter().any(|file| file.path == "new.txt" && !file.staged));
+        assert!(!files.iter().any(|file| file.path == "new.txt" && file.staged));
+
+        unstage_all(&git_bin(), &repo).unwrap();
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.iter().all(|file| !file.staged));
     }
 
     #[test]

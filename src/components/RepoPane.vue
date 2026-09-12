@@ -96,7 +96,7 @@ async function loadRepo() {
     ]);
     commits.value = nextCommits;
     files.value = nextFiles;
-    if (selectedFile.value && !nextFiles.some((file) => file.path === selectedFile.value?.path)) {
+    if (selectedFile.value && !nextFiles.some((file) => sameFile(file, selectedFile.value))) {
       selectedFile.value = null;
       diff.value = "";
     }
@@ -105,6 +105,10 @@ async function loadRepo() {
   } finally {
     loading.value = false;
   }
+}
+
+function sameFile(file: WorkingTreeFile, other: WorkingTreeFile | null) {
+  return !!other && file.path === other.path && file.staged === other.staged;
 }
 
 function closeDiff() {
@@ -117,15 +121,76 @@ async function selectFile(file: WorkingTreeFile) {
   if (!match) {
     return;
   }
-  if (selectedFile.value?.path === file.path) {
+  if (sameFile(file, selectedFile.value)) {
     closeDiff();
     return;
   }
   selectedFile.value = file;
   try {
-    diff.value = await api.fileDiff(match.repo.path, file.path);
+    diff.value = await api.fileDiff(match.repo.path, file.path, file.staged);
   } catch (err) {
     diff.value = String(err);
+  }
+}
+
+async function reloadAfterIndexChange() {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  await loadRepo();
+  await refreshStatus(match.group?.id ?? STANDALONE_GROUP_ID);
+}
+
+async function stageFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await api.stageFile(match.repo.path, file.path);
+    await reloadAfterIndexChange();
+  } catch (err) {
+    message.value = String(err);
+  }
+}
+
+async function stageAll() {
+  const match = current.value;
+  if (!match || !files.value.some((file) => !file.staged)) {
+    return;
+  }
+  try {
+    await api.stageAll(match.repo.path);
+    await reloadAfterIndexChange();
+  } catch (err) {
+    message.value = String(err);
+  }
+}
+
+async function unstageFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await api.unstageFile(match.repo.path, file.path);
+    await reloadAfterIndexChange();
+  } catch (err) {
+    message.value = String(err);
+  }
+}
+
+async function unstageAll() {
+  const match = current.value;
+  if (!match || !files.value.some((file) => file.staged)) {
+    return;
+  }
+  try {
+    await api.unstageAll(match.repo.path);
+    await reloadAfterIndexChange();
+  } catch (err) {
+    message.value = String(err);
   }
 }
 
@@ -197,13 +262,16 @@ watch(
         </div>
       </div>
       <p v-if="message" class="banner">{{ message }}</p>
-      <CommitGraph :commits="commits" />
+      <div class="graph-scroll">
+        <CommitGraph :commits="commits" />
+      </div>
     </section>
     <section v-else class="diff-main">
       <div class="pane-header">
         <div class="diff-heading">
-          <button class="ghost tiny" type="button" @click="closeDiff">← Commits</button>
+          <button class="ghost tiny" type="button" @click="closeDiff">← Back</button>
           <span class="diff-path">{{ selectedFile.path }}</span>
+          <span class="muted tiny">{{ selectedFile.staged ? "Staged" : "Unstaged" }}</span>
         </div>
         <div class="pane-header-end">
           <div class="segmented" role="group" aria-label="Diff layout">
@@ -266,8 +334,13 @@ watch(
       </button>
       <WorkingTree
         :files="files"
-        :selected="selectedFile?.path ?? ''"
+        :selected-path="selectedFile?.path ?? ''"
+        :selected-staged="selectedFile?.staged ?? false"
         @select="selectFile"
+        @stage="stageFile"
+        @unstage="unstageFile"
+        @stage-all="stageAll"
+        @unstage-all="unstageAll"
         @discard="discardAll"
       />
     </aside>

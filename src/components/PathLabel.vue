@@ -6,7 +6,7 @@ const props = defineProps<{
 }>();
 
 const parts = computed(() => {
-  const normalized = props.path.replaceAll("\\", "/");
+  const normalized = props.path.replace(/\\/g, "/");
   const slash = normalized.lastIndexOf("/");
   if (slash < 0) {
     return { dir: "", name: props.path };

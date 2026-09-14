@@ -159,24 +159,123 @@ export function useApp() {
       : `Refresh complete. Updated ${repos}.`;
   }
 
-  async function refreshRepo(groupId: string, repoId: string) {
-    if (refreshCancelled.value) {
+  type RefreshJob = { groupId: string; repoId: string };
+
+  // Fetch is network-bound; a small pool feels like GitKraken without
+  // launching every `git fetch` at once.
+  const REFRESH_CONCURRENCY = 8;
+
+  async function runPool<T>(items: T[], worker: (item: T) => Promise<void>) {
+    if (!items.length) {
       return;
     }
-    refreshingRepos.value = { ...refreshingRepos.value, [repoId]: true };
-    if (refreshTotal.value > 0) {
-      refreshDone.value += 1;
+    let next = 0;
+    const workers = Math.min(REFRESH_CONCURRENCY, items.length);
+    await Promise.all(
+      Array.from({ length: workers }, async () => {
+        while (!refreshCancelled.value) {
+          const index = next++;
+          if (index >= items.length) {
+            return;
+          }
+          await worker(items[index]);
+        }
+      }),
+    );
+  }
+
+  function interleaveRefreshJobs(jobs: RefreshJob[]) {
+    const buckets = new Map<string, RefreshJob[]>();
+    for (const job of jobs) {
+      const list = buckets.get(job.groupId) ?? [];
+      list.push(job);
+      buckets.set(job.groupId, list);
     }
+    const queues = [...buckets.values()];
+    const ordered: RefreshJob[] = [];
+    let added = true;
+    while (added) {
+      added = false;
+      for (const queue of queues) {
+        const job = queue.shift();
+        if (job) {
+          ordered.push(job);
+          added = true;
+        }
+      }
+    }
+    return ordered;
+  }
+
+  function markReposRefreshing(repoIds: string[]) {
+    refreshingRepos.value = {
+      ...refreshingRepos.value,
+      ...Object.fromEntries(repoIds.map((id) => [id, true])),
+    };
+  }
+
+  function unmarkRepoRefreshing(repoId: string) {
+    if (!refreshingRepos.value[repoId]) {
+      return;
+    }
+    const next = { ...refreshingRepos.value };
+    delete next[repoId];
+    refreshingRepos.value = next;
+  }
+
+  function clearReposRefreshing(repoIds: string[]) {
+    if (!repoIds.length) {
+      return;
+    }
+    const next = { ...refreshingRepos.value };
+    for (const id of repoIds) {
+      delete next[id];
+    }
+    refreshingRepos.value = next;
+  }
+
+  async function refreshRepoJobs(jobs: RefreshJob[], groupTotals: Record<string, number>) {
+    const completed: Record<string, number> = {};
+    const progress = { ...refreshProgress.value };
+    for (const [groupId, total] of Object.entries(groupTotals)) {
+      completed[groupId] = 0;
+      progress[groupId] = `0/${total}`;
+    }
+    refreshProgress.value = progress;
+    markReposRefreshing(jobs.map((job) => job.repoId));
     await nextTick();
+
+    const bumpProgress = (groupId: string) => {
+      completed[groupId] = (completed[groupId] ?? 0) + 1;
+      const total = groupTotals[groupId];
+      if (total) {
+        refreshProgress.value = {
+          ...refreshProgress.value,
+          [groupId]: `${completed[groupId]}/${total}`,
+        };
+      }
+      if (refreshTotal.value > 0) {
+        refreshDone.value += 1;
+      }
+    };
+
     try {
-      applyStatus(await api.refreshRepo(groupId, repoId, true));
-    } catch (err) {
-      error.value = String(err);
+      await runPool(jobs, async (job) => {
+        if (refreshCancelled.value) {
+          unmarkRepoRefreshing(job.repoId);
+          return;
+        }
+        try {
+          applyStatus(await api.refreshRepo(job.groupId, job.repoId, true));
+        } catch (err) {
+          error.value = String(err);
+        } finally {
+          unmarkRepoRefreshing(job.repoId);
+          bumpProgress(job.groupId);
+        }
+      });
     } finally {
-      const next = { ...refreshingRepos.value };
-      delete next[repoId];
-      refreshingRepos.value = next;
-      await nextTick();
+      clearReposRefreshing(jobs.map((job) => job.repoId));
     }
   }
 
@@ -195,16 +294,10 @@ export function useApp() {
       refreshTotal.value = group.repos.length;
     }
     try {
-      for (const [index, repo] of group.repos.entries()) {
-        if (refreshCancelled.value) {
-          break;
-        }
-        refreshProgress.value = {
-          ...refreshProgress.value,
-          [groupId]: `${index + 1}/${group.repos.length}`,
-        };
-        await refreshRepo(groupId, repo.id);
-      }
+      await refreshRepoJobs(
+        group.repos.map((repo) => ({ groupId, repoId: repo.id })),
+        { [groupId]: group.repos.length },
+      );
       if (notify && !refreshCancelled.value) {
         showToast(refreshDoneMessage(group.repos.length, group.name));
       }
@@ -238,25 +331,37 @@ export function useApp() {
     error.value = "";
     refreshDone.value = 0;
     refreshTotal.value = standaloneCount + groupedCount;
+    const groupTotals: Record<string, number> = {};
+    if (standaloneCount) {
+      groupTotals[STANDALONE_GROUP_ID] = standaloneCount;
+    }
+    const groupsBusy = { ...refreshingGroups.value };
+    const progress = { ...refreshProgress.value };
+    for (const group of groups.value) {
+      if (!group.repos.length) {
+        continue;
+      }
+      groupTotals[group.id] = group.repos.length;
+      groupsBusy[group.id] = true;
+      progress[group.id] = `0/${group.repos.length}`;
+    }
+    refreshingGroups.value = groupsBusy;
+    refreshProgress.value = progress;
     if (autoRefreshTimer) {
       clearTimeout(autoRefreshTimer);
       autoRefreshTimer = null;
     }
     try {
-      if (standaloneCount) {
-        for (const repo of standaloneRepos.value) {
-          if (refreshCancelled.value) {
-            break;
-          }
-          await refreshRepo(STANDALONE_GROUP_ID, repo.id);
-        }
-      }
-      for (const group of groups.value) {
-        if (refreshCancelled.value) {
-          break;
-        }
-        await refreshGroup(group.id);
-      }
+      const jobs = interleaveRefreshJobs([
+        ...standaloneRepos.value.map((repo) => ({
+          groupId: STANDALONE_GROUP_ID,
+          repoId: repo.id,
+        })),
+        ...groups.value.flatMap((group) =>
+          group.repos.map((repo) => ({ groupId: group.id, repoId: repo.id })),
+        ),
+      ]);
+      await refreshRepoJobs(jobs, groupTotals);
       if (notify && !refreshCancelled.value) {
         showToast(refreshDoneMessage(refreshTotal.value));
       }
@@ -265,6 +370,14 @@ export function useApp() {
       refreshCancelled.value = false;
       refreshDone.value = 0;
       refreshTotal.value = 0;
+      const leftoverGroups = { ...refreshingGroups.value };
+      const leftoverProgress = { ...refreshProgress.value };
+      for (const groupId of Object.keys(groupTotals)) {
+        delete leftoverGroups[groupId];
+        delete leftoverProgress[groupId];
+      }
+      refreshingGroups.value = leftoverGroups;
+      refreshProgress.value = leftoverProgress;
       startAutoRefresh();
     }
   }

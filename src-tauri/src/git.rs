@@ -429,15 +429,27 @@ fn resolve_merge_target(git: &Path, repo: &Path, preferred: Option<&str>) -> Opt
     None
 }
 
-fn branch_is_merged(git: &Path, repo: &Path, branch: &str, target: &str) -> bool {
-    let spec = format!("refs/heads/{branch}");
-    if run_git(git, repo, &["merge-base", "--is-ancestor", &spec, target])
-        .map(|output| output.success)
-        .unwrap_or(false)
-    {
-        return true;
+fn ancestor_merged_names(git: &Path, repo: &Path, target: &str) -> std::collections::HashSet<String> {
+    let spec = format!("--merged={target}");
+    match run_git(
+        git,
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)",
+            &spec,
+            "refs/heads",
+        ],
+    ) {
+        Ok(output) if output.success => output
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        _ => std::collections::HashSet::new(),
     }
-    branch_patches_in_target(git, repo, &spec, target)
 }
 
 fn branch_patches_in_target(git: &Path, repo: &Path, branch_ref: &str, target: &str) -> bool {
@@ -475,13 +487,25 @@ pub fn branch_overview(
         .map(short_branch_name)
         .unwrap_or_default();
 
+    let ancestor_merged = target_ref
+        .as_deref()
+        .map(|target| ancestor_merged_names(git, repo, target))
+        .unwrap_or_default();
+
     let mut branches: Vec<LocalBranch> = names
         .into_iter()
         .map(|name| {
-            let merged = target_ref
-                .as_deref()
-                .is_some_and(|target| branch_is_merged(git, repo, &name, target));
             let protected_branch = is_protected_branch(&name) || name == target_short;
+            let merged = target_ref.as_deref().is_some_and(|target| {
+                ancestor_merged.contains(&name)
+                    || (!protected_branch
+                        && branch_patches_in_target(
+                            git,
+                            repo,
+                            &format!("refs/heads/{name}"),
+                            target,
+                        ))
+            });
             LocalBranch {
                 current: name == current,
                 merged,

@@ -353,6 +353,7 @@ async function toggleBranchesView() {
   if (!branchesView.value) {
     return;
   }
+  await nextTick();
   try {
     await loadOverview();
   } catch (err) {

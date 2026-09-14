@@ -754,13 +754,17 @@ pub fn list_local_branches(state: State<AppState>, path: String) -> Result<Vec<S
 }
 
 #[tauri::command]
-pub fn branch_overview(
-    state: State<AppState>,
+pub async fn branch_overview(
+    state: State<'_, AppState>,
     path: String,
     preferred: Option<String>,
 ) -> Result<BranchOverview, String> {
     let git = require_git(&state)?;
-    git::branch_overview(&git, Path::new(&path), preferred.as_deref())
+    tauri::async_runtime::spawn_blocking(move || {
+        git::branch_overview(&git, Path::new(&path), preferred.as_deref())
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

@@ -19,6 +19,10 @@ const midY = GRAPH_ROW_HEIGHT / 2;
 function color(column: number) {
   return GRAPH_COLORS[column % GRAPH_COLORS.length];
 }
+
+function linkPath(from: number, y1: number, to: number, y2: number) {
+  return pipePath(from, y1, to, y2, layout.value.colWidth, layout.value.padX);
+}
 </script>
 
 <template>
@@ -29,43 +33,45 @@ function color(column: number) {
       :key="row.commit.hash"
       class="commit-graph-row"
     >
-      <svg
-        class="commit-graph-svg"
-        :width="layout.width"
-        :height="GRAPH_ROW_HEIGHT"
-        :viewBox="`0 0 ${layout.width} ${GRAPH_ROW_HEIGHT}`"
-      >
-        <path
-          v-for="(link, index) in row.through"
-          :key="`t-${index}`"
-          :d="pipePath(link.from, 0, link.to, GRAPH_ROW_HEIGHT)"
-          fill="none"
-          :stroke="color(link.to)"
-          stroke-width="1.6"
-        />
-        <path
-          v-for="(link, index) in row.incoming"
-          :key="`i-${index}`"
-          :d="pipePath(link.from, 0, link.to, midY)"
-          fill="none"
-          :stroke="color(link.to)"
-          stroke-width="1.6"
-        />
-        <path
-          v-for="(link, index) in row.outgoing"
-          :key="`o-${index}`"
-          :d="pipePath(link.from, midY, link.to, GRAPH_ROW_HEIGHT)"
-          fill="none"
-          :stroke="color(link.to)"
-          stroke-width="1.6"
-        />
-        <circle
-          :cx="laneX(row.column)"
-          :cy="midY"
-          r="4.5"
-          :fill="color(row.column)"
-        />
-      </svg>
+      <div class="commit-graph-cell" :class="{ packed: layout.packed }">
+        <svg
+          class="commit-graph-svg"
+          :width="layout.width"
+          :height="GRAPH_ROW_HEIGHT"
+          :viewBox="`0 0 ${layout.width} ${GRAPH_ROW_HEIGHT}`"
+        >
+          <path
+            v-for="(link, index) in row.through"
+            :key="`t-${index}`"
+            :d="linkPath(link.from, 0, link.to, GRAPH_ROW_HEIGHT)"
+            fill="none"
+            :stroke="color(link.to)"
+            :stroke-width="layout.strokeWidth"
+          />
+          <path
+            v-for="(link, index) in row.incoming"
+            :key="`i-${index}`"
+            :d="linkPath(link.from, 0, link.to, midY)"
+            fill="none"
+            :stroke="color(link.to)"
+            :stroke-width="layout.strokeWidth"
+          />
+          <path
+            v-for="(link, index) in row.outgoing"
+            :key="`o-${index}`"
+            :d="linkPath(link.from, midY, link.to, GRAPH_ROW_HEIGHT)"
+            fill="none"
+            :stroke="color(link.to)"
+            :stroke-width="layout.strokeWidth"
+          />
+          <circle
+            :cx="laneX(row.column, layout.colWidth, layout.padX)"
+            :cy="midY"
+            :r="layout.nodeRadius"
+            :fill="color(row.column)"
+          />
+        </svg>
+      </div>
       <div class="commit-subject">
         <span
           v-for="chip in parseRefs(row.commit.refs)"

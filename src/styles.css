@@ -2174,15 +2174,24 @@ body.is-resizing * {
 
 .commit-graph-row {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) 150px 84px;
+  grid-template-columns: minmax(52px, max-content) minmax(0, 1fr) minmax(72px, 132px) 72px;
   align-items: center;
-  column-gap: 0.75rem;
+  column-gap: 0.65rem;
   height: 28px;
-  padding: 0 0.85rem 0 0.4rem;
+  padding: 0 0.85rem 0 0.35rem;
 }
 
 .commit-graph-row:hover {
   background: var(--bg-hover);
+}
+
+.commit-graph-cell {
+  overflow: hidden;
+  max-width: 156px;
+}
+
+.commit-graph-cell.packed {
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 10px), transparent);
 }
 
 .commit-graph-svg {

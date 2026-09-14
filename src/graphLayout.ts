@@ -2,7 +2,9 @@ import type { CommitNode } from "./types";
 
 export const GRAPH_ROW_HEIGHT = 28;
 export const GRAPH_COL_WIDTH = 14;
+export const GRAPH_MIN_COL_WIDTH = 6;
 export const GRAPH_PAD_X = 10;
+export const GRAPH_MAX_WIDTH = 156;
 export const GRAPH_COLORS = [
   "#5b8def",
   "#3dd68c",
@@ -32,10 +34,37 @@ export interface GraphRow {
   through: GraphLink[];
 }
 
-export interface GraphLayout {
+export interface GraphMetrics {
+  colWidth: number;
+  padX: number;
+  width: number;
+  nodeRadius: number;
+  strokeWidth: number;
+  packed: boolean;
+}
+
+export interface GraphLayout extends GraphMetrics {
   rows: GraphRow[];
   laneCount: number;
-  width: number;
+}
+
+export function graphColumnMetrics(laneCount: number): GraphMetrics {
+  const lanes = Math.max(1, laneCount);
+  const padX = lanes > 14 ? 6 : GRAPH_PAD_X;
+  const inner = GRAPH_MAX_WIDTH - padX * 2;
+  const colWidth = Math.min(
+    GRAPH_COL_WIDTH,
+    Math.max(GRAPH_MIN_COL_WIDTH, inner / lanes),
+  );
+  const width = Math.min(GRAPH_MAX_WIDTH, padX * 2 + lanes * colWidth);
+  return {
+    colWidth,
+    padX,
+    width,
+    nodeRadius: Math.min(4.5, Math.max(2, colWidth * 0.36)),
+    strokeWidth: colWidth >= 11 ? 1.6 : colWidth >= 8 ? 1.3 : 1.05,
+    packed: colWidth < GRAPH_COL_WIDTH,
+  };
 }
 
 function firstEmpty(lanes: Array<string | null>): number {
@@ -120,17 +149,28 @@ export function layoutGraph(commits: CommitNode[]): GraphLayout {
   return {
     rows,
     laneCount,
-    width: GRAPH_PAD_X * 2 + Math.max(1, laneCount) * GRAPH_COL_WIDTH,
+    ...graphColumnMetrics(laneCount),
   };
 }
 
-export function laneX(column: number): number {
-  return GRAPH_PAD_X + column * GRAPH_COL_WIDTH + GRAPH_COL_WIDTH / 2;
+export function laneX(
+  column: number,
+  colWidth = GRAPH_COL_WIDTH,
+  padX = GRAPH_PAD_X,
+): number {
+  return padX + column * colWidth + colWidth / 2;
 }
 
-export function pipePath(from: number, y1: number, to: number, y2: number): string {
-  const x1 = laneX(from);
-  const x2 = laneX(to);
+export function pipePath(
+  from: number,
+  y1: number,
+  to: number,
+  y2: number,
+  colWidth = GRAPH_COL_WIDTH,
+  padX = GRAPH_PAD_X,
+): string {
+  const x1 = laneX(from, colWidth, padX);
+  const x2 = laneX(to, colWidth, padX);
   if (from === to) {
     return `M ${x1} ${y1} L ${x2} ${y2}`;
   }

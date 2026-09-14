@@ -12,8 +12,15 @@ import GroupsView from "./views/GroupsView.vue";
 
 const HistoryView = defineAsyncComponent(() => import("./views/HistoryView.vue"));
 const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
+const ChangelogView = defineAsyncComponent(() => import("./views/ChangelogView.vue"));
 import { useApp } from "./composables/useApp";
-import { GROUPS_TAB_ID, HISTORY_TAB_ID, SETTINGS_TAB_ID, useTabs } from "./composables/useTabs";
+import {
+  CHANGELOG_TAB_ID,
+  GROUPS_TAB_ID,
+  HISTORY_TAB_ID,
+  SETTINGS_TAB_ID,
+  useTabs,
+} from "./composables/useTabs";
 
 const route = useRoute();
 const {
@@ -35,15 +42,17 @@ function onToastDismiss() {
   }
   dismissToast();
 }
-const appVersion = ref("0.1.0");
+const appVersion = ref("0.2.0");
 const {
   repoTabs,
   historyTabOpen,
   settingsTabOpen,
+  changelogTabOpen,
   activeId,
   syncFromRoute,
   refreshTitles,
   closeActiveTab,
+  openChangelog,
 } = useTabs();
 
 let stopCloseShortcut: (() => void) | undefined;
@@ -96,7 +105,13 @@ watch(
   () => {
     const repoId = typeof route.params.id === "string" ? route.params.id : undefined;
     const panel =
-      route.name === "history" ? "history" : route.name === "settings" ? "settings" : undefined;
+      route.name === "history"
+        ? "history"
+        : route.name === "settings"
+          ? "settings"
+          : route.name === "changelog"
+            ? "changelog"
+            : undefined;
     syncFromRoute(repoId, route.name === "home", panel);
   },
   { immediate: true },
@@ -129,9 +144,20 @@ watch(statuses, () => {
       <div v-if="settingsTabOpen" class="main-pane" v-show="activeId === SETTINGS_TAB_ID">
         <SettingsView />
       </div>
+      <div v-if="changelogTabOpen" class="main-pane" v-show="activeId === CHANGELOG_TAB_ID">
+        <ChangelogView />
+      </div>
     </main>
     <footer class="status-bar">
-      <span class="status-bar-version">{{ appVersion }}</span>
+      <button
+        class="status-bar-version"
+        type="button"
+        :class="{ active: activeId === CHANGELOG_TAB_ID }"
+        title="Open the change log"
+        @click="openChangelog"
+      >
+        {{ appVersion }}
+      </button>
     </footer>
     <Transition name="toast" :duration="{ enter: 520, leave: 280 }">
       <Toast

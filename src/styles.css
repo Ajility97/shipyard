@@ -141,7 +141,22 @@ button.commit:hover:not(:disabled) {
 }
 
 .status-bar-version {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.status-bar-version:hover:not(:disabled),
+.status-bar-version.active {
+  background: transparent;
+  color: var(--text);
 }
 
 .toast-layer {
@@ -1066,7 +1081,8 @@ button:has(.spinner) {
 .main-pane > .repo-pane,
 .main-pane > .repo-view,
 .main-pane > .settings-page,
-.main-pane > .history-page {
+.main-pane > .history-page,
+.main-pane > .changelog-page {
   flex: 1;
   min-height: 0;
 }
@@ -2331,4 +2347,51 @@ body.is-resizing * {
 
 .add-row {
   margin: 0.25rem 0.75rem 0.35rem;
+}
+
+.changelog-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+  padding-bottom: 0.5rem;
+}
+
+.changelog-release {
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.changelog-release:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.changelog-release-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  margin-bottom: 0.55rem;
+}
+
+.changelog-version {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.changelog-notes {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: var(--text);
+}
+
+.changelog-notes li {
+  line-height: 1.45;
 }

@@ -5,6 +5,9 @@ import { useApp } from "./useApp";
 export const GROUPS_TAB_ID = "groups";
 export const HISTORY_TAB_ID = "history";
 export const SETTINGS_TAB_ID = "settings";
+export const CHANGELOG_TAB_ID = "changelog";
+
+type UtilityPanel = "settings" | "history" | "changelog";
 
 export interface AppTab {
   id: string;
@@ -21,6 +24,7 @@ interface RepoTab {
 const repoTabs = ref<RepoTab[]>([]);
 const historyTabOpen = ref(false);
 const settingsTabOpen = ref(false);
+const changelogTabOpen = ref(false);
 const activeId = ref(GROUPS_TAB_ID);
 
 function folderName(path: string) {
@@ -44,6 +48,9 @@ export function useTabs() {
       : []),
     ...(settingsTabOpen.value
       ? [{ id: SETTINGS_TAB_ID, title: "Settings", closable: true }]
+      : []),
+    ...(changelogTabOpen.value
+      ? [{ id: CHANGELOG_TAB_ID, title: "Change Log", closable: true }]
       : []),
   ]);
 
@@ -75,6 +82,9 @@ export function useTabs() {
     if (id === SETTINGS_TAB_ID) {
       return "/settings";
     }
+    if (id === CHANGELOG_TAB_ID) {
+      return "/changelog";
+    }
     return `/repo/${id}`;
   }
 
@@ -100,6 +110,19 @@ export function useTabs() {
     }
   }
 
+  function fallbackUtilityId(closingId: string) {
+    if (closingId !== HISTORY_TAB_ID && historyTabOpen.value) {
+      return HISTORY_TAB_ID;
+    }
+    if (closingId !== SETTINGS_TAB_ID && settingsTabOpen.value) {
+      return SETTINGS_TAB_ID;
+    }
+    if (closingId !== CHANGELOG_TAB_ID && changelogTabOpen.value) {
+      return CHANGELOG_TAB_ID;
+    }
+    return repoTabs.value[repoTabs.value.length - 1]?.id ?? GROUPS_TAB_ID;
+  }
+
   function closeUtilityTab(id: string, open: { value: boolean }) {
     if (!open.value) {
       return;
@@ -107,16 +130,7 @@ export function useTabs() {
     const wasActive = activeId.value === id;
     open.value = false;
     if (wasActive) {
-      if (id === HISTORY_TAB_ID && settingsTabOpen.value) {
-        activate(SETTINGS_TAB_ID);
-        return;
-      }
-      if (id === SETTINGS_TAB_ID && historyTabOpen.value) {
-        activate(HISTORY_TAB_ID);
-        return;
-      }
-      const neighbor = repoTabs.value[repoTabs.value.length - 1];
-      activate(neighbor?.id ?? GROUPS_TAB_ID);
+      activate(fallbackUtilityId(id));
     }
   }
 
@@ -128,6 +142,10 @@ export function useTabs() {
     closeUtilityTab(SETTINGS_TAB_ID, settingsTabOpen);
   }
 
+  function closeChangelog() {
+    closeUtilityTab(CHANGELOG_TAB_ID, changelogTabOpen);
+  }
+
   function openHistory() {
     historyTabOpen.value = true;
     activate(HISTORY_TAB_ID);
@@ -136,6 +154,11 @@ export function useTabs() {
   function openSettings() {
     settingsTabOpen.value = true;
     activate(SETTINGS_TAB_ID);
+  }
+
+  function openChangelog() {
+    changelogTabOpen.value = true;
+    activate(CHANGELOG_TAB_ID);
   }
 
   function closeActiveTab() {
@@ -157,6 +180,10 @@ export function useTabs() {
     }
     if (id === SETTINGS_TAB_ID) {
       closeSettings();
+      return;
+    }
+    if (id === CHANGELOG_TAB_ID) {
+      closeChangelog();
       return;
     }
     const index = repoTabs.value.findIndex((tab) => tab.id === id);
@@ -187,13 +214,16 @@ export function useTabs() {
     if (id === SETTINGS_TAB_ID) {
       return settingsTabOpen.value;
     }
+    if (id === CHANGELOG_TAB_ID) {
+      return changelogTabOpen.value;
+    }
     return repoTabs.value.some((tab) => tab.id === id);
   }
 
   function syncFromRoute(
     repoId: string | undefined,
     isHome: boolean,
-    panel?: "settings" | "history",
+    panel?: UtilityPanel,
   ) {
     if (isHome) {
       activeId.value = GROUPS_TAB_ID;
@@ -207,6 +237,11 @@ export function useTabs() {
     if (panel === "settings") {
       settingsTabOpen.value = true;
       activeId.value = SETTINGS_TAB_ID;
+      return;
+    }
+    if (panel === "changelog") {
+      changelogTabOpen.value = true;
+      activeId.value = CHANGELOG_TAB_ID;
       return;
     }
     if (!repoId) {
@@ -228,11 +263,13 @@ export function useTabs() {
     repoTabs,
     historyTabOpen,
     settingsTabOpen,
+    changelogTabOpen,
     activeId,
     openRepo,
     openRepos,
     openHistory,
     openSettings,
+    openChangelog,
     activate,
     closeRepo,
     closeActiveTab,

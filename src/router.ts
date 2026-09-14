@@ -7,6 +7,7 @@ export const router = createRouter({
     { path: "/", name: "home", component: EmptyView },
     { path: "/settings", name: "settings", component: EmptyView },
     { path: "/history", name: "history", component: EmptyView },
+    { path: "/changelog", name: "changelog", component: EmptyView },
     { path: "/repo/:id", name: "repo", component: EmptyView },
   ],
 });

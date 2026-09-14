@@ -37,6 +37,7 @@ const toastKind = ref<"success" | "error">("success");
 const actionOutput = ref<{ title: string; results: RepoActionResult[] } | null>(null);
 const actionOutputOpen = ref(false);
 const pullProgress = ref<Record<string, string>>({});
+const pullBranchByGroup = ref<Record<string, string>>({});
 const pullCancelled = ref<Record<string, boolean>>({});
 const checkoutProgress = ref<Record<string, string>>({});
 const checkoutCancelled = ref<Record<string, boolean>>({});
@@ -475,7 +476,9 @@ export function useApp() {
         }
         const name = repoDisplayName(repo.id, repo.path);
         const progress = `${index + 1}/${group.repos.length}`;
+        const activeBranch = branch || statuses.value[repo.id]?.branch || "…";
         pullProgress.value = { ...pullProgress.value, [groupId]: progress };
+        pullBranchByGroup.value = { ...pullBranchByGroup.value, [groupId]: activeBranch };
         busy.value = {
           ...busy.value,
           [groupId]: `Pulling ${name} (${progress})…`,
@@ -520,6 +523,9 @@ export function useApp() {
       const progress = { ...pullProgress.value };
       delete progress[groupId];
       pullProgress.value = progress;
+      const branches = { ...pullBranchByGroup.value };
+      delete branches[groupId];
+      pullBranchByGroup.value = branches;
       const cancelled = { ...pullCancelled.value };
       delete cancelled[groupId];
       pullCancelled.value = cancelled;
@@ -710,6 +716,7 @@ export function useApp() {
     refreshAll,
     pullGroup,
     pullProgress,
+    pullBranchByGroup,
     pullCancelled,
     checkoutGroup,
     checkoutProgress,

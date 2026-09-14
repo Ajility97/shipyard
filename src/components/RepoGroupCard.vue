@@ -5,6 +5,7 @@ import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
 import { useTabs } from "../composables/useTabs";
 import type { RepoGroup } from "../types";
+import BranchIcon from "./BranchIcon.vue";
 import Modal from "./Modal.vue";
 import RepoRow from "./RepoRow.vue";
 
@@ -37,6 +38,7 @@ const {
   removeRepo,
   pullGroup,
   pullProgress,
+  pullBranchByGroup,
   pullCancelled,
   cancelPull,
   refreshGroup,
@@ -265,6 +267,10 @@ const pullRemoteLabel = computed(() => {
   return pullBranch.value || "…";
 });
 
+const pullDisplayBranch = computed(() => {
+  return pullBranchByGroup.value[props.group.id] || pullBranch.value || "…";
+});
+
 const pullHint = computed(() =>
   pullSource.value === "current"
     ? "Use this to pick up others’ commits on the same branch."
@@ -431,19 +437,32 @@ function contrastingText(color: string) {
       </div>
       <div class="group-actions">
         <template v-if="group.repos.length">
-          <div class="header-action">
+          <div
+            v-if="!refreshingAll && !groupRefreshing && !checkingOut"
+            class="header-action"
+          >
             <span v-if="pulling" class="action-progress">
+              Pulling
+              <span class="action-branch-badge" :title="pullDisplayBranch">
+                <BranchIcon />
+                <span class="action-branch-name">{{ pullDisplayBranch }}</span>
+              </span>
               <span class="spinner" aria-hidden="true" />
               {{ pullProgress[group.id] }}
             </span>
             <button
-              class="ghost tiny"
+              class="tiny"
               type="button"
-              :class="{ danger: pulling }"
+              :class="pulling ? 'danger' : 'ghost'"
               :disabled="(!!actionLabel && !pulling) || pullCancelled[group.id]"
               @click="openPull"
             >
-              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <svg
+                v-if="!pulling"
+                class="button-icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
                 <path
                   d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
                 />
@@ -451,19 +470,32 @@ function contrastingText(color: string) {
               {{ pullLabel }}
             </button>
           </div>
-          <div class="header-action">
+          <div
+            v-if="!refreshingAll && !groupRefreshing && !pulling"
+            class="header-action"
+          >
             <span v-if="checkingOut" class="action-progress">
+              Checking out
+              <span class="action-branch-badge" :title="checkoutBranch">
+                <BranchIcon />
+                <span class="action-branch-name">{{ checkoutBranch }}</span>
+              </span>
               <span class="spinner" aria-hidden="true" />
-              Checking out {{ checkoutProgress[group.id] }}
+              {{ checkoutProgress[group.id] }}
             </span>
             <button
-              class="ghost tiny"
+              class="tiny"
               type="button"
-              :class="{ danger: checkingOut }"
+              :class="checkingOut ? 'danger' : 'ghost'"
               :disabled="(!!actionLabel && !checkingOut) || checkoutCancelled[group.id]"
               @click="openCheckout"
             >
-              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <svg
+                v-if="!checkingOut"
+                class="button-icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
                 <path
                   d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"
                 />
@@ -471,23 +503,29 @@ function contrastingText(color: string) {
               {{ checkoutLabel }}
             </button>
           </div>
-          <div class="header-action">
-            <span v-if="groupRefreshing" class="action-progress">
+          <div
+            v-if="refreshingAll || groupRefreshing || (!pulling && !checkingOut)"
+            class="header-action"
+          >
+            <span v-if="refreshingAll || groupRefreshing" class="action-progress">
+              Refreshing
               <span class="spinner" aria-hidden="true" />
-              {{ refreshProgress[group.id] || "…" }}
+              {{ refreshProgress[group.id] || `0/${group.repos.length}` }}
             </span>
             <button
-              class="ghost tiny"
+              v-if="!refreshingAll && !pulling && !checkingOut"
+              class="tiny"
               type="button"
-              :class="{ danger: canCancelRefresh }"
-              :disabled="
-                refreshingAll ||
-                refreshCancelled ||
-                (!!actionLabel && !groupRefreshing)
-              "
+              :class="canCancelRefresh ? 'danger' : 'ghost'"
+              :disabled="refreshCancelled || (!!actionLabel && !groupRefreshing)"
               @click="groupRefreshing ? cancelRefresh() : refreshGroup(group.id)"
             >
-              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <svg
+                v-if="!groupRefreshing"
+                class="button-icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
                 <path
                   d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
                 />

@@ -5,8 +5,8 @@ use tauri::{AppHandle, State};
 
 use crate::git;
 use crate::models::{
-    AppData, BranchOverview, CommitNode, RepoActionResult, RepoEntry, RepoGroup, RepoStatus,
-    WorkingTreeFile,
+    AppData, BranchOverview, CommitFile, CommitNode, RepoActionResult, RepoEntry, RepoGroup,
+    RepoStatus, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -849,6 +849,27 @@ pub fn file_diff(
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     git::file_diff(&git, Path::new(&path), &file, staged)
+}
+
+#[tauri::command]
+pub fn commit_files(
+    state: State<AppState>,
+    path: String,
+    hash: String,
+) -> Result<Vec<CommitFile>, String> {
+    let git = require_git(&state)?;
+    git::commit_files(&git, Path::new(&path), &hash)
+}
+
+#[tauri::command]
+pub fn commit_file_diff(
+    state: State<AppState>,
+    path: String,
+    hash: String,
+    file: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    git::commit_file_diff(&git, Path::new(&path), &hash, &file)
 }
 
 fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> RepoStatus {

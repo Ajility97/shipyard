@@ -11,7 +11,14 @@ import {
   pipePath,
 } from "../graphLayout";
 
-const props = defineProps<{ commits: CommitNode[] }>();
+const props = defineProps<{
+  commits: CommitNode[];
+  selectedHash?: string;
+}>();
+
+const emit = defineEmits<{
+  select: [commit: CommitNode];
+}>();
 
 const layout = computed(() => layoutGraph(props.commits));
 const midY = GRAPH_ROW_HEIGHT / 2;
@@ -32,6 +39,14 @@ function linkPath(from: number, y1: number, to: number, y2: number) {
       v-for="row in layout.rows"
       :key="row.commit.hash"
       class="commit-graph-row"
+      :class="{ active: selectedHash === row.commit.hash }"
+      role="button"
+      tabindex="0"
+      :aria-pressed="selectedHash === row.commit.hash"
+      :title="row.commit.subject"
+      @click="emit('select', row.commit)"
+      @keydown.enter.prevent="emit('select', row.commit)"
+      @keydown.space.prevent="emit('select', row.commit)"
     >
       <div class="commit-graph-cell" :class="{ packed: layout.packed }">
         <svg

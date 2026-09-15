@@ -69,6 +69,12 @@ export interface WorkingTreeFile {
   staged: boolean;
 }
 
+export interface CommitFile {
+  path: string;
+  oldPath: string | null;
+  status: string;
+}
+
 export interface LocalBranch {
   name: string;
   current: boolean;

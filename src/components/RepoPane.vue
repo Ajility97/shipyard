@@ -3,6 +3,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import BranchList from "./BranchList.vue";
 import ChangesToggle from "./ChangesToggle.vue";
+import CommitFiles from "./CommitFiles.vue";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
@@ -11,7 +12,7 @@ import RepoToolbar from "./RepoToolbar.vue";
 import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
 import * as api from "../api";
-import type { BranchOverview, CommitNode, LocalBranch, WorkingTreeFile } from "../types";
+import type { BranchOverview, CommitFile, CommitNode, LocalBranch, WorkingTreeFile } from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
 
 const props = defineProps<{
@@ -38,8 +39,13 @@ const branches = ref<string[]>([]);
 const branchesView = ref(false);
 const overview = ref<BranchOverview | null>(null);
 const selectedFile = ref<WorkingTreeFile | null>(null);
+const selectedCommit = ref<CommitNode | null>(null);
+const selectedCommitFile = ref<CommitFile | null>(null);
+const commitFiles = ref<CommitFile[]>([]);
+const commitFilesLoading = ref(false);
 const filesCollapsed = ref(false);
 const diff = ref("");
+const showingDiff = computed(() => Boolean(selectedFile.value || selectedCommitFile.value));
 const loading = ref(false);
 const actionBusy = ref(false);
 const actionLabel = ref("");
@@ -113,7 +119,7 @@ async function loadRepo() {
     branches.value = [];
     overview.value = null;
     selectedFile.value = null;
-    diff.value = "";
+    closeCommitDetail();
     message.value = loaded.value ? "Repository not found." : "";
     return;
   }
@@ -137,7 +143,18 @@ async function loadRepo() {
     }
     if (selectedFile.value && !nextFiles.some((file) => sameFile(file, selectedFile.value))) {
       selectedFile.value = null;
-      diff.value = "";
+      if (!selectedCommitFile.value) {
+        diff.value = "";
+      }
+    }
+    if (selectedCommit.value) {
+      const nextCommit = nextCommits.find((commit) => commit.hash === selectedCommit.value?.hash);
+      if (!nextCommit) {
+        closeCommitDetail();
+      } else {
+        selectedCommit.value = nextCommit;
+        await refreshCommitFiles(nextCommit);
+      }
     }
   } catch (err) {
     message.value = String(err);
@@ -152,7 +169,83 @@ function sameFile(file: WorkingTreeFile, other: WorkingTreeFile | null) {
 
 function closeDiff() {
   selectedFile.value = null;
+  selectedCommitFile.value = null;
   diff.value = "";
+}
+
+function closeCommitDetail() {
+  selectedCommit.value = null;
+  selectedCommitFile.value = null;
+  commitFiles.value = [];
+  commitFilesLoading.value = false;
+  if (!selectedFile.value) {
+    diff.value = "";
+  }
+}
+
+async function refreshCommitFiles(commit: CommitNode) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  commitFilesLoading.value = true;
+  try {
+    commitFiles.value = await api.commitFiles(match.repo.path, commit.hash);
+    if (
+      selectedCommitFile.value &&
+      !commitFiles.value.some((file) => file.path === selectedCommitFile.value?.path)
+    ) {
+      selectedCommitFile.value = null;
+      if (!selectedFile.value) {
+        diff.value = "";
+      }
+    }
+  } catch (err) {
+    message.value = String(err);
+    commitFiles.value = [];
+  } finally {
+    commitFilesLoading.value = false;
+  }
+}
+
+async function selectCommit(commit: CommitNode) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  if (selectedCommit.value?.hash === commit.hash) {
+    closeCommitDetail();
+    return;
+  }
+  selectedFile.value = null;
+  selectedCommit.value = commit;
+  selectedCommitFile.value = null;
+  diff.value = "";
+  filesCollapsed.value = false;
+  await refreshCommitFiles(commit);
+  const first = commitFiles.value[0];
+  if (first) {
+    await selectCommitFile(first);
+  }
+}
+
+async function selectCommitFile(file: CommitFile) {
+  const match = current.value;
+  const commit = selectedCommit.value;
+  if (!match || !commit) {
+    return;
+  }
+  if (selectedCommitFile.value?.path === file.path) {
+    closeDiff();
+    return;
+  }
+  selectedFile.value = null;
+  selectedCommitFile.value = file;
+  try {
+    diff.value = await api.commitFileDiff(match.repo.path, commit.hash, file.path);
+  } catch (err) {
+    diff.value = String(err);
+  }
 }
 
 async function selectFile(file: WorkingTreeFile) {
@@ -164,6 +257,7 @@ async function selectFile(file: WorkingTreeFile) {
     closeDiff();
     return;
   }
+  closeCommitDetail();
   selectedFile.value = file;
   try {
     diff.value = await api.fileDiff(match.repo.path, file.path, file.staged);
@@ -460,6 +554,8 @@ watch(
   () => {
     branchesView.value = false;
     overview.value = null;
+    closeCommitDetail();
+    closeDiff();
   },
 );
 
@@ -480,7 +576,7 @@ watch(
     :class="{ 'files-collapsed': filesCollapsed, resizing }"
     :style="{ '--files-pane-width': `${filesPaneWidth}px` }"
   >
-    <section v-if="!selectedFile" class="graph-pane">
+    <section v-if="!showingDiff" class="graph-pane">
       <RepoToolbar
         :repo-id="current.repo.id"
         :name="current.status?.name ?? current.repo.path"
@@ -510,15 +606,30 @@ watch(
         @delete-merged="deleteMerged"
       />
       <div v-else class="graph-scroll">
-        <CommitGraph :commits="commits" />
+        <CommitGraph
+          :commits="commits"
+          :selected-hash="selectedCommit?.hash ?? ''"
+          @select="selectCommit"
+        />
       </div>
     </section>
     <section v-else class="diff-main">
       <div class="pane-header">
         <div class="diff-heading">
           <button class="ghost tiny" type="button" @click="closeDiff">← Back</button>
-          <PathLabel class="diff-path" :path="selectedFile.path" />
-          <span class="muted tiny">{{ selectedFile.staged ? "Staged" : "Unstaged" }}</span>
+          <PathLabel
+            class="diff-path"
+            :path="selectedFile?.path ?? selectedCommitFile?.path ?? ''"
+          />
+          <span class="muted tiny">{{
+            selectedFile
+              ? selectedFile.staged
+                ? "Staged"
+                : "Unstaged"
+              : selectedCommitFile
+                ? `${selectedCommitFile.status} · ${selectedCommit?.hash.slice(0, 7)}`
+                : ""
+          }}</span>
         </div>
         <div class="pane-header-end">
           <div class="segmented" role="group" aria-label="Diff layout">
@@ -558,7 +669,17 @@ watch(
         aria-label="Resize files panel"
         @pointerdown="startResize"
       />
+      <CommitFiles
+        v-if="selectedCommit"
+        :commit="selectedCommit"
+        :files="commitFiles"
+        :selected-path="selectedCommitFile?.path ?? ''"
+        :loading="commitFilesLoading"
+        @select="selectCommitFile"
+        @close="closeCommitDetail"
+      />
       <WorkingTree
+        v-else
         :files="files"
         :selected-path="selectedFile?.path ?? ''"
         :selected-staged="selectedFile?.staged ?? false"

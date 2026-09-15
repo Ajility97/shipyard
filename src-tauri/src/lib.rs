@@ -79,6 +79,8 @@ pub fn run() {
             commands::repo_pull,
             commands::repo_push,
             commands::file_diff,
+            commands::commit_files,
+            commands::commit_file_diff,
             commands::write_text_file,
             commands::command_history,
             commands::clear_command_history,

@@ -2195,10 +2195,35 @@ body.is-resizing * {
   column-gap: 0.65rem;
   height: 28px;
   padding: 0 0.85rem 0 0.35rem;
+  cursor: pointer;
 }
 
-.commit-graph-row:hover {
+.commit-graph-row:hover:not(.active) {
   background: var(--bg-hover);
+}
+
+.commit-graph-row.active {
+  background: var(--bg-active);
+}
+
+.commit-graph-row:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.commit-files-header {
+  align-items: flex-start;
+}
+
+.commit-files-title {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.commit-files-meta {
+  margin: 0;
 }
 
 .commit-graph-cell {

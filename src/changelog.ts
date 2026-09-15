@@ -17,6 +17,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "Commit graph stays in a capped left rail and tightens lane spacing on busy histories, so subjects and authors stay readable.",
       "Branches page opens immediately. Merge checks run off the UI thread and use one --merged scan plus cherry only for leftover branches.",
       "Change Log tab, opened from the version number in the status bar.",
+      "Click a commit in the graph to see the files it changed and open a diff.",
     ],
   },
   {

@@ -158,6 +158,14 @@ pub struct WorkingTreeFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CommitFile {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LocalBranch {
     pub name: String,
     pub current: bool,

@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::command_log;
-use crate::models::{BranchOverview, CommitNode, LocalBranch, WorkingTreeFile};
+use crate::models::{BranchOverview, CommitFile, CommitNode, LocalBranch, WorkingTreeFile};
 
 pub struct GitOutput {
     pub stdout: String,
@@ -827,10 +827,141 @@ fn describe_letter(letter: char) -> String {
         'D' => "Deleted".into(),
         'R' => "Renamed".into(),
         'C' => "Copied".into(),
+        'T' => "Type changed".into(),
         'U' => "Conflicted".into(),
         '?' => "Untracked".into(),
         other => other.to_string(),
     }
+}
+
+fn validate_commit_hash(hash: &str) -> Result<(), String> {
+    if hash.len() < 7 || hash.len() > 64 {
+        return Err("Invalid commit.".into());
+    }
+    if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("Invalid commit.".into());
+    }
+    Ok(())
+}
+
+fn require_commit(git: &Path, repo: &Path, hash: &str) -> Result<String, String> {
+    validate_commit_hash(hash)?;
+    let spec = format!("{hash}^{{commit}}");
+    let output = run_git(git, repo, &["rev-parse", "--verify", "--quiet", &spec])?;
+    let resolved = output.stdout.trim();
+    if !output.success || resolved.is_empty() {
+        return Err("Commit not found.".into());
+    }
+    Ok(resolved.to_string())
+}
+
+fn first_parent(git: &Path, repo: &Path, hash: &str) -> Result<Option<String>, String> {
+    let spec = format!("{hash}^");
+    let output = run_git(git, repo, &["rev-parse", "--verify", "--quiet", &spec])?;
+    let resolved = output.stdout.trim();
+    if !output.success || resolved.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(resolved.to_string()))
+}
+
+fn parse_name_status_line(line: &str) -> Option<CommitFile> {
+    let mut parts = line.split('\t');
+    let status = parts.next()?.trim();
+    let letter = status.chars().find(|c| c.is_ascii_alphabetic())?;
+    let first_path = name_status_path(parts.next()?);
+    if first_path.is_empty() {
+        return None;
+    }
+    let second_path = parts.next().map(name_status_path).filter(|path| !path.is_empty());
+    let (path, old_path) = match second_path {
+        Some(new_path) => (new_path, Some(first_path)),
+        None => (first_path, None),
+    };
+    Some(CommitFile {
+        path,
+        old_path,
+        status: describe_letter(letter),
+    })
+}
+
+fn name_status_path(value: &str) -> String {
+    value.trim().trim_matches('"').to_string()
+}
+
+pub fn commit_files(git: &Path, repo: &Path, hash: &str) -> Result<Vec<CommitFile>, String> {
+    let hash = require_commit(git, repo, hash)?;
+    let parent = first_parent(git, repo, &hash)?;
+    let output = if let Some(parent) = parent.as_deref() {
+        run_git(
+            git,
+            repo,
+            &[
+                "diff-tree",
+                "--no-commit-id",
+                "--name-status",
+                "-r",
+                "--find-renames",
+                parent,
+                &hash,
+            ],
+        )?
+    } else {
+        run_git(
+            git,
+            repo,
+            &[
+                "diff-tree",
+                "--no-commit-id",
+                "--name-status",
+                "-r",
+                "--find-renames",
+                "--root",
+                &hash,
+            ],
+        )?
+    };
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not read the commit files.",
+        ));
+    }
+
+    Ok(output
+        .stdout
+        .lines()
+        .filter_map(parse_name_status_line)
+        .collect())
+}
+
+pub fn commit_file_diff(git: &Path, repo: &Path, hash: &str, file: &str) -> Result<String, String> {
+    require_file_path(file)?;
+    let hash = require_commit(git, repo, hash)?;
+    let parent = first_parent(git, repo, &hash)?;
+    let output = if let Some(parent) = parent.as_deref() {
+        run_git(
+            git,
+            repo,
+            &["diff", "--find-renames", parent, &hash, "--", file],
+        )?
+    } else {
+        run_git(
+            git,
+            repo,
+            &["show", "--pretty=format:", "--find-renames", &hash, "--", file],
+        )?
+    };
+    if !output.success && output.stdout.trim().is_empty() {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not read the commit diff.",
+        ));
+    }
+    if output.stdout.trim().is_empty() {
+        return Ok("No changes.".into());
+    }
+    Ok(output.stdout)
 }
 
 pub fn working_tree(git: &Path, repo: &Path) -> Result<Vec<WorkingTreeFile>, String> {
@@ -1309,6 +1440,50 @@ mod tests {
         git(&work, &["commit", "-m", "local commit"]);
         let diverged = live_status(&git_bin(), &work).unwrap();
         assert_eq!((diverged.ahead, diverged.behind), (1, 1));
+    }
+
+    #[test]
+    fn lists_commit_files_and_file_diff() {
+        let repo = init_repo();
+        let commits = log_graph(&git_bin(), &repo).unwrap();
+        let initial = &commits[0].hash;
+        let files = commit_files(&git_bin(), &repo, initial).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "README.md");
+        assert_eq!(files[0].status, "Added");
+        let added = commit_file_diff(&git_bin(), &repo, initial, "README.md").unwrap();
+        assert!(added.contains("+hello"));
+
+        fs::write(repo.join("README.md"), "changed\n").unwrap();
+        fs::write(repo.join("new.txt"), "fresh\n").unwrap();
+        git(&repo, &["add", "README.md", "new.txt"]);
+        git(&repo, &["commit", "-m", "update files"]);
+        let commits = log_graph(&git_bin(), &repo).unwrap();
+        let update = &commits[0].hash;
+        let files = commit_files(&git_bin(), &repo, update).unwrap();
+        assert!(files.iter().any(|file| file.path == "README.md" && file.status == "Modified"));
+        assert!(files.iter().any(|file| file.path == "new.txt" && file.status == "Added"));
+        let diff = commit_file_diff(&git_bin(), &repo, update, "README.md").unwrap();
+        assert!(diff.contains("-hello") || diff.contains("+changed"));
+
+        git(&repo, &["mv", "new.txt", "renamed.txt"]);
+        git(&repo, &["commit", "-m", "rename file"]);
+        let commits = log_graph(&git_bin(), &repo).unwrap();
+        let renamed = commit_files(&git_bin(), &repo, &commits[0].hash).unwrap();
+        assert!(renamed.iter().any(|file| {
+            file.path == "renamed.txt"
+                && file.status == "Renamed"
+                && file.old_path.as_deref() == Some("new.txt")
+        }));
+
+        git(&repo, &["rm", "renamed.txt"]);
+        git(&repo, &["commit", "-m", "remove file"]);
+        let commits = log_graph(&git_bin(), &repo).unwrap();
+        let deleted = commit_files(&git_bin(), &repo, &commits[0].hash).unwrap();
+        assert!(deleted.iter().any(|file| file.path == "renamed.txt" && file.status == "Deleted"));
+
+        assert!(commit_files(&git_bin(), &repo, "not-a-hash").is_err());
+        assert!(commit_file_diff(&git_bin(), &repo, initial, "").is_err());
     }
 
     #[test]

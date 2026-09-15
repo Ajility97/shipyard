@@ -3,6 +3,7 @@ import type {
   AppData,
   BranchOverview,
   CommandLogEntry,
+  CommitFile,
   CommitNode,
   DiffMode,
   RepoActionResult,
@@ -195,6 +196,14 @@ export function repoPush(path: string) {
 
 export function fileDiff(path: string, file: string, staged = false) {
   return invoke<string>("file_diff", { path, file, staged });
+}
+
+export function commitFiles(path: string, hash: string) {
+  return invoke<CommitFile[]>("commit_files", { path, hash });
+}
+
+export function commitFileDiff(path: string, hash: string, file: string) {
+  return invoke<string>("commit_file_diff", { path, hash, file });
 }
 
 export function writeTextFile(path: string, contents: string) {

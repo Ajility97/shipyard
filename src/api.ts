@@ -10,6 +10,7 @@ import type {
   RepoEntry,
   RepoGroup,
   RepoStatus,
+  StashEntry,
   WorkingTreeFile,
 } from "./types";
 
@@ -204,6 +205,22 @@ export function commitFiles(path: string, hash: string) {
 
 export function commitFileDiff(path: string, hash: string, file: string) {
   return invoke<string>("commit_file_diff", { path, hash, file });
+}
+
+export function stashList(path: string) {
+  return invoke<StashEntry[]>("stash_list", { path });
+}
+
+export function stashApply(path: string, index: number) {
+  return invoke<string>("stash_apply", { path, index });
+}
+
+export function stashPop(path: string, index: number) {
+  return invoke<string>("stash_pop", { path, index });
+}
+
+export function stashDrop(path: string, index: number) {
+  return invoke<string>("stash_drop", { path, index });
 }
 
 export function writeTextFile(path: string, contents: string) {

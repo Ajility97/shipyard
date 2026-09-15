@@ -180,3 +180,11 @@ pub struct BranchOverview {
     pub merge_target: Option<String>,
     pub branches: Vec<LocalBranch>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashEntry {
+    pub index: u32,
+    pub message: String,
+    pub date: String,
+}

@@ -5,7 +5,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::command_log;
-use crate::models::{BranchOverview, CommitFile, CommitNode, LocalBranch, WorkingTreeFile};
+use crate::models::{
+    BranchOverview, CommitFile, CommitNode, LocalBranch, StashEntry, WorkingTreeFile,
+};
 
 pub struct GitOutput {
     pub stdout: String,
@@ -935,6 +937,110 @@ pub fn commit_files(git: &Path, repo: &Path, hash: &str) -> Result<Vec<CommitFil
         .collect())
 }
 
+fn stash_ref(index: u32) -> String {
+    format!("stash@{{{index}}}")
+}
+
+fn parse_stash_index(selector: &str) -> Option<u32> {
+    let start = selector.rfind('{')?;
+    let end = selector.rfind('}')?;
+    if end <= start + 1 {
+        return None;
+    }
+    selector[start + 1..end].parse().ok()
+}
+
+fn parse_stash_line(line: &str) -> Option<StashEntry> {
+    let mut parts = line.split('\u{1f}');
+    let selector = parts.next()?.trim();
+    let index = parse_stash_index(selector)?;
+    Some(StashEntry {
+        index,
+        message: parts.next().unwrap_or_default().to_string(),
+        date: parts.next().unwrap_or_default().to_string(),
+    })
+}
+
+fn missing_stash_ref(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("refs/stash") && (lower.contains("unknown revision") || lower.contains("bad revision") || lower.contains("does not exist") || lower.contains("needed a single revision"))
+}
+
+pub fn stash_list(git: &Path, repo: &Path) -> Result<Vec<StashEntry>, String> {
+    let output = run_git(
+        git,
+        repo,
+        &["stash", "list", "--pretty=format:%gd%x1f%gs%x1f%aI"],
+    )?;
+    if !output.success {
+        if missing_stash_ref(&combined_message(&output)) {
+            return Ok(Vec::new());
+        }
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not read the stash list.",
+        ));
+    }
+    Ok(output
+        .stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(parse_stash_line)
+        .collect())
+}
+
+fn stash_action(
+    git: &Path,
+    repo: &Path,
+    action: &str,
+    index: u32,
+    fallback: &str,
+    success: &str,
+) -> Result<String, String> {
+    let spec = stash_ref(index);
+    let output = run_git(git, repo, &["stash", action, &spec])?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), fallback));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("{success} {spec}"),
+    ))
+}
+
+pub fn stash_apply(git: &Path, repo: &Path, index: u32) -> Result<String, String> {
+    stash_action(
+        git,
+        repo,
+        "apply",
+        index,
+        "Failed to apply the stash.",
+        "Applied",
+    )
+}
+
+pub fn stash_pop(git: &Path, repo: &Path, index: u32) -> Result<String, String> {
+    stash_action(
+        git,
+        repo,
+        "pop",
+        index,
+        "Failed to pop the stash.",
+        "Popped",
+    )
+}
+
+pub fn stash_drop(git: &Path, repo: &Path, index: u32) -> Result<String, String> {
+    stash_action(
+        git,
+        repo,
+        "drop",
+        index,
+        "Failed to drop the stash.",
+        "Dropped",
+    )
+}
+
 pub fn commit_file_diff(git: &Path, repo: &Path, hash: &str, file: &str) -> Result<String, String> {
     require_file_path(file)?;
     let hash = require_commit(git, repo, hash)?;
@@ -1484,6 +1590,45 @@ mod tests {
 
         assert!(commit_files(&git_bin(), &repo, "not-a-hash").is_err());
         assert!(commit_file_diff(&git_bin(), &repo, initial, "").is_err());
+    }
+
+    #[test]
+    fn lists_applies_pops_and_drops_stashes() {
+        let repo = init_repo();
+        assert!(stash_list(&git_bin(), &repo).unwrap().is_empty());
+        assert!(stash_apply(&git_bin(), &repo, 0).is_err());
+
+        fs::write(repo.join("README.md"), "stashed-a\n").unwrap();
+        git(&repo, &["stash", "push", "-m", "first stash"]);
+        fs::write(repo.join("README.md"), "stashed-b\n").unwrap();
+        git(&repo, &["stash", "push", "-m", "second stash"]);
+
+        let stashes = stash_list(&git_bin(), &repo).unwrap();
+        assert_eq!(stashes.len(), 2);
+        assert_eq!(stashes[0].index, 0);
+        assert_eq!(stashes[1].index, 1);
+        assert!(stashes[0].message.contains("second stash"));
+        assert!(stashes[1].message.contains("first stash"));
+
+        stash_apply(&git_bin(), &repo, 0).unwrap();
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.iter().any(|file| file.path == "README.md"));
+        assert_eq!(stash_list(&git_bin(), &repo).unwrap().len(), 2);
+        assert!(fs::read_to_string(repo.join("README.md"))
+            .unwrap()
+            .contains("stashed-b"));
+
+        git(&repo, &["checkout", "--", "README.md"]);
+        stash_drop(&git_bin(), &repo, 1).unwrap();
+        let after_drop = stash_list(&git_bin(), &repo).unwrap();
+        assert_eq!(after_drop.len(), 1);
+        assert!(after_drop[0].message.contains("second stash"));
+
+        stash_pop(&git_bin(), &repo, 0).unwrap();
+        assert!(stash_list(&git_bin(), &repo).unwrap().is_empty());
+        assert!(fs::read_to_string(repo.join("README.md"))
+            .unwrap()
+            .contains("stashed-b"));
     }
 
     #[test]

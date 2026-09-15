@@ -12,6 +12,8 @@ const props = defineProps<{
   busy: boolean;
   busyLabel: string;
   branchesView: boolean;
+  stashView: boolean;
+  stashCount: number;
   filesOpen: boolean;
   unstagedCount: number;
   stagedCount: number;
@@ -23,6 +25,7 @@ const emit = defineEmits<{
   checkout: [branch: string];
   create: [];
   branches: [];
+  stash: [];
   files: [];
   refreshBranches: [];
 }>();
@@ -108,6 +111,22 @@ async function toggleBranches() {
       >
         <BranchIcon />
         Branches
+      </button>
+      <button
+        class="ghost tiny"
+        :class="{ active: stashView }"
+        type="button"
+        :disabled="busy"
+        :aria-pressed="stashView"
+        @click="emit('stash')"
+      >
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"
+          />
+        </svg>
+        Stash
+        <span v-if="stashCount" class="file-count-badge">{{ stashCount }}</span>
       </button>
       <button class="ghost tiny" type="button" :disabled="busy" @click="emit('pull')">
         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">

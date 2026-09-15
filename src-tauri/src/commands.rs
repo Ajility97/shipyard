@@ -6,7 +6,7 @@ use tauri::{AppHandle, State};
 use crate::git;
 use crate::models::{
     AppData, BranchOverview, CommitFile, CommitNode, RepoActionResult, RepoEntry, RepoGroup,
-    RepoStatus, WorkingTreeFile,
+    RepoStatus, StashEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -859,6 +859,48 @@ pub fn commit_files(
 ) -> Result<Vec<CommitFile>, String> {
     let git = require_git(&state)?;
     git::commit_files(&git, Path::new(&path), &hash)
+}
+
+#[tauri::command]
+pub fn stash_list(state: State<AppState>, path: String) -> Result<Vec<StashEntry>, String> {
+    let git = require_git(&state)?;
+    git::stash_list(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn stash_apply(
+    state: State<'_, AppState>,
+    path: String,
+    index: u32,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::stash_apply(&git, Path::new(&path), index))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn stash_pop(
+    state: State<'_, AppState>,
+    path: String,
+    index: u32,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::stash_pop(&git, Path::new(&path), index))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn stash_drop(
+    state: State<'_, AppState>,
+    path: String,
+    index: u32,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::stash_drop(&git, Path::new(&path), index))
+        .await
+        .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

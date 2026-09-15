@@ -1965,6 +1965,20 @@ body.is-resizing * {
   flex-shrink: 0;
 }
 
+.stash-row-date {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stash-row-actions {
+  margin-left: auto;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+}
+
 .branch-footer {
   display: flex;
   align-items: center;

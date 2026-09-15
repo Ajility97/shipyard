@@ -87,6 +87,12 @@ export interface BranchOverview {
   branches: LocalBranch[];
 }
 
+export interface StashEntry {
+  index: number;
+  message: string;
+  date: string;
+}
+
 export interface CommandLogEntry {
   id: string;
   at: number;

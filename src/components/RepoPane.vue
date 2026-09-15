@@ -9,10 +9,18 @@ import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
 import PathLabel from "./PathLabel.vue";
 import RepoToolbar from "./RepoToolbar.vue";
+import StashList from "./StashList.vue";
 import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
 import * as api from "../api";
-import type { BranchOverview, CommitFile, CommitNode, LocalBranch, WorkingTreeFile } from "../types";
+import type {
+  BranchOverview,
+  CommitFile,
+  CommitNode,
+  LocalBranch,
+  StashEntry,
+  WorkingTreeFile,
+} from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
 
 const props = defineProps<{
@@ -37,6 +45,8 @@ const commits = ref<CommitNode[]>([]);
 const files = ref<WorkingTreeFile[]>([]);
 const branches = ref<string[]>([]);
 const branchesView = ref(false);
+const stashes = ref<StashEntry[]>([]);
+const stashView = ref(false);
 const overview = ref<BranchOverview | null>(null);
 const selectedFile = ref<WorkingTreeFile | null>(null);
 const selectedCommit = ref<CommitNode | null>(null);
@@ -117,6 +127,7 @@ async function loadRepo() {
     commits.value = [];
     files.value = [];
     branches.value = [];
+    stashes.value = [];
     overview.value = null;
     selectedFile.value = null;
     closeCommitDetail();
@@ -127,10 +138,11 @@ async function loadRepo() {
   loading.value = true;
   message.value = "";
   try {
-    const [nextCommits, nextFiles, nextBranches, nextOverview] = await Promise.all([
+    const [nextCommits, nextFiles, nextBranches, nextStashes, nextOverview] = await Promise.all([
       api.logGraph(match.repo.path),
       api.workingTree(match.repo.path),
       api.listLocalBranches(match.repo.path).catch(() => [] as string[]),
+      api.stashList(match.repo.path).catch(() => [] as StashEntry[]),
       branchesView.value
         ? api.branchOverview(match.repo.path, preferredMergeTarget()).catch(() => null)
         : Promise.resolve(overview.value),
@@ -138,6 +150,7 @@ async function loadRepo() {
     commits.value = nextCommits;
     files.value = nextFiles;
     branches.value = nextBranches;
+    stashes.value = nextStashes;
     if (branchesView.value) {
       overview.value = nextOverview;
     }
@@ -447,12 +460,88 @@ async function toggleBranchesView() {
   if (!branchesView.value) {
     return;
   }
+  stashView.value = false;
   await nextTick();
   try {
     await loadOverview();
   } catch (err) {
     message.value = String(err);
   }
+}
+
+function toggleStashView() {
+  stashView.value = !stashView.value;
+  if (stashView.value) {
+    branchesView.value = false;
+  }
+}
+
+function stashRef(index: number) {
+  return `stash@{${index}}`;
+}
+
+async function applyStash(stash: StashEntry) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  if (files.value.length) {
+    const ok = await confirm(
+      `You have uncommitted changes. Applying ${stashRef(stash.index)} may cause conflicts.`,
+      {
+        title: "Apply stash",
+        kind: "warning",
+        okLabel: "Apply",
+        cancelLabel: "Cancel",
+      },
+    );
+    if (!ok) {
+      return;
+    }
+  }
+  return runRepoAction("Applying stash…", () => api.stashApply(match.repo.path, stash.index));
+}
+
+async function popStash(stash: StashEntry) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const ok = await confirm(
+    files.value.length
+      ? `You have uncommitted changes. Pop ${stashRef(stash.index)} anyway? It will be removed if it applies cleanly.`
+      : `Apply ${stashRef(stash.index)} and remove it from the stash list?`,
+    {
+      title: "Pop stash",
+      kind: "warning",
+      okLabel: "Pop",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  return runRepoAction("Popping stash…", () => api.stashPop(match.repo.path, stash.index));
+}
+
+async function dropStash(stash: StashEntry) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const ok = await confirm(
+    `Permanently delete ${stashRef(stash.index)}? This cannot be undone.`,
+    {
+      title: "Drop stash",
+      kind: "warning",
+      okLabel: "Drop",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  return runRepoAction("Dropping stash…", () => api.stashDrop(match.repo.path, stash.index));
 }
 
 async function refreshBranches() {
@@ -553,6 +642,7 @@ watch(
   () => props.repoId,
   () => {
     branchesView.value = false;
+    stashView.value = false;
     overview.value = null;
     closeCommitDetail();
     closeDiff();
@@ -586,6 +676,8 @@ watch(
         :busy="actionBusy"
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
         :branches-view="branchesView"
+        :stash-view="stashView"
+        :stash-count="stashes.length"
         :files-open="!filesCollapsed"
         :unstaged-count="unstagedCount"
         :staged-count="stagedCount"
@@ -594,6 +686,7 @@ watch(
         @checkout="checkoutBranch"
         @create="openCreateBranch"
         @branches="toggleBranchesView"
+        @stash="toggleStashView"
         @files="filesCollapsed = !filesCollapsed"
         @refresh-branches="refreshBranches"
       />
@@ -604,6 +697,14 @@ watch(
         :busy="actionBusy"
         @delete="deleteBranch"
         @delete-merged="deleteMerged"
+      />
+      <StashList
+        v-else-if="stashView"
+        :stashes="stashes"
+        :busy="actionBusy"
+        @apply="applyStash"
+        @pop="popStash"
+        @drop="dropStash"
       />
       <div v-else class="graph-scroll">
         <CommitGraph

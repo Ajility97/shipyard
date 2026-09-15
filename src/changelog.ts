@@ -11,7 +11,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     notes: [
       "First official release.",
       "Click a commit in the graph to see the files it changed and open a diff.",
-      "Stash list with apply, pop, and drop from the repo toolbar.",
+      "Stash working-tree changes, then apply, pop, or drop them from the repo toolbar.",
     ],
   },
   {

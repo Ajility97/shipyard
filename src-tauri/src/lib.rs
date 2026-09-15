@@ -82,6 +82,7 @@ pub fn run() {
             commands::commit_files,
             commands::commit_file_diff,
             commands::stash_list,
+            commands::stash_push,
             commands::stash_apply,
             commands::stash_pop,
             commands::stash_drop,

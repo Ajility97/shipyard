@@ -211,6 +211,10 @@ export function stashList(path: string) {
   return invoke<StashEntry[]>("stash_list", { path });
 }
 
+export function stashPush(path: string, message: string) {
+  return invoke<string>("stash_push", { path, message });
+}
+
 export function stashApply(path: string, index: number) {
   return invoke<string>("stash_apply", { path, index });
 }

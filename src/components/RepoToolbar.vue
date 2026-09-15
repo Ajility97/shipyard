@@ -101,6 +101,22 @@ async function toggleBranches() {
         </svg>
         New branch
       </button>
+      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('pull')">
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+          />
+        </svg>
+        Pull
+      </button>
+      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('push')">
+        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 7.5 12 3m0 0 4.5 4.5M12 3v13.5"
+          />
+        </svg>
+        Push
+      </button>
       <button
         class="ghost tiny"
         :class="{ active: branchesView }"
@@ -111,6 +127,7 @@ async function toggleBranches() {
       >
         <BranchIcon />
         Branches
+        <span v-if="branches.length" class="file-count-badge">{{ branches.length }}</span>
       </button>
       <button
         class="ghost tiny"
@@ -127,22 +144,6 @@ async function toggleBranches() {
         </svg>
         Stash
         <span v-if="stashCount" class="file-count-badge">{{ stashCount }}</span>
-      </button>
-      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('pull')">
-        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
-          />
-        </svg>
-        Pull
-      </button>
-      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('push')">
-        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 7.5 12 3m0 0 4.5 4.5M12 3v13.5"
-          />
-        </svg>
-        Push
       </button>
       <ChangesToggle
         :open="filesOpen"

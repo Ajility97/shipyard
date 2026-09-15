@@ -892,6 +892,18 @@ pub async fn stash_pop(
 }
 
 #[tauri::command]
+pub async fn stash_push(
+    state: State<'_, AppState>,
+    path: String,
+    message: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::stash_push(&git, Path::new(&path), &message))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub async fn stash_drop(
     state: State<'_, AppState>,
     path: String,

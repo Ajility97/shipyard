@@ -67,6 +67,9 @@ const committing = ref(false);
 const commitTitle = ref("");
 const commitDescription = ref("");
 const commitTitleInput = ref<HTMLInputElement | null>(null);
+const stashing = ref(false);
+const stashMessage = ref("");
+const stashMessageInput = ref<HTMLInputElement | null>(null);
 
 const COMMIT_TITLE_MAX = 72;
 
@@ -442,6 +445,32 @@ function commitChanges() {
   return runRepoAction("Committing…", () => api.commit(match.repo.path, title, description));
 }
 
+async function openStash() {
+  if (actionBusy.value || !files.value.length) {
+    return;
+  }
+  stashMessage.value = "";
+  stashing.value = true;
+  await nextTick();
+  stashMessageInput.value?.focus();
+}
+
+function closeStash() {
+  stashing.value = false;
+  stashMessage.value = "";
+}
+
+function stashChanges() {
+  const match = current.value;
+  if (!match || !files.value.length) {
+    return;
+  }
+  const message = stashMessage.value;
+  closeStash();
+  closeDiff();
+  return runRepoAction("Stashing…", () => api.stashPush(match.repo.path, message));
+}
+
 function preferredMergeTarget() {
   return current.value?.group?.pullFromBranch?.trim() || undefined;
 }
@@ -702,9 +731,11 @@ watch(
         v-else-if="stashView"
         :stashes="stashes"
         :busy="actionBusy"
+        :can-stash="files.length > 0"
         @apply="applyStash"
         @pop="popStash"
         @drop="dropStash"
+        @push="openStash"
       />
       <div v-else class="graph-scroll">
         <CommitGraph
@@ -790,6 +821,7 @@ watch(
         @stage-all="stageAll"
         @unstage-all="unstageAll"
         @discard="discardAll"
+        @stash="openStash"
         @commit="openCommit"
       />
     </aside>
@@ -829,6 +861,25 @@ watch(
       <button class="ghost" type="button" @click="closeCommit">Cancel</button>
       <button class="ghost commit" type="button" :disabled="!canCommit" @click="commitChanges">
         Commit
+      </button>
+    </template>
+  </Modal>
+  <Modal v-if="stashing" title="Stash changes" @close="closeStash">
+    <label class="modal-label">
+      <span class="muted tiny">Message</span>
+      <input
+        ref="stashMessageInput"
+        v-model="stashMessage"
+        type="text"
+        placeholder="Optional summary of this work"
+        @keydown.enter.prevent="stashChanges"
+      />
+    </label>
+    <p class="muted tiny">Saves staged, unstaged, and untracked files, then clears the working tree.</p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeStash">Cancel</button>
+      <button class="primary" type="button" :disabled="!files.length" @click="stashChanges">
+        Stash
       </button>
     </template>
   </Modal>

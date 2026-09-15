@@ -1041,6 +1041,37 @@ pub fn stash_drop(git: &Path, repo: &Path, index: u32) -> Result<String, String>
     )
 }
 
+pub fn stash_push(git: &Path, repo: &Path, message: &str) -> Result<String, String> {
+    if message.contains('\0') {
+        return Err("Invalid stash message.".into());
+    }
+    let files = working_tree(git, repo)?;
+    if files.is_empty() {
+        return Err("Nothing to stash.".into());
+    }
+    let message = message.trim();
+    let output = if message.is_empty() {
+        run_git(git, repo, &["stash", "push", "--include-untracked"])?
+    } else {
+        run_git(
+            git,
+            repo,
+            &["stash", "push", "--include-untracked", "-m", message],
+        )?
+    };
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to stash changes.",
+        ));
+    }
+    let combined = combined_message(&output);
+    if combined.to_ascii_lowercase().contains("no local changes") {
+        return Err("Nothing to stash.".into());
+    }
+    Ok(or_fallback(&combined, "Stashed changes"))
+}
+
 pub fn commit_file_diff(git: &Path, repo: &Path, hash: &str, file: &str) -> Result<String, String> {
     require_file_path(file)?;
     let hash = require_commit(git, repo, hash)?;
@@ -1597,9 +1628,13 @@ mod tests {
         let repo = init_repo();
         assert!(stash_list(&git_bin(), &repo).unwrap().is_empty());
         assert!(stash_apply(&git_bin(), &repo, 0).is_err());
+        assert!(stash_push(&git_bin(), &repo, "").is_err());
 
         fs::write(repo.join("README.md"), "stashed-a\n").unwrap();
-        git(&repo, &["stash", "push", "-m", "first stash"]);
+        fs::write(repo.join("notes.txt"), "untracked\n").unwrap();
+        stash_push(&git_bin(), &repo, "first stash").unwrap();
+        assert!(working_tree(&git_bin(), &repo).unwrap().is_empty());
+        assert!(!repo.join("notes.txt").exists());
         fs::write(repo.join("README.md"), "stashed-b\n").unwrap();
         git(&repo, &["stash", "push", "-m", "second stash"]);
 

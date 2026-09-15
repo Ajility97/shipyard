@@ -1,9 +1,12 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
 use crate::models::AppData;
+
+const SETTINGS_FILE: &str = "settings.json";
+const LEGACY_SETTINGS_FILE: &str = "groups.json";
 
 fn app_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -15,27 +18,50 @@ fn app_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn data_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app_dir(app)?.join("groups.json"))
+    Ok(app_dir(app)?.join(SETTINGS_FILE))
+}
+
+fn legacy_data_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app_dir(app)?.join(LEGACY_SETTINGS_FILE))
 }
 
 pub fn history_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app_dir(app)?.join("command-history.jsonl"))
 }
 
+fn read_app_data(path: &Path, label: &str) -> Result<AppData, String> {
+    let raw = fs::read_to_string(path).map_err(|err| format!("Could not read {label}: {err}"))?;
+    serde_json::from_str(&raw).map_err(|err| format!("Could not parse {label}: {err}"))
+}
+
+fn remove_legacy(path: &Path) {
+    if path.exists() {
+        let _ = fs::remove_file(path);
+    }
+}
+
 pub fn load(app: &AppHandle) -> Result<AppData, String> {
     let path = data_path(app)?;
-    if !path.exists() {
-        return Ok(AppData::default());
+    let legacy = legacy_data_path(app)?;
+    if path.exists() {
+        let data = read_app_data(&path, SETTINGS_FILE)?;
+        remove_legacy(&legacy);
+        return Ok(data);
     }
-
-    let raw = fs::read_to_string(&path)
-        .map_err(|err| format!("Could not read groups.json: {err}"))?;
-    serde_json::from_str(&raw).map_err(|err| format!("Could not parse groups.json: {err}"))
+    if legacy.exists() {
+        let data = read_app_data(&legacy, LEGACY_SETTINGS_FILE)?;
+        save(app, &data)?;
+        remove_legacy(&legacy);
+        return Ok(data);
+    }
+    Ok(AppData::default())
 }
 
 pub fn save(app: &AppHandle, data: &AppData) -> Result<(), String> {
     let path = data_path(app)?;
     let raw = serde_json::to_string_pretty(data)
-        .map_err(|err| format!("Could not serialize groups.json: {err}"))?;
-    fs::write(&path, raw).map_err(|err| format!("Could not write groups.json: {err}"))
+        .map_err(|err| format!("Could not serialize {SETTINGS_FILE}: {err}"))?;
+    fs::write(&path, raw).map_err(|err| format!("Could not write {SETTINGS_FILE}: {err}"))?;
+    remove_legacy(&legacy_data_path(app)?);
+    Ok(())
 }

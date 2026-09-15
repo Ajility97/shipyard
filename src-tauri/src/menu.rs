@@ -2,6 +2,7 @@ use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 pub const CLOSE_TAB_OR_WINDOW_ID: &str = "close-tab-or-window";
+pub const OPEN_SETTINGS_ID: &str = "open-settings";
 
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let pkg_info = app.package_info();
@@ -22,6 +23,13 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         Some("CmdOrCtrl+W"),
     )?;
     let close_window_item = MenuItem::with_id(app, CLOSE_TAB_OR_WINDOW_ID, "Close", true, None::<&str>)?;
+    let settings = MenuItem::with_id(
+        app,
+        OPEN_SETTINGS_ID,
+        "Settings…",
+        true,
+        Some("CmdOrCtrl+,"),
+    )?;
 
     let window_menu = Submenu::with_items(
         app,
@@ -46,6 +54,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 &[
                     &PredefinedMenuItem::about(app, None, Some(about_metadata.clone()))?,
                     &PredefinedMenuItem::separator(app)?,
+                    &settings,
+                    &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::services(app, None)?,
                     &PredefinedMenuItem::separator(app)?,
                     &PredefinedMenuItem::hide(app, None)?,
@@ -54,7 +64,10 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                     &PredefinedMenuItem::quit(app, None)?,
                 ],
             )?,
+            #[cfg(target_os = "macos")]
             &Submenu::with_items(app, "File", true, &[&close])?,
+            #[cfg(not(target_os = "macos"))]
+            &Submenu::with_items(app, "File", true, &[&settings, &close])?,
             &Submenu::with_items(
                 app,
                 "Edit",
@@ -91,10 +104,16 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
 }
 
 pub fn handle_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
-    if id != CLOSE_TAB_OR_WINDOW_ID {
+    let Some(window) = app.get_webview_window("main") else {
         return;
-    }
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.emit(CLOSE_TAB_OR_WINDOW_ID, ());
+    };
+    match id {
+        CLOSE_TAB_OR_WINDOW_ID => {
+            let _ = window.emit(CLOSE_TAB_OR_WINDOW_ID, ());
+        }
+        OPEN_SETTINGS_ID => {
+            let _ = window.emit(OPEN_SETTINGS_ID, ());
+        }
+        _ => {}
     }
 }

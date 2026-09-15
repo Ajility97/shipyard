@@ -11,6 +11,7 @@ import type {
   RepoGroup,
   RepoStatus,
   StashEntry,
+  WindowState,
   WorkingTreeFile,
 } from "./types";
 
@@ -82,6 +83,14 @@ export function updateFilesPaneWidth(width: number) {
 
 export function updateDiffMode(mode: DiffMode) {
   return invoke<DiffMode>("update_diff_mode", { mode });
+}
+
+export function getWindowState() {
+  return invoke<WindowState>("get_window_state");
+}
+
+export function updateWindowState(window: WindowState) {
+  return invoke<WindowState>("update_window_state", { window });
 }
 
 export function replaceAppData(data: AppData) {
@@ -229,6 +238,18 @@ export function stashDrop(path: string, index: number) {
 
 export function writeTextFile(path: string, contents: string) {
   return invoke<void>("write_text_file", { path, contents });
+}
+
+export function readTextFile(path: string) {
+  return invoke<string>("read_text_file", { path });
+}
+
+export function settingsFilePath() {
+  return invoke<string>("settings_file_path");
+}
+
+export function revealSettingsFile() {
+  return invoke<void>("reveal_settings_file");
 }
 
 export function commandHistory() {

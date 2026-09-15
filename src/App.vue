@@ -12,12 +12,14 @@ import GroupsView from "./views/GroupsView.vue";
 
 const HistoryView = defineAsyncComponent(() => import("./views/HistoryView.vue"));
 const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
+const SettingsJsonView = defineAsyncComponent(() => import("./views/SettingsJsonView.vue"));
 const ChangelogView = defineAsyncComponent(() => import("./views/ChangelogView.vue"));
 import { useApp } from "./composables/useApp";
 import {
   CHANGELOG_TAB_ID,
   GROUPS_TAB_ID,
   HISTORY_TAB_ID,
+  SETTINGS_JSON_TAB_ID,
   SETTINGS_TAB_ID,
   useTabs,
 } from "./composables/useTabs";
@@ -47,15 +49,18 @@ const {
   repoTabs,
   historyTabOpen,
   settingsTabOpen,
+  settingsJsonTabOpen,
   changelogTabOpen,
   activeId,
   syncFromRoute,
   refreshTitles,
   closeActiveTab,
   openChangelog,
+  openSettings,
 } = useTabs();
 
 let stopCloseShortcut: (() => void) | undefined;
+let stopOpenSettings: (() => void) | undefined;
 
 async function closeActiveTabOrWindow() {
   if (closeActiveTab()) {
@@ -93,11 +98,17 @@ onMounted(() => {
   }).then((unlisten) => {
     stopCloseShortcut = unlisten;
   });
+  void listen("open-settings", () => {
+    openSettings();
+  }).then((unlisten) => {
+    stopOpenSettings = unlisten;
+  });
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onWindowKeydown, true);
   stopCloseShortcut?.();
+  stopOpenSettings?.();
 });
 
 watch(
@@ -109,7 +120,9 @@ watch(
         ? "history"
         : route.name === "settings"
           ? "settings"
-          : route.name === "changelog"
+          : route.name === "settings-json"
+            ? "settings-json"
+            : route.name === "changelog"
             ? "changelog"
             : undefined;
     syncFromRoute(repoId, route.name === "home", panel);
@@ -143,6 +156,13 @@ watch(statuses, () => {
       </div>
       <div v-if="settingsTabOpen" class="main-pane" v-show="activeId === SETTINGS_TAB_ID">
         <SettingsView />
+      </div>
+      <div
+        v-if="settingsJsonTabOpen"
+        class="main-pane"
+        v-show="activeId === SETTINGS_JSON_TAB_ID"
+      >
+        <SettingsJsonView />
       </div>
       <div v-if="changelogTabOpen" class="main-pane" v-show="activeId === CHANGELOG_TAB_ID">
         <ChangelogView />

@@ -49,6 +49,8 @@ pub fn run() {
             commands::update_app_settings,
             commands::update_files_pane_width,
             commands::update_diff_mode,
+            window_state::get_window_state,
+            window_state::update_window_state,
             commands::replace_app_data,
             commands::add_repo,
             commands::add_standalone_repo,
@@ -87,6 +89,9 @@ pub fn run() {
             commands::stash_pop,
             commands::stash_drop,
             commands::write_text_file,
+            commands::read_text_file,
+            commands::settings_file_path,
+            commands::reveal_settings_file,
             commands::command_history,
             commands::clear_command_history,
         ])

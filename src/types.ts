@@ -25,6 +25,11 @@ export interface WindowState {
   maximized?: boolean;
 }
 
+export const MIN_WINDOW_WIDTH = 960;
+export const MIN_WINDOW_HEIGHT = 640;
+export const DEFAULT_WINDOW_WIDTH = 1280;
+export const DEFAULT_WINDOW_HEIGHT = 800;
+
 export interface AppData {
   groups: RepoGroup[];
   repos?: RepoEntry[];

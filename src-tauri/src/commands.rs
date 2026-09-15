@@ -970,6 +970,40 @@ pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn read_text_file(path: String) -> Result<String, String> {
+    if path.trim().is_empty() {
+        return Err("Choose a file to import.".into());
+    }
+    std::fs::read_to_string(&path).map_err(|err| format!("Could not read the file: {err}"))
+}
+
+#[tauri::command]
+pub fn settings_file_path(app: AppHandle) -> Result<String, String> {
+    persist::data_path(&app)?
+        .to_str()
+        .map(str::to_string)
+        .ok_or_else(|| "Settings path is not valid UTF-8".into())
+}
+
+#[tauri::command]
+pub fn reveal_settings_file(app: AppHandle) -> Result<(), String> {
+    let path = persist::data_path(&app)?;
+    if !path.exists() {
+        persist::save(&app, &AppData::default())?;
+    }
+    let status = std::process::Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .status()
+        .map_err(|err| format!("Could not reveal the settings file: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Could not reveal the settings file.".into())
+    }
+}
+
+#[tauri::command]
 pub fn command_history() -> Vec<crate::command_log::CommandLogEntry> {
     crate::command_log::list()
 }

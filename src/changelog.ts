@@ -12,6 +12,8 @@ export const CHANGELOG: ChangelogRelease[] = [
       "First official release.",
       "Click a commit in the graph to see the files it changed and open a diff.",
       "Stash working-tree changes, then apply, pop, or drop them from the repo toolbar.",
+      "Settings tab has preferences for auto-refresh, diff layout, files pane width, and window size and position. Open settings.json from the top-right icon to edit, export, or import the full file.",
+      "App data lives in settings.json. An existing groups.json is migrated on launch.",
     ],
   },
   {

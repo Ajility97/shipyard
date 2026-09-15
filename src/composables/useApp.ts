@@ -7,6 +7,7 @@ import type {
   RepoEntry,
   RepoGroup,
   RepoStatus,
+  WindowState,
 } from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
 
@@ -20,6 +21,7 @@ const loaded = ref(false);
 const refreshIntervalSeconds = ref(300);
 const filesPaneWidth = ref(320);
 const diffMode = ref<DiffMode>("split");
+const windowState = ref<WindowState | null>(null);
 const FILES_PANE_MIN = 220;
 const FILES_PANE_MAX = 800;
 const refreshingAll = ref(false);
@@ -70,6 +72,7 @@ export function useApp() {
     refreshIntervalSeconds.value = data.refreshIntervalSeconds ?? 300;
     filesPaneWidth.value = clampFilesPaneWidth(data.filesPaneWidth ?? 320);
     diffMode.value = data.diffMode === "inline" ? "inline" : "split";
+    windowState.value = data.window ?? null;
   }
 
   function applyStatus(status: RepoStatus) {
@@ -428,6 +431,11 @@ export function useApp() {
   async function saveRefreshInterval(seconds: number) {
     refreshIntervalSeconds.value = await api.updateAppSettings(seconds);
     startAutoRefresh();
+  }
+
+  async function saveWindowState(next: WindowState) {
+    windowState.value = await api.updateWindowState(next);
+    return windowState.value;
   }
 
   function isRepoRefreshing(repoId: string) {
@@ -805,6 +813,8 @@ export function useApp() {
     saveFilesPaneWidth,
     diffMode,
     saveDiffMode,
+    windowState,
+    saveWindowState,
     replaceSettings,
     refreshingAll,
     lastRefreshAt,

@@ -5,9 +5,10 @@ import { useApp } from "./useApp";
 export const GROUPS_TAB_ID = "groups";
 export const HISTORY_TAB_ID = "history";
 export const SETTINGS_TAB_ID = "settings";
+export const SETTINGS_JSON_TAB_ID = "settings-json";
 export const CHANGELOG_TAB_ID = "changelog";
 
-type UtilityPanel = "settings" | "history" | "changelog";
+type UtilityPanel = "settings" | "settings-json" | "history" | "changelog";
 
 export interface AppTab {
   id: string;
@@ -24,6 +25,7 @@ interface RepoTab {
 const repoTabs = ref<RepoTab[]>([]);
 const historyTabOpen = ref(false);
 const settingsTabOpen = ref(false);
+const settingsJsonTabOpen = ref(false);
 const changelogTabOpen = ref(false);
 const activeId = ref(GROUPS_TAB_ID);
 
@@ -48,6 +50,9 @@ export function useTabs() {
       : []),
     ...(settingsTabOpen.value
       ? [{ id: SETTINGS_TAB_ID, title: "Settings", closable: true }]
+      : []),
+    ...(settingsJsonTabOpen.value
+      ? [{ id: SETTINGS_JSON_TAB_ID, title: "settings.json", closable: true }]
       : []),
     ...(changelogTabOpen.value
       ? [{ id: CHANGELOG_TAB_ID, title: "Change Log", closable: true }]
@@ -81,6 +86,9 @@ export function useTabs() {
     }
     if (id === SETTINGS_TAB_ID) {
       return "/settings";
+    }
+    if (id === SETTINGS_JSON_TAB_ID) {
+      return "/settings.json";
     }
     if (id === CHANGELOG_TAB_ID) {
       return "/changelog";
@@ -117,6 +125,9 @@ export function useTabs() {
     if (closingId !== SETTINGS_TAB_ID && settingsTabOpen.value) {
       return SETTINGS_TAB_ID;
     }
+    if (closingId !== SETTINGS_JSON_TAB_ID && settingsJsonTabOpen.value) {
+      return SETTINGS_JSON_TAB_ID;
+    }
     if (closingId !== CHANGELOG_TAB_ID && changelogTabOpen.value) {
       return CHANGELOG_TAB_ID;
     }
@@ -142,6 +153,10 @@ export function useTabs() {
     closeUtilityTab(SETTINGS_TAB_ID, settingsTabOpen);
   }
 
+  function closeSettingsJson() {
+    closeUtilityTab(SETTINGS_JSON_TAB_ID, settingsJsonTabOpen);
+  }
+
   function closeChangelog() {
     closeUtilityTab(CHANGELOG_TAB_ID, changelogTabOpen);
   }
@@ -154,6 +169,11 @@ export function useTabs() {
   function openSettings() {
     settingsTabOpen.value = true;
     activate(SETTINGS_TAB_ID);
+  }
+
+  function openSettingsJson() {
+    settingsJsonTabOpen.value = true;
+    activate(SETTINGS_JSON_TAB_ID);
   }
 
   function openChangelog() {
@@ -180,6 +200,10 @@ export function useTabs() {
     }
     if (id === SETTINGS_TAB_ID) {
       closeSettings();
+      return;
+    }
+    if (id === SETTINGS_JSON_TAB_ID) {
+      closeSettingsJson();
       return;
     }
     if (id === CHANGELOG_TAB_ID) {
@@ -214,6 +238,9 @@ export function useTabs() {
     if (id === SETTINGS_TAB_ID) {
       return settingsTabOpen.value;
     }
+    if (id === SETTINGS_JSON_TAB_ID) {
+      return settingsJsonTabOpen.value;
+    }
     if (id === CHANGELOG_TAB_ID) {
       return changelogTabOpen.value;
     }
@@ -237,6 +264,11 @@ export function useTabs() {
     if (panel === "settings") {
       settingsTabOpen.value = true;
       activeId.value = SETTINGS_TAB_ID;
+      return;
+    }
+    if (panel === "settings-json") {
+      settingsJsonTabOpen.value = true;
+      activeId.value = SETTINGS_JSON_TAB_ID;
       return;
     }
     if (panel === "changelog") {
@@ -263,12 +295,14 @@ export function useTabs() {
     repoTabs,
     historyTabOpen,
     settingsTabOpen,
+    settingsJsonTabOpen,
     changelogTabOpen,
     activeId,
     openRepo,
     openRepos,
     openHistory,
     openSettings,
+    openSettingsJson,
     openChangelog,
     activate,
     closeRepo,

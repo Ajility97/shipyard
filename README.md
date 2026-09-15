@@ -55,8 +55,8 @@ GUI apps launched from Finder sometimes miss Homebrew’s PATH. Krakdown looks f
 
 ## Data
 
-Repository groups are stored at:
+Preferences, repository groups, and window position are stored at:
 
-`~/Library/Application Support/com.krakdown.app/groups.json`
+`~/Library/Application Support/com.krakdown.app/settings.json`
 
-That file is safe to inspect or edit. It stores group names and local folder paths only — never credentials.
+That file is safe to inspect, edit, or back up. The Settings tab has form controls; open `settings.json` from the top-right icon to edit, export, or import the full file. It stores group names and local folder paths only — never credentials.

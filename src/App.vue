@@ -42,7 +42,7 @@ function onToastDismiss() {
   }
   dismissToast();
 }
-const appVersion = ref("0.2.0");
+const appVersion = ref("1.0.0");
 const {
   repoTabs,
   historyTabOpen,

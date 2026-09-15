@@ -73,6 +73,14 @@ export function removeRepo(groupId: string, repoId: string) {
   return invoke<void>("remove_repo", { groupId, repoId });
 }
 
+export function reorderGroupRepos(groupId: string, repoIds: string[]) {
+  return invoke<void>("reorder_group_repos", { groupId, repoIds });
+}
+
+export function reorderGroups(groupIds: string[]) {
+  return invoke<void>("reorder_groups", { groupIds });
+}
+
 export function updateAppSettings(refreshIntervalSeconds: number) {
   return invoke<number>("update_app_settings", { refreshIntervalSeconds });
 }

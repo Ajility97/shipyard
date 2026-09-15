@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useApp } from "../composables/useApp";
 import { useTabs } from "../composables/useTabs";
@@ -32,6 +32,7 @@ const {
   countdownLabel,
   refreshProgressLabel,
   saveRefreshInterval,
+  reorderGroups,
 } = useApp();
 const { hasTab, closeRepos } = useTabs();
 const creating = ref(false);
@@ -69,6 +70,127 @@ const canExpandAll = computed(
 const canCollapseAll = computed(
   () => groups.value.length > 0 && groups.value.some((group) => group.expanded),
 );
+
+const canSortGroups = computed(() => groups.value.length > 1);
+const draggingGroupId = ref<string | null>(null);
+const draftGroupIds = ref<string[] | null>(null);
+const visibleGroups = computed(() => {
+  const ids = draftGroupIds.value ?? groups.value.map((group) => group.id);
+  const byId = new Map(groups.value.map((group) => [group.id, group]));
+  return ids.flatMap((id) => {
+    const group = byId.get(id);
+    return group ? [group] : [];
+  });
+});
+const alphaGroupIds = computed(() =>
+  [...groups.value]
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base", numeric: true }),
+    )
+    .map((group) => group.id),
+);
+const canSortGroupsAlpha = computed(
+  () =>
+    canSortGroups.value &&
+    alphaGroupIds.value.join("\0") !== groups.value.map((group) => group.id).join("\0"),
+);
+
+function moveDraggingGroupTo(targetId: string, before: boolean) {
+  const dragging = draggingGroupId.value;
+  if (!dragging || dragging === targetId) {
+    return;
+  }
+  const ids = [...(draftGroupIds.value ?? groups.value.map((group) => group.id))];
+  const from = ids.indexOf(dragging);
+  if (from === -1) {
+    return;
+  }
+  ids.splice(from, 1);
+  let to = ids.indexOf(targetId);
+  if (to === -1) {
+    return;
+  }
+  if (!before) {
+    to += 1;
+  }
+  ids.splice(to, 0, dragging);
+  if (ids.join("\0") !== (draftGroupIds.value ?? []).join("\0")) {
+    draftGroupIds.value = ids;
+  }
+}
+
+function onReorderGroupsMove(event: PointerEvent) {
+  if (!draggingGroupId.value) {
+    return;
+  }
+  const node = document.elementFromPoint(event.clientX, event.clientY);
+  const group = node instanceof Element ? node.closest("[data-group-id]") : null;
+  if (!(group instanceof HTMLElement) || !group.dataset.groupId) {
+    return;
+  }
+  const header = group.querySelector(".group-header");
+  let before = true;
+  if (header instanceof HTMLElement) {
+    const rect = header.getBoundingClientRect();
+    before =
+      event.clientY <= rect.bottom
+        ? event.clientY < rect.top + rect.height / 2
+        : false;
+  } else {
+    const rect = group.getBoundingClientRect();
+    before = event.clientY < rect.top + rect.height / 2;
+  }
+  moveDraggingGroupTo(group.dataset.groupId, before);
+}
+
+async function finishReorderGroups() {
+  window.removeEventListener("pointermove", onReorderGroupsMove);
+  window.removeEventListener("pointerup", finishReorderGroups);
+  window.removeEventListener("pointercancel", finishReorderGroups);
+  document.body.classList.remove("reordering-groups");
+  const ids = draftGroupIds.value;
+  draggingGroupId.value = null;
+  draftGroupIds.value = null;
+  if (!ids || ids.join("\0") === groups.value.map((group) => group.id).join("\0")) {
+    return;
+  }
+  try {
+    await reorderGroups(ids);
+  } catch (err) {
+    window.alert(String(err));
+  }
+}
+
+function onReorderGroupsStart(event: PointerEvent, groupId: string) {
+  if (event.button !== 0 || !canSortGroups.value) {
+    return;
+  }
+  event.preventDefault();
+  draggingGroupId.value = groupId;
+  draftGroupIds.value = groups.value.map((group) => group.id);
+  document.body.classList.add("reordering-groups");
+  window.addEventListener("pointermove", onReorderGroupsMove);
+  window.addEventListener("pointerup", finishReorderGroups);
+  window.addEventListener("pointercancel", finishReorderGroups);
+}
+
+async function sortGroupsAlphabetically() {
+  if (!canSortGroupsAlpha.value) {
+    return;
+  }
+  try {
+    await reorderGroups(alphaGroupIds.value);
+  } catch (err) {
+    window.alert(String(err));
+  }
+}
+
+onUnmounted(() => {
+  window.removeEventListener("pointermove", onReorderGroupsMove);
+  window.removeEventListener("pointerup", finishReorderGroups);
+  window.removeEventListener("pointercancel", finishReorderGroups);
+  document.body.classList.remove("reordering-groups");
+});
 
 function startCreate() {
   creating.value = true;
@@ -168,6 +290,14 @@ async function removeStandalone(repoId: string) {
               </svg>
               Collapse
             </button>
+            <button
+              class="ghost"
+              type="button"
+              :disabled="!canSortGroupsAlpha"
+              @click="sortGroupsAlphabetically"
+            >
+              Sort A–Z
+            </button>
             <div class="header-action">
               <span v-if="refreshingAll" class="action-progress">
                 <span class="spinner" aria-hidden="true" />
@@ -210,7 +340,7 @@ async function removeStandalone(repoId: string) {
           />
         </div>
 
-        <div class="groups-list">
+        <div class="groups-list" :class="{ reordering: Boolean(draggingGroupId) }">
           <RepoGroupCard
             v-if="creating"
             :group="DRAFT_GROUP"
@@ -218,7 +348,14 @@ async function removeStandalone(repoId: string) {
             @cancel="cancelCreate"
             @created="cancelCreate"
           />
-          <RepoGroupCard v-for="group in groups" :key="group.id" :group="group" />
+          <RepoGroupCard
+            v-for="group in visibleGroups"
+            :key="group.id"
+            :group="group"
+            :sortable="canSortGroups"
+            :dragging="draggingGroupId === group.id"
+            @reorder-start="onReorderGroupsStart"
+          />
         </div>
       </div>
     </div>

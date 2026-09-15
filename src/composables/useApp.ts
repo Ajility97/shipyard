@@ -574,6 +574,40 @@ export function useApp() {
     statuses.value = next;
   }
 
+  async function reorderGroups(groupIds: string[]) {
+    const byId = new Map(groups.value.map((group) => [group.id, group]));
+    if (groupIds.length !== groups.value.length || groupIds.some((id) => !byId.has(id))) {
+      throw new Error("Group list does not match saved groups.");
+    }
+    const previous = groups.value;
+    groups.value = groupIds.map((id) => byId.get(id)!);
+    try {
+      await api.reorderGroups(groupIds);
+    } catch (err) {
+      groups.value = previous;
+      throw err;
+    }
+  }
+
+  async function reorderGroupRepos(groupId: string, repoIds: string[]) {
+    const group = groups.value.find((item) => item.id === groupId);
+    if (!group) {
+      return;
+    }
+    const byId = new Map(group.repos.map((repo) => [repo.id, repo]));
+    if (repoIds.length !== group.repos.length || repoIds.some((id) => !byId.has(id))) {
+      throw new Error("Repository list does not match this group.");
+    }
+    const previous = group.repos;
+    patchGroup(groupId, { repos: repoIds.map((id) => byId.get(id)!) });
+    try {
+      await api.reorderGroupRepos(groupId, repoIds);
+    } catch (err) {
+      patchGroup(groupId, { repos: previous });
+      throw err;
+    }
+  }
+
   function repoDisplayName(repoId: string, path: string) {
     return (
       statuses.value[repoId]?.name ??
@@ -857,6 +891,9 @@ export function useApp() {
     addStandaloneRepo,
     removeStandaloneRepo,
     removeRepo,
+    reorderGroups,
+    reorderGroupRepos,
+    repoDisplayName,
     runAction,
     clearResults,
     findRepo,

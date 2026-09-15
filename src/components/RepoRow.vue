@@ -14,10 +14,13 @@ const props = defineProps<{
   repo: RepoEntry;
   siblingIds: string[];
   flush?: boolean;
+  sortable?: boolean;
+  dragging?: boolean;
 }>();
 
 const emit = defineEmits<{
   remove: [repoId: string];
+  reorderStart: [event: PointerEvent, repoId: string];
 }>();
 
 const { statuses, isRepoRefreshing } = useApp();
@@ -54,9 +57,30 @@ function onRemove() {
       open: hasTab(repo.id),
       refreshing: isRepoRefreshing(repo.id),
       flush,
+      sortable,
+      dragging,
     }"
+    :data-repo-id="repo.id"
     @click="handleClick"
   >
+    <span
+      v-if="sortable"
+      class="repo-drag"
+      role="button"
+      title="Drag to reorder"
+      aria-label="Drag to reorder"
+      @click.stop
+      @pointerdown.stop="emit('reorderStart', $event, repo.id)"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="5.5" cy="4" r="1.15" />
+        <circle cx="10.5" cy="4" r="1.15" />
+        <circle cx="5.5" cy="8" r="1.15" />
+        <circle cx="10.5" cy="8" r="1.15" />
+        <circle cx="5.5" cy="12" r="1.15" />
+        <circle cx="10.5" cy="12" r="1.15" />
+      </svg>
+    </span>
     <span class="repo-name">{{ statuses[repo.id]?.name ?? folderName(repo.path) }}</span>
     <span class="branch">
       <span v-if="isRepoRefreshing(repo.id)" class="spinner" aria-label="Refreshing repository" />

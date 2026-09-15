@@ -387,6 +387,66 @@ pub fn remove_repo(
 }
 
 #[tauri::command]
+pub fn reorder_group_repos(
+    app: AppHandle,
+    state: State<AppState>,
+    group_id: String,
+    repo_ids: Vec<String>,
+) -> Result<(), String> {
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    let group = find_group_mut(&mut data, &group_id)?;
+    if repo_ids.len() != group.repos.len() {
+        return Err("Repository list does not match this group.".into());
+    }
+    let mut by_id: std::collections::HashMap<_, _> = group
+        .repos
+        .drain(..)
+        .map(|repo| (repo.id.clone(), repo))
+        .collect();
+    let mut next = Vec::with_capacity(repo_ids.len());
+    for id in repo_ids {
+        let repo = by_id
+            .remove(&id)
+            .ok_or_else(|| "Repository not found".to_string())?;
+        next.push(repo);
+    }
+    if !by_id.is_empty() {
+        return Err("Repository list does not match this group.".into());
+    }
+    group.repos = next;
+    persist_data(&app, &data)
+}
+
+#[tauri::command]
+pub fn reorder_groups(
+    app: AppHandle,
+    state: State<AppState>,
+    group_ids: Vec<String>,
+) -> Result<(), String> {
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    if group_ids.len() != data.groups.len() {
+        return Err("Group list does not match saved groups.".into());
+    }
+    let mut by_id: std::collections::HashMap<_, _> = data
+        .groups
+        .drain(..)
+        .map(|group| (group.id.clone(), group))
+        .collect();
+    let mut next = Vec::with_capacity(group_ids.len());
+    for id in group_ids {
+        let group = by_id
+            .remove(&id)
+            .ok_or_else(|| "Group not found".to_string())?;
+        next.push(group);
+    }
+    if !by_id.is_empty() {
+        return Err("Group list does not match saved groups.".into());
+    }
+    data.groups = next;
+    persist_data(&app, &data)
+}
+
+#[tauri::command]
 pub fn add_standalone_repo(
     app: AppHandle,
     state: State<AppState>,

@@ -57,6 +57,8 @@ pub fn run() {
             commands::remove_standalone_repo,
             commands::standalone_status,
             commands::remove_repo,
+            commands::reorder_group_repos,
+            commands::reorder_groups,
             commands::group_status,
             commands::refresh_repo,
             commands::pull_repo,

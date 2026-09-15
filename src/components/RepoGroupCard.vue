@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
@@ -20,11 +20,14 @@ function isLastFallback(value: string): value is LastFallback {
 const props = defineProps<{
   group: RepoGroup;
   draft?: boolean;
+  sortable?: boolean;
+  dragging?: boolean;
 }>();
 
 const emit = defineEmits<{
   created: [];
   cancel: [];
+  reorderStart: [event: PointerEvent, groupId: string];
 }>();
 
 const {
@@ -36,6 +39,8 @@ const {
   saveSettings,
   addRepo,
   removeRepo,
+  reorderGroupRepos,
+  repoDisplayName,
   pullGroup,
   pullProgress,
   pullBranchByGroup,
@@ -59,7 +64,114 @@ const {
   close: closeMenus,
 } = useOverflowMenu(() => `group:${props.group.id}`);
 
-const siblingIds = computed(() => props.group.repos.map((repo) => repo.id));
+const siblingIds = computed(() => visibleRepos.value.map((repo) => repo.id));
+const canSort = computed(() => !props.draft && props.group.repos.length > 1);
+const alphaIds = computed(() =>
+  [...props.group.repos]
+    .sort((left, right) =>
+      repoDisplayName(left.id, left.path).localeCompare(
+        repoDisplayName(right.id, right.path),
+        undefined,
+        { sensitivity: "base", numeric: true },
+      ),
+    )
+    .map((repo) => repo.id),
+);
+const canSortAlpha = computed(
+  () =>
+    canSort.value &&
+    alphaIds.value.join("\0") !== props.group.repos.map((repo) => repo.id).join("\0"),
+);
+const draggingId = ref<string | null>(null);
+const draftIds = ref<string[] | null>(null);
+const visibleRepos = computed(() => {
+  const ids = draftIds.value ?? props.group.repos.map((repo) => repo.id);
+  const byId = new Map(props.group.repos.map((repo) => [repo.id, repo]));
+  return ids.flatMap((id) => {
+    const repo = byId.get(id);
+    return repo ? [repo] : [];
+  });
+});
+
+function moveDraggingTo(targetId: string, before: boolean) {
+  const dragging = draggingId.value;
+  if (!dragging || dragging === targetId) {
+    return;
+  }
+  const ids = [...(draftIds.value ?? props.group.repos.map((repo) => repo.id))];
+  const from = ids.indexOf(dragging);
+  if (from === -1) {
+    return;
+  }
+  ids.splice(from, 1);
+  let to = ids.indexOf(targetId);
+  if (to === -1) {
+    return;
+  }
+  if (!before) {
+    to += 1;
+  }
+  ids.splice(to, 0, dragging);
+  if (ids.join("\0") !== (draftIds.value ?? []).join("\0")) {
+    draftIds.value = ids;
+  }
+}
+
+function onReorderMove(event: PointerEvent) {
+  if (!draggingId.value) {
+    return;
+  }
+  const node = document.elementFromPoint(event.clientX, event.clientY);
+  const row = node instanceof Element ? node.closest("[data-repo-id]") : null;
+  if (!(row instanceof HTMLElement) || !row.dataset.repoId) {
+    return;
+  }
+  const rect = row.getBoundingClientRect();
+  moveDraggingTo(row.dataset.repoId, event.clientY < rect.top + rect.height / 2);
+}
+
+async function finishReorder() {
+  window.removeEventListener("pointermove", onReorderMove);
+  window.removeEventListener("pointerup", finishReorder);
+  window.removeEventListener("pointercancel", finishReorder);
+  document.body.classList.remove("reordering-repos");
+  const ids = draftIds.value;
+  draggingId.value = null;
+  draftIds.value = null;
+  if (!ids || ids.join("\0") === props.group.repos.map((repo) => repo.id).join("\0")) {
+    return;
+  }
+  try {
+    await reorderGroupRepos(props.group.id, ids);
+  } catch (err) {
+    window.alert(String(err));
+  }
+}
+
+async function sortAlphabetically() {
+  closeMenus();
+  if (!canSortAlpha.value) {
+    return;
+  }
+  try {
+    await reorderGroupRepos(props.group.id, alphaIds.value);
+  } catch (err) {
+    window.alert(String(err));
+  }
+}
+
+function onReorderStart(event: PointerEvent, repoId: string) {
+  if (event.button !== 0 || !canSort.value) {
+    return;
+  }
+  event.preventDefault();
+  draggingId.value = repoId;
+  draftIds.value = props.group.repos.map((repo) => repo.id);
+  document.body.classList.add("reordering-repos");
+  window.addEventListener("pointermove", onReorderMove);
+  window.addEventListener("pointerup", finishReorder);
+  window.addEventListener("pointercancel", finishReorder);
+}
 
 const nameInput = ref<HTMLInputElement | null>(null);
 const renaming = ref(Boolean(props.draft));
@@ -92,6 +204,13 @@ onMounted(() => {
   if (props.draft) {
     void nextTick(() => nameInput.value?.focus());
   }
+});
+
+onUnmounted(() => {
+  window.removeEventListener("pointermove", onReorderMove);
+  window.removeEventListener("pointerup", finishReorder);
+  window.removeEventListener("pointercancel", finishReorder);
+  document.body.classList.remove("reordering-repos");
 });
 
 const actionLabel = computed(() => busy.value[props.group.id] ?? "");
@@ -359,7 +478,7 @@ function onHeaderClick(event: MouseEvent) {
   if (!(target instanceof Element)) {
     return;
   }
-  if (target.closest("button, input, label, select, textarea, a, .overflow-menu")) {
+  if (target.closest("button, input, label, select, textarea, a, .overflow-menu, .group-drag")) {
     return;
   }
   void toggleGroup(props.group.id);
@@ -386,8 +505,35 @@ function contrastingText(color: string) {
 </script>
 
 <template>
-  <section class="group">
-    <div class="group-header" :style="headerStyle" @click="onHeaderClick">
+  <section
+    class="group"
+    :class="{ dragging, sortable }"
+    :data-group-id="draft ? undefined : group.id"
+  >
+    <div
+      class="group-header"
+      :class="{ sortable }"
+      :style="headerStyle"
+      @click="onHeaderClick"
+    >
+      <span
+        v-if="sortable"
+        class="group-drag"
+        role="button"
+        title="Drag to reorder"
+        aria-label="Drag to reorder"
+        @click.stop
+        @pointerdown.stop="emit('reorderStart', $event, group.id)"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="5.5" cy="4" r="1.15" />
+          <circle cx="10.5" cy="4" r="1.15" />
+          <circle cx="5.5" cy="8" r="1.15" />
+          <circle cx="10.5" cy="8" r="1.15" />
+          <circle cx="5.5" cy="12" r="1.15" />
+          <circle cx="10.5" cy="12" r="1.15" />
+        </svg>
+      </span>
       <button
         class="chevron"
         type="button"
@@ -562,6 +708,15 @@ function contrastingText(color: string) {
               class="overflow-menu-item"
               type="button"
               role="menuitem"
+              :disabled="!canSortAlpha"
+              @click.stop="sortAlphabetically"
+            >
+              Sort A–Z
+            </button>
+            <button
+              class="overflow-menu-item"
+              type="button"
+              role="menuitem"
               @click.stop="startRename"
             >
               Edit group
@@ -579,13 +734,20 @@ function contrastingText(color: string) {
       </div>
     </div>
 
-    <div v-if="group.expanded && group.repos.length" class="group-body">
+    <div
+      v-if="group.expanded && group.repos.length"
+      class="group-body"
+      :class="{ reordering: Boolean(draggingId) }"
+    >
       <RepoRow
-        v-for="repo in group.repos"
+        v-for="repo in visibleRepos"
         :key="repo.id"
         :repo="repo"
         :sibling-ids="siblingIds"
+        :sortable="canSort"
+        :dragging="draggingId === repo.id"
         @remove="removeAndLeave"
+        @reorder-start="onReorderStart"
       />
     </div>
 

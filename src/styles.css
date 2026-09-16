@@ -1882,10 +1882,6 @@ body.reordering-repos .repo-row,
   background: var(--bg-hover);
 }
 
-.repo-row.open {
-  outline: 1px solid var(--border);
-}
-
 .repo-row.active {
   background: var(--bg-active);
 }

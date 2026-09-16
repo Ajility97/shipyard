@@ -2523,8 +2523,15 @@ body.is-resizing * {
 }
 
 .branch-list-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
   margin: 0;
   padding: 0.75rem 0.85rem 0.35rem;
+}
+
+.branch-list-hint .spinner {
+  margin-top: 0.2rem;
 }
 
 .branch-list-hint strong {
@@ -2550,6 +2557,10 @@ body.is-resizing * {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
+}
+
+.branch-row .action-progress {
+  flex-shrink: 0;
 }
 
 .branch-pill {

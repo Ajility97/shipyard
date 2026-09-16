@@ -6,6 +6,14 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.0.2",
+    date: "September 15, 2026",
+    notes: [
+      "Branches view lists names immediately, then fills Merged/Partial in place. The list stays in the same order, and a spinner shows while leftover work is still being checked.",
+      "Delete merged reuses that list and removes leftovers in one git call.",
+    ],
+  },
+  {
     version: "1.0.1",
     date: "September 15, 2026",
     notes: [

@@ -179,6 +179,8 @@ pub struct LocalBranch {
     pub partial: bool,
     #[serde(rename = "protected")]
     pub protected_branch: bool,
+    #[serde(default)]
+    pub pending: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

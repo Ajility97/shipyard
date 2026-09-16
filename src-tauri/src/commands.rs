@@ -873,10 +873,12 @@ pub async fn branch_overview(
     state: State<'_, AppState>,
     path: String,
     preferred: Option<String>,
+    classify: Option<bool>,
 ) -> Result<BranchOverview, String> {
     let git = require_git(&state)?;
+    let classify = classify.unwrap_or(true);
     tauri::async_runtime::spawn_blocking(move || {
-        git::branch_overview(&git, Path::new(&path), preferred.as_deref())
+        git::branch_overview_with(&git, Path::new(&path), preferred.as_deref(), classify)
     })
     .await
     .map_err(|err| err.to_string())?
@@ -903,10 +905,17 @@ pub async fn delete_merged_branches(
     path: String,
     preferred: Option<String>,
     force: bool,
+    names: Option<Vec<String>>,
 ) -> Result<DeleteMergedResult, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
-        git::delete_merged_branches(&git, Path::new(&path), preferred.as_deref(), force)
+        git::delete_merged_branches(
+            &git,
+            Path::new(&path),
+            preferred.as_deref(),
+            force,
+            names.as_deref(),
+        )
     })
     .await
     .map_err(|err| err.to_string())?

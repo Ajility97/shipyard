@@ -51,6 +51,7 @@ const graphStale = ref(false);
 const stashes = ref<StashEntry[]>([]);
 const stashView = ref(false);
 const overview = ref<BranchOverview | null>(null);
+let overviewGeneration = 0;
 const selectedFile = ref<WorkingTreeFile | null>(null);
 const selectedCommit = ref<CommitNode | null>(null);
 const selectedCommitFile = ref<CommitFile | null>(null);
@@ -137,9 +138,69 @@ onUnmounted(() => {
   stopResize();
 });
 
+function mergeOverview(previous: BranchOverview | null, next: BranchOverview): BranchOverview {
+  if (!previous || previous.mergeTarget !== next.mergeTarget) {
+    return next;
+  }
+  const incoming = new Map(next.branches.map((branch) => [branch.name, branch]));
+  const kept = previous.branches.flatMap((branch) => {
+    const update = incoming.get(branch.name);
+    if (!update) {
+      return [];
+    }
+    if (update.pending && !branch.pending) {
+      return [
+        {
+          ...update,
+          merged: branch.merged,
+          partial: branch.partial,
+          pending: false,
+        },
+      ];
+    }
+    return [update];
+  });
+  const seen = new Set(kept.map((branch) => branch.name));
+  const added = next.branches.filter((branch) => !seen.has(branch.name));
+  return { ...next, branches: [...kept, ...added] };
+}
+
+async function classifyOverview(
+  path: string,
+  preferred: string | undefined,
+  generation: number,
+) {
+  const full = await api.branchOverview(path, preferred, true);
+  if (generation !== overviewGeneration || current.value?.repo.path !== path || !branchesView.value) {
+    return;
+  }
+  overview.value = mergeOverview(overview.value, full);
+}
+
+async function loadOverview() {
+  const match = current.value;
+  if (!match) {
+    overview.value = null;
+    return;
+  }
+  const generation = ++overviewGeneration;
+  const path = match.repo.path;
+  const preferred = preferredMergeTarget();
+  const snapshot = await api.branchOverview(path, preferred, false);
+  if (generation !== overviewGeneration) {
+    return;
+  }
+  const needsClassify = snapshot.branches.some((branch) => branch.pending);
+  overview.value = mergeOverview(overview.value, snapshot);
+  if (needsClassify) {
+    await classifyOverview(path, preferred, generation);
+  }
+}
+
 async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?: boolean }) {
   const match = current.value;
   if (!match) {
+    overviewGeneration += 1;
     commits.value = [];
     files.value = [];
     branches.value = [];
@@ -153,6 +214,7 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
 
   const wantOverview = options?.overview ?? branchesView.value;
   const wantGraph = options?.graph ?? true;
+  const generation = wantOverview ? ++overviewGeneration : overviewGeneration;
   if (!options?.silent) {
     loading.value = true;
   }
@@ -164,7 +226,7 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
       api.listLocalBranches(match.repo.path).catch(() => [] as string[]),
       api.stashList(match.repo.path).catch(() => [] as StashEntry[]),
       wantOverview
-        ? api.branchOverview(match.repo.path, preferredMergeTarget()).catch(() => null)
+        ? api.branchOverview(match.repo.path, preferredMergeTarget(), false).catch(() => null)
         : Promise.resolve(overview.value),
     ]);
     if (wantGraph) {
@@ -175,7 +237,11 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
     branches.value = nextBranches;
     stashes.value = nextStashes;
     if (wantOverview) {
-      overview.value = nextOverview;
+      const needsClassify = nextOverview?.branches.some((branch) => branch.pending) ?? false;
+      overview.value = nextOverview ? mergeOverview(overview.value, nextOverview) : nextOverview;
+      if (needsClassify && generation === overviewGeneration) {
+        void classifyOverview(match.repo.path, preferredMergeTarget(), generation);
+      }
     }
     if (selectedFile.value && !nextFiles.some((file) => sameFile(file, selectedFile.value))) {
       selectedFile.value = null;
@@ -374,10 +440,7 @@ function markOverviewCurrent(name: string) {
   }));
   nextBranches.sort(
     (left, right) =>
-      Number(right.current) - Number(left.current) ||
-      Number(left.merged) - Number(right.merged) ||
-      Number(left.partial) - Number(right.partial) ||
-      left.name.localeCompare(right.name),
+      Number(right.current) - Number(left.current) || left.name.localeCompare(right.name),
   );
   overview.value = { ...currentOverview, branches: nextBranches };
 }
@@ -643,13 +706,15 @@ function preferredMergeTarget() {
   return current.value?.group?.pullFromBranch?.trim() || undefined;
 }
 
-async function loadOverview() {
-  const match = current.value;
-  if (!match) {
-    overview.value = null;
+function removeOverviewBranches(names: string[]) {
+  const gone = new Set(names);
+  if (!overview.value || !gone.size) {
     return;
   }
-  overview.value = await api.branchOverview(match.repo.path, preferredMergeTarget());
+  overview.value = {
+    ...overview.value,
+    branches: overview.value.branches.filter((branch) => !gone.has(branch.name)),
+  };
 }
 
 async function toggleBranchesView() {
@@ -821,7 +886,7 @@ async function deleteMerged() {
   const match = current.value;
   const count =
     overview.value?.branches.filter(
-      (branch) => branch.merged && !branch.current && !branch.protected,
+      (branch) => branch.merged && !branch.current && !branch.protected && !branch.pending,
     ).length ?? 0;
   if (!match || count === 0) {
     return;
@@ -846,10 +911,15 @@ async function deleteMerged() {
   actionLabel.value = "Deleting merged branches…";
   message.value = "";
   try {
+    const victims =
+      overview.value?.branches
+        .filter((branch) => branch.merged && !branch.current && !branch.protected && !branch.pending)
+        .map((branch) => branch.name) ?? [];
     let result = await api.deleteMergedBranches(
       match.repo.path,
       preferredMergeTarget(),
       false,
+      victims,
     );
     if (result.refused.length) {
       const refused = result.refused.join(", ");
@@ -865,11 +935,18 @@ async function deleteMerged() {
         },
       );
       if (forceOk) {
-        result = await api.deleteMergedBranches(
+        const forced = await api.deleteMergedBranches(
           match.repo.path,
           preferredMergeTarget(),
           true,
+          result.refused,
         );
+        result = {
+          deleted: [...result.deleted, ...forced.deleted],
+          refused: forced.refused,
+          errors: [...result.errors, ...forced.errors],
+          message: [result.message, forced.message].filter(Boolean).join(" "),
+        };
       }
     }
     const failed = result.deleted.length === 0 && result.errors.length > 0;
@@ -878,7 +955,12 @@ async function deleteMerged() {
       message.value = text;
     }
     showToast(text, failed ? "error" : "success");
-    await loadRepo();
+    overviewGeneration += 1;
+    removeOverviewBranches(result.deleted);
+    await loadRepo({ overview: false, graph: !branchesView.value, silent: true });
+    if (branchesView.value && overview.value?.branches.some((branch) => branch.pending)) {
+      void loadOverview();
+    }
     await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
   } catch (err) {
     const text = String(err);
@@ -923,6 +1005,7 @@ watch(
     branchesView.value = false;
     stashView.value = false;
     graphStale.value = false;
+    overviewGeneration += 1;
     overview.value = null;
     closeCommitDetail();
     closeDiff();

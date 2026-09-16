@@ -18,23 +18,37 @@ const emit = defineEmits<{
 const leftoverCount = computed(
   () =>
     props.overview?.branches.filter(
-      (branch) => branch.merged && !branch.current && !branch.protected,
+      (branch) => branch.merged && !branch.current && !branch.protected && !branch.pending,
     ).length ?? 0,
 );
 
+const classifying = computed(
+  () => props.overview?.branches.some((branch) => branch.pending) ?? false,
+);
+
 function isLeftover(branch: LocalBranch) {
-  return branch.merged && !branch.protected;
+  return branch.merged && !branch.protected && !branch.pending;
 }
 
 function isPartial(branch: LocalBranch) {
-  return branch.partial && !branch.protected;
+  return branch.partial && !branch.protected && !branch.pending;
 }
 </script>
 
 <template>
   <div class="branch-pane">
     <div class="graph-scroll branch-list">
-      <p v-if="!overview" class="muted tiny branch-list-hint">Loading branches…</p>
+      <p v-if="!overview" class="muted tiny branch-list-hint">
+        <span class="spinner" aria-hidden="true" />
+        <span>Loading branches…</span>
+      </p>
+      <p v-else-if="classifying && overview.mergeTarget" class="muted tiny branch-list-hint">
+        <span class="spinner" aria-hidden="true" />
+        <span>
+          Listed local branches. Checking leftover work against
+          <strong>{{ overview.mergeTarget }}</strong>…
+        </span>
+      </p>
       <p v-else-if="overview.mergeTarget" class="muted tiny branch-list-hint">
         Merged marks leftover local work already contained in
         <strong>{{ overview.mergeTarget }}</strong>. Partial means some commits are in that
@@ -60,7 +74,19 @@ function isPartial(branch: LocalBranch) {
         <span class="branch-row-name">{{ branch.name }}</span>
         <span v-if="branch.current" class="branch-pill">Current</span>
         <span
-          v-if="isLeftover(branch)"
+          v-if="branch.pending"
+          class="action-progress muted tiny"
+          :title="
+            overview?.mergeTarget
+              ? `Checking whether this is already contained in ${overview.mergeTarget}`
+              : 'Checking whether this leftover work is already merged'
+          "
+        >
+          Checking
+          <span class="spinner" aria-hidden="true" />
+        </span>
+        <span
+          v-else-if="isLeftover(branch)"
           class="branch-pill merged"
           :title="
             overview?.mergeTarget

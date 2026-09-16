@@ -59,7 +59,7 @@ function onToastDismiss() {
   dismissToast();
 }
 const GITHUB_URL = "https://github.com/fylzero/shipyard";
-const appVersion = ref("1.0.1");
+const appVersion = ref("1.0.2");
 const {
   repoTabs,
   historyTabOpen,

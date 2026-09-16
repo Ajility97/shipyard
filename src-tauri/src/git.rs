@@ -1,6 +1,8 @@
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -59,6 +61,14 @@ fn look_on_path(name: &str) -> Option<PathBuf> {
 }
 
 pub fn run_git(git: &Path, repo: &Path, args: &[&str]) -> Result<GitOutput, String> {
+    run_git_inner(git, repo, args, true)
+}
+
+fn run_git_quiet(git: &Path, repo: &Path, args: &[&str]) -> Result<GitOutput, String> {
+    run_git_inner(git, repo, args, false)
+}
+
+fn run_git_inner(git: &Path, repo: &Path, args: &[&str], log: bool) -> Result<GitOutput, String> {
     let started = Instant::now();
     let result = Command::new(git)
         .args(args)
@@ -67,20 +77,22 @@ pub fn run_git(git: &Path, repo: &Path, args: &[&str]) -> Result<GitOutput, Stri
         .output()
         .map_err(|err| format!("Failed to run git: {err}"));
 
-    match &result {
-        Ok(output) => {
-            command_log::record(
-                repo,
-                git,
-                args,
-                output.status.success(),
-                started.elapsed(),
-                &String::from_utf8_lossy(&output.stdout),
-                &String::from_utf8_lossy(&output.stderr),
-            );
-        }
-        Err(err) => {
-            command_log::record(repo, git, args, false, started.elapsed(), "", err);
+    if log {
+        match &result {
+            Ok(output) => {
+                command_log::record(
+                    repo,
+                    git,
+                    args,
+                    output.status.success(),
+                    started.elapsed(),
+                    &String::from_utf8_lossy(&output.stdout),
+                    &String::from_utf8_lossy(&output.stderr),
+                );
+            }
+            Err(err) => {
+                command_log::record(repo, git, args, false, started.elapsed(), "", err);
+            }
         }
     }
 
@@ -410,7 +422,7 @@ fn candidate_git_ref(name: &str) -> String {
     }
 }
 
-fn resolve_merge_target(git: &Path, repo: &Path, preferred: Option<&str>) -> Option<String> {
+fn merge_target_candidates(preferred: Option<&str>) -> Vec<String> {
     let mut candidates = Vec::new();
     if let Some(name) = preferred.map(str::trim).filter(|value| !value.is_empty()) {
         candidates.push(format!("origin/{name}"));
@@ -420,19 +432,71 @@ fn resolve_merge_target(git: &Path, repo: &Path, preferred: Option<&str>) -> Opt
         candidates.push(format!("origin/{name}"));
         candidates.push(name.to_string());
     }
-    let mut seen = std::collections::HashSet::new();
-    for candidate in candidates {
-        if !seen.insert(candidate.clone()) {
-            continue;
-        }
-        if ref_exists(git, repo, &candidate_git_ref(&candidate)) {
-            return Some(candidate);
-        }
-    }
-    None
+    let mut seen = HashSet::new();
+    candidates.retain(|candidate| seen.insert(candidate.clone()));
+    candidates
 }
 
-fn ancestor_merged_names(git: &Path, repo: &Path, target: &str) -> std::collections::HashSet<String> {
+fn resolve_merge_target_from(preferred: Option<&str>, known: &HashSet<String>) -> Option<String> {
+    merge_target_candidates(preferred)
+        .into_iter()
+        .find(|candidate| known.contains(candidate))
+}
+
+struct BranchRefIndex {
+    local: Vec<String>,
+    current: String,
+    shorts: HashSet<String>,
+}
+
+fn branch_ref_index(git: &Path, repo: &Path) -> Result<BranchRefIndex, String> {
+    let output = run_git(
+        git,
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(refname)%00%(refname:short)%00%(HEAD)",
+            "refs/heads",
+            "refs/remotes/origin",
+        ],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not list local branches.",
+        ));
+    }
+
+    let mut local = Vec::new();
+    let mut current = String::new();
+    let mut shorts = HashSet::new();
+    for line in output.stdout.lines() {
+        let mut parts = line.split('\0');
+        let refname = parts.next().unwrap_or("");
+        let short = parts.next().unwrap_or("").trim();
+        let head = parts.next().unwrap_or("");
+        if short.is_empty() {
+            continue;
+        }
+        shorts.insert(short.to_string());
+        if refname.starts_with("refs/heads/") {
+            local.push(short.to_string());
+            if head == "*" {
+                current = short.to_string();
+            }
+        }
+    }
+    if current.is_empty() {
+        current = current_branch(git, repo).unwrap_or_default();
+    }
+    Ok(BranchRefIndex {
+        local,
+        current,
+        shorts,
+    })
+}
+
+fn ancestor_merged_names(git: &Path, repo: &Path, target: &str) -> HashSet<String> {
     let spec = format!("--merged={target}");
     match run_git(
         git,
@@ -451,7 +515,7 @@ fn ancestor_merged_names(git: &Path, repo: &Path, target: &str) -> std::collecti
             .filter(|line| !line.is_empty())
             .map(ToString::to_string)
             .collect(),
-        _ => std::collections::HashSet::new(),
+        _ => HashSet::new(),
     }
 }
 
@@ -462,13 +526,20 @@ enum CherryContainment {
     Full,
 }
 
+fn cherry_workers(jobs: usize) -> usize {
+    std::thread::available_parallelism()
+        .map(|count| count.get().clamp(2, 8))
+        .unwrap_or(4)
+        .min(jobs.max(1))
+}
+
 fn branch_cherry_containment(
     git: &Path,
     repo: &Path,
     branch_ref: &str,
     target: &str,
 ) -> CherryContainment {
-    let output = match run_git(git, repo, &["cherry", target, branch_ref]) {
+    let output = match run_git_quiet(git, repo, &["cherry", target, branch_ref]) {
         Ok(output) if output.success => output,
         _ => return CherryContainment::None,
     };
@@ -490,6 +561,58 @@ fn branch_cherry_containment(
         (_, 0) => CherryContainment::Full,
         _ => CherryContainment::Partial,
     }
+}
+
+fn cherry_map(
+    git: &Path,
+    repo: &Path,
+    target: &str,
+    names: &[String],
+) -> HashMap<String, CherryContainment> {
+    if names.is_empty() {
+        return HashMap::new();
+    }
+    if names.len() == 1 {
+        let name = &names[0];
+        let mut map = HashMap::new();
+        map.insert(
+            name.clone(),
+            branch_cherry_containment(git, repo, &format!("refs/heads/{name}"), target),
+        );
+        return map;
+    }
+
+    let next = Mutex::new(0usize);
+    let results = Mutex::new(HashMap::new());
+    let workers = cherry_workers(names.len());
+    thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let index = {
+                    let Ok(mut next) = next.lock() else {
+                        return;
+                    };
+                    let index = *next;
+                    if index >= names.len() {
+                        return;
+                    }
+                    *next += 1;
+                    index
+                };
+                let name = &names[index];
+                let containment = branch_cherry_containment(
+                    git,
+                    repo,
+                    &format!("refs/heads/{name}"),
+                    target,
+                );
+                if let Ok(mut results) = results.lock() {
+                    results.insert(name.clone(), containment);
+                }
+            });
+        }
+    });
+    results.into_inner().unwrap_or_default()
 }
 
 fn is_not_fully_merged(message: &str) -> bool {
@@ -560,66 +683,190 @@ fn format_delete_merged_message(
     }
 }
 
+fn sort_local_branches(branches: &mut [LocalBranch]) {
+    branches.sort_by(|left, right| {
+        right
+            .current
+            .cmp(&left.current)
+            .then(left.name.cmp(&right.name))
+    });
+}
+
 pub fn branch_overview(
     git: &Path,
     repo: &Path,
     preferred: Option<&str>,
 ) -> Result<BranchOverview, String> {
-    let names = local_branches(git, repo)?;
-    let current = current_branch(git, repo).unwrap_or_default();
-    let merge_target = resolve_merge_target(git, repo, preferred);
-    let target_ref = merge_target
-        .as_deref()
-        .map(candidate_git_ref);
+    branch_overview_with(git, repo, preferred, true)
+}
+
+pub fn branch_overview_with(
+    git: &Path,
+    repo: &Path,
+    preferred: Option<&str>,
+    classify: bool,
+) -> Result<BranchOverview, String> {
+    let index = branch_ref_index(git, repo)?;
+    let merge_target = resolve_merge_target_from(preferred, &index.shorts);
+    let target_ref = merge_target.as_deref().map(candidate_git_ref);
     let target_short = merge_target
         .as_deref()
         .map(short_branch_name)
         .unwrap_or_default();
-
     let ancestor_merged = target_ref
         .as_deref()
         .map(|target| ancestor_merged_names(git, repo, target))
         .unwrap_or_default();
 
-    let mut branches: Vec<LocalBranch> = names
+    let leftover: Vec<String> = index
+        .local
+        .iter()
+        .filter(|name| {
+            let protected_branch = is_protected_branch(name) || *name == target_short;
+            !protected_branch && !ancestor_merged.contains(*name)
+        })
+        .cloned()
+        .collect();
+    let cherries = if classify {
+        target_ref
+            .as_deref()
+            .map(|target| cherry_map(git, repo, target, &leftover))
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+
+    let mut branches: Vec<LocalBranch> = index
+        .local
         .into_iter()
         .map(|name| {
             let protected_branch = is_protected_branch(&name) || name == target_short;
             let ancestor = ancestor_merged.contains(&name);
-            let cherry = target_ref.as_deref().and_then(|target| {
-                if ancestor || protected_branch {
-                    None
-                } else {
-                    Some(branch_cherry_containment(
-                        git,
-                        repo,
-                        &format!("refs/heads/{name}"),
-                        target,
-                    ))
-                }
-            });
+            let needs_cherry = !ancestor && !protected_branch && target_ref.is_some();
+            let cherry = cherries.get(&name).copied();
+            let pending = needs_cherry && (!classify || cherry.is_none());
             let merged = ancestor || cherry == Some(CherryContainment::Full);
             let partial = !merged && cherry == Some(CherryContainment::Partial);
             LocalBranch {
-                current: name == current,
+                current: name == index.current,
                 merged,
                 partial,
                 protected_branch,
+                pending,
                 name,
             }
         })
         .collect();
-    branches.sort_by(|left, right| {
-        right
-            .current
-            .cmp(&left.current)
-            .then(left.merged.cmp(&right.merged))
-            .then(left.partial.cmp(&right.partial))
-            .then(left.name.cmp(&right.name))
-    });
+    sort_local_branches(&mut branches);
     Ok(BranchOverview {
         merge_target,
         branches,
+    })
+}
+
+fn quoted_branch_name(line: &str) -> Option<String> {
+    let start = line.find('\'')?;
+    let rest = &line[start + 1..];
+    let end = rest.find('\'')?;
+    let name = &rest[..end];
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn deleted_branch_name(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("Deleted branch ")?;
+    let name = rest.split(" (was").next()?.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn classify_branch_delete_output(
+    names: &[String],
+    output: &GitOutput,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let text = combined_message(output);
+    let mut deleted = Vec::new();
+    let mut refused = Vec::new();
+    let mut seen = HashSet::new();
+
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(name) = deleted_branch_name(line) {
+            if seen.insert(name.clone()) {
+                deleted.push(name);
+            }
+            continue;
+        }
+        if is_not_fully_merged(line) {
+            if let Some(name) = quoted_branch_name(line) {
+                if seen.insert(name.clone()) {
+                    refused.push(name);
+                }
+            }
+        }
+    }
+
+    let mut errors = Vec::new();
+    let leftover_error = tidy_git_message(&text);
+    for name in names {
+        if seen.contains(name) {
+            continue;
+        }
+        if output.success {
+            deleted.push(name.clone());
+            continue;
+        }
+        if leftover_error.is_empty() {
+            errors.push(format!("Failed to delete {name}"));
+        } else {
+            errors.push(leftover_error.clone());
+        }
+    }
+    errors.sort();
+    errors.dedup();
+    (deleted, refused, errors)
+}
+
+fn delete_named_branches(
+    git: &Path,
+    repo: &Path,
+    names: &[String],
+    force: bool,
+) -> Result<DeleteMergedResult, String> {
+    let mut valid = Vec::new();
+    let mut errors = Vec::new();
+    for name in names {
+        match validate_ref(name) {
+            Ok(()) => valid.push(name.clone()),
+            Err(err) => errors.push(err),
+        }
+    }
+    if valid.is_empty() {
+        return Ok(DeleteMergedResult {
+            message: format_delete_merged_message(&[], &[], &errors),
+            deleted: Vec::new(),
+            refused: Vec::new(),
+            errors,
+        });
+    }
+
+    let flag = if force { "-D" } else { "-d" };
+    let mut args = vec!["branch", flag];
+    args.extend(valid.iter().map(String::as_str));
+    let output = run_git(git, repo, &args)?;
+    let (deleted, refused, mut parse_errors) = classify_branch_delete_output(&valid, &output);
+    errors.append(&mut parse_errors);
+    Ok(DeleteMergedResult {
+        message: format_delete_merged_message(&deleted, &refused, &errors),
+        deleted,
+        refused,
+        errors,
     })
 }
 
@@ -632,21 +879,16 @@ pub fn delete_local_branch(git: &Path, repo: &Path, branch: &str, force: bool) -
     if !ref_exists(git, repo, &format!("refs/heads/{branch}")) {
         return Err(format!("Local branch {branch} does not exist."));
     }
-    let flag = if force { "-D" } else { "-d" };
-    let output = run_git(git, repo, &["branch", flag, branch])?;
-    if !output.success {
-        let raw = combined_message(&output);
-        if is_not_fully_merged(&raw) {
-            return Err(format!("Branch {branch} is not fully merged."));
-        }
-        return Err(or_fallback(
-            &tidy_git_message(&raw),
-            &format!("Failed to delete {branch}"),
-        ));
+    let result = delete_named_branches(git, repo, &[branch.to_string()], force)?;
+    if !result.deleted.is_empty() {
+        return Ok(format!("Deleted {branch}"));
     }
-    Ok(or_fallback(
-        &combined_message(&output),
-        &format!("Deleted {branch}"),
+    if !result.refused.is_empty() {
+        return Err(format!("Branch {branch} is not fully merged."));
+    }
+    Err(or_fallback(
+        &result.errors.join(" "),
+        &format!("Failed to delete {branch}"),
     ))
 }
 
@@ -655,14 +897,24 @@ pub fn delete_merged_branches(
     repo: &Path,
     preferred: Option<&str>,
     force: bool,
+    names: Option<&[String]>,
 ) -> Result<DeleteMergedResult, String> {
-    let overview = branch_overview(git, repo, preferred)?;
-    let victims: Vec<String> = overview
-        .branches
-        .iter()
-        .filter(|branch| branch.merged && !branch.current && !branch.protected_branch)
-        .map(|branch| branch.name.clone())
-        .collect();
+    let current = current_branch(git, repo).unwrap_or_default();
+    let victims: Vec<String> = if let Some(names) = names {
+        names
+            .iter()
+            .filter(|name| *name != &current && !is_protected_branch(name))
+            .cloned()
+            .collect()
+    } else {
+        let overview = branch_overview_with(git, repo, preferred, true)?;
+        overview
+            .branches
+            .iter()
+            .filter(|branch| branch.merged && !branch.current && !branch.protected_branch)
+            .map(|branch| branch.name.clone())
+            .collect()
+    };
     if victims.is_empty() {
         return Ok(DeleteMergedResult {
             deleted: Vec::new(),
@@ -671,22 +923,7 @@ pub fn delete_merged_branches(
             message: "No merged local branches to delete.".into(),
         });
     }
-    let mut deleted = Vec::new();
-    let mut refused = Vec::new();
-    let mut errors = Vec::new();
-    for name in &victims {
-        match delete_local_branch(git, repo, name, force) {
-            Ok(_) => deleted.push(name.clone()),
-            Err(err) if !force && is_not_fully_merged(&err) => refused.push(name.clone()),
-            Err(err) => errors.push(err),
-        }
-    }
-    Ok(DeleteMergedResult {
-        message: format_delete_merged_message(&deleted, &refused, &errors),
-        deleted,
-        refused,
-        errors,
-    })
+    delete_named_branches(git, repo, &victims, force)
 }
 
 pub fn checkout_local_branch(git: &Path, repo: &Path, branch: &str) -> Result<String, String> {
@@ -1612,6 +1849,7 @@ mod tests {
             .unwrap();
         assert!(feature.merged);
         assert!(!feature.partial);
+        assert!(!feature.pending);
         assert!(!feature.current);
         let develop = overview
             .branches
@@ -1622,7 +1860,8 @@ mod tests {
         assert!(develop.current);
 
         assert!(delete_local_branch(&git_bin(), &repo, "develop", false).is_err());
-        let deleted = delete_merged_branches(&git_bin(), &repo, Some("develop"), false).unwrap();
+        let deleted =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), false, None).unwrap();
         assert_eq!(deleted.deleted, vec!["feature".to_string()]);
         assert!(deleted.refused.is_empty());
         git(&repo, &["checkout", "-b", "wip"]);
@@ -1631,7 +1870,8 @@ mod tests {
         git(&repo, &["commit", "-m", "unmerged work"]);
         git(&repo, &["checkout", "develop"]);
 
-        let leftover = delete_merged_branches(&git_bin(), &repo, Some("develop"), false).unwrap();
+        let leftover =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), false, None).unwrap();
         assert!(leftover.deleted.is_empty());
         assert!(leftover.refused.is_empty());
         assert!(leftover.message.contains("No merged"));
@@ -1661,7 +1901,95 @@ mod tests {
             .unwrap();
         assert!(feature.merged);
         assert!(!feature.partial);
+        assert!(!feature.pending);
         assert!(!feature.current);
+    }
+
+    #[test]
+    fn snapshot_marks_squash_merged_branches_pending() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("feature.txt"), "work\n").unwrap();
+        git(&repo, &["add", "feature.txt"]);
+        git(&repo, &["commit", "-m", "feature work"]);
+        git(&repo, &["checkout", "develop"]);
+        git(&repo, &["merge", "--squash", "feature"]);
+        git(&repo, &["commit", "-m", "squash feature"]);
+
+        let snapshot = branch_overview_with(&git_bin(), &repo, Some("develop"), false).unwrap();
+        let feature = snapshot
+            .branches
+            .iter()
+            .find(|branch| branch.name == "feature")
+            .unwrap();
+        assert!(feature.pending);
+        assert!(!feature.merged);
+        assert!(!feature.partial);
+        let develop = snapshot
+            .branches
+            .iter()
+            .find(|branch| branch.name == "develop")
+            .unwrap();
+        assert!(!develop.pending);
+        assert!(develop.protected_branch);
+        let classified = branch_overview_with(&git_bin(), &repo, Some("develop"), true).unwrap();
+        let snapshot_names: Vec<&str> = snapshot
+            .branches
+            .iter()
+            .map(|branch| branch.name.as_str())
+            .collect();
+        let classified_names: Vec<&str> = classified
+            .branches
+            .iter()
+            .map(|branch| branch.name.as_str())
+            .collect();
+        assert_eq!(snapshot_names, classified_names);
+        assert_eq!(snapshot_names.first().copied(), Some("develop"));
+    }
+
+    #[test]
+    fn overview_keeps_name_order_when_marks_fill_in() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "aaa"]);
+        fs::write(repo.join("aaa.txt"), "squash\n").unwrap();
+        git(&repo, &["add", "aaa.txt"]);
+        git(&repo, &["commit", "-m", "aaa"]);
+        git(&repo, &["checkout", "develop"]);
+        git(&repo, &["merge", "--squash", "aaa"]);
+        git(&repo, &["commit", "-m", "squash aaa"]);
+        git(&repo, &["checkout", "-b", "mid"]);
+        fs::write(repo.join("mid.txt"), "merged\n").unwrap();
+        git(&repo, &["add", "mid.txt"]);
+        git(&repo, &["commit", "-m", "mid"]);
+        git(&repo, &["checkout", "develop"]);
+        git(&repo, &["merge", "mid"]);
+        git(&repo, &["checkout", "-b", "zzz"]);
+        fs::write(repo.join("zzz.txt"), "unique\n").unwrap();
+        git(&repo, &["add", "zzz.txt"]);
+        git(&repo, &["commit", "-m", "zzz"]);
+        git(&repo, &["checkout", "develop"]);
+
+        let snapshot = branch_overview_with(&git_bin(), &repo, Some("develop"), false).unwrap();
+        let classified = branch_overview_with(&git_bin(), &repo, Some("develop"), true).unwrap();
+        let names = |overview: &BranchOverview| {
+            overview
+                .branches
+                .iter()
+                .map(|branch| branch.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(&snapshot),
+            vec!["develop", "aaa", "mid", "zzz"]
+        );
+        assert_eq!(names(&snapshot), names(&classified));
+        let aaa = classified
+            .branches
+            .iter()
+            .find(|branch| branch.name == "aaa")
+            .unwrap();
+        assert!(aaa.merged);
+        assert!(!aaa.pending);
     }
 
     #[test]
@@ -1687,7 +2015,9 @@ mod tests {
             .unwrap();
         assert!(!feature.merged);
         assert!(feature.partial);
-        let leftover = delete_merged_branches(&git_bin(), &repo, Some("develop"), false).unwrap();
+        assert!(!feature.pending);
+        let leftover =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), false, None).unwrap();
         assert!(leftover.deleted.is_empty());
         let names = local_branches(&git_bin(), &repo).unwrap();
         assert!(names.contains(&"feature".into()));
@@ -1709,19 +2039,87 @@ mod tests {
         git(&repo, &["merge", "feature"]);
         git(&repo, &["checkout", "other"]);
 
-        let refused = delete_merged_branches(&git_bin(), &repo, Some("develop"), false).unwrap();
+        let refused =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), false, None).unwrap();
         assert!(refused.deleted.is_empty());
         assert_eq!(refused.refused, vec!["feature".to_string()]);
         assert!(local_branches(&git_bin(), &repo)
             .unwrap()
             .contains(&"feature".into()));
 
-        let forced = delete_merged_branches(&git_bin(), &repo, Some("develop"), true).unwrap();
+        let forced =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), true, None).unwrap();
         assert_eq!(forced.deleted, vec!["feature".to_string()]);
         assert!(forced.refused.is_empty());
         assert!(!local_branches(&git_bin(), &repo)
             .unwrap()
             .contains(&"feature".into()));
+    }
+
+    #[test]
+    fn deletes_several_merged_branches_in_one_pass() {
+        let repo = init_repo();
+        for name in ["one", "two", "three"] {
+            git(&repo, &["checkout", "-b", name]);
+            fs::write(repo.join(format!("{name}.txt")), "work\n").unwrap();
+            git(&repo, &["add", &format!("{name}.txt")]);
+            git(&repo, &["commit", "-m", name]);
+            git(&repo, &["checkout", "develop"]);
+            git(&repo, &["merge", name]);
+        }
+
+        let deleted =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), false, None).unwrap();
+        let mut names = deleted.deleted.clone();
+        names.sort();
+        assert_eq!(
+            names,
+            vec!["one".to_string(), "three".to_string(), "two".to_string()]
+        );
+        let leftover = local_branches(&git_bin(), &repo).unwrap();
+        assert_eq!(leftover, vec!["develop".to_string()]);
+    }
+
+    #[test]
+    fn delete_named_branches_skips_rescan() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("feature.txt"), "work\n").unwrap();
+        git(&repo, &["add", "feature.txt"]);
+        git(&repo, &["commit", "-m", "feature work"]);
+        git(&repo, &["checkout", "develop"]);
+        git(&repo, &["merge", "--squash", "feature"]);
+        git(&repo, &["commit", "-m", "squash feature"]);
+
+        let names = vec!["feature".to_string()];
+        let refused =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), false, Some(&names))
+                .unwrap();
+        assert!(refused.deleted.is_empty());
+        assert_eq!(refused.refused, vec!["feature".to_string()]);
+
+        let forced =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), true, Some(&names)).unwrap();
+        assert_eq!(forced.deleted, vec!["feature".to_string()]);
+        assert!(!local_branches(&git_bin(), &repo)
+            .unwrap()
+            .contains(&"feature".into()));
+    }
+
+    #[test]
+    fn parses_batch_branch_delete_output() {
+        let output = GitOutput {
+            stdout: "Deleted branch one (was abc123).\nDeleted branch two (was def456).\n".into(),
+            stderr: "error: The branch 'three' is not fully merged.\nIf you are sure you want to delete it, run 'git branch -D three'.\n".into(),
+            success: false,
+        };
+        let (deleted, refused, errors) = classify_branch_delete_output(
+            &["one".into(), "two".into(), "three".into()],
+            &output,
+        );
+        assert_eq!(deleted, vec!["one".to_string(), "two".to_string()]);
+        assert_eq!(refused, vec!["three".to_string()]);
+        assert!(errors.is_empty());
     }
 
     #[test]

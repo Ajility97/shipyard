@@ -195,10 +195,11 @@ export function listLocalBranches(path: string) {
   return invoke<string[]>("list_local_branches", { path });
 }
 
-export function branchOverview(path: string, preferred?: string) {
+export function branchOverview(path: string, preferred?: string, classify = true) {
   return invoke<BranchOverview>("branch_overview", {
     path,
     preferred: preferred?.trim() || null,
+    classify,
   });
 }
 
@@ -206,11 +207,17 @@ export function deleteLocalBranch(path: string, branch: string, force = false) {
   return invoke<string>("delete_local_branch", { path, branch, force });
 }
 
-export function deleteMergedBranches(path: string, preferred?: string, force = false) {
+export function deleteMergedBranches(
+  path: string,
+  preferred?: string,
+  force = false,
+  names?: string[],
+) {
   return invoke<DeleteMergedResult>("delete_merged_branches", {
     path,
     preferred: preferred?.trim() || null,
     force,
+    names: names ?? null,
   });
 }
 

@@ -88,6 +88,7 @@ export interface LocalBranch {
   merged: boolean;
   partial: boolean;
   protected: boolean;
+  pending: boolean;
 }
 
 export interface DeleteMergedResult {

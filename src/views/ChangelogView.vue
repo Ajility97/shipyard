@@ -8,7 +8,7 @@ import { CHANGELOG } from "../changelog";
       <div class="settings-header">
         <div>
           <div class="brand">Change Log</div>
-          <p class="muted tiny">What shipped in each Krakdown release.</p>
+          <p class="muted tiny">What shipped in each Shipyard release.</p>
         </div>
       </div>
       <div class="changelog-scroll">

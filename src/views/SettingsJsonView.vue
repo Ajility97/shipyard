@@ -201,7 +201,7 @@ async function exportSettings() {
   }
   const path = await saveFile({
     title: "Export settings",
-    defaultPath: "krakdown-settings.json",
+    defaultPath: "shipyard-settings.json",
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
   if (!path) {

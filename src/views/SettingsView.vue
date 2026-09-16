@@ -232,7 +232,7 @@ async function resetWindow() {
         <div class="settings-row">
           <div class="settings-row-copy">
             <h3>Auto-refresh</h3>
-            <p class="muted tiny">How often Krakdown fetches remote status for every repository.</p>
+            <p class="muted tiny">How often Shipyard fetches remote status for every repository.</p>
           </div>
           <label class="settings-control">
             <span class="visually-hidden">Auto-refresh interval</span>

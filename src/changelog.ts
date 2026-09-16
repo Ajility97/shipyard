@@ -9,6 +9,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     version: "1.0.0",
     date: "September 15, 2026",
     notes: [
+      "Renamed the app to Shipyard. Existing Krakdown settings and history are copied on first launch.",
       "First official release.",
       "Click a commit in the graph to see the files it changed and open a diff.",
       "Stashes view on the repo toolbar to apply, pop, or drop saved changes. Stash working-tree changes from the files pane or that view.",
@@ -28,7 +29,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     date: "September 14, 2026",
     notes: [
       "Branches view for leftover local work: merged vs still unique, per-branch delete, and delete-merged that never force-deletes or removes develop, main, master, or the current branch.",
-      "History tab logs every git command Krakdown runs, with a commands/full-detail toggle, hide-status filter, and a clear action.",
+      "History tab logs every git command Shipyard runs, with a commands/full-detail toggle, hide-status filter, and a clear action.",
       "Settings can be exported to a JSON file from the editor.",
       "Group headers show one active action at a time (refresh, pull, or checkout) with per-repo progress, the real branch name, and a cancel control.",
       "Refresh runs a bounded pool of fetches so a group updates in waves instead of one repo at a time. All row spinners appear together.",

@@ -7,6 +7,7 @@ use crate::models::AppData;
 
 const SETTINGS_FILE: &str = "settings.json";
 const LEGACY_SETTINGS_FILE: &str = "groups.json";
+const LEGACY_BUNDLE_ID: &str = "com.krakdown.app";
 
 fn app_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -15,6 +16,29 @@ fn app_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|err| format!("Could not resolve the app data directory: {err}"))?;
     fs::create_dir_all(&dir).map_err(|err| format!("Could not create the app data directory: {err}"))?;
     Ok(dir)
+}
+
+fn migrate_legacy_bundle(dest: &Path) -> Result<(), String> {
+    if dest.join(SETTINGS_FILE).exists() || dest.join(LEGACY_SETTINGS_FILE).exists() {
+        return Ok(());
+    }
+    let Some(parent) = dest.parent() else {
+        return Ok(());
+    };
+    let src = parent.join(LEGACY_BUNDLE_ID);
+    if !src.is_dir() {
+        return Ok(());
+    }
+    for name in [SETTINGS_FILE, LEGACY_SETTINGS_FILE, "command-history.jsonl"] {
+        let from = src.join(name);
+        let to = dest.join(name);
+        if from.is_file() && !to.exists() {
+            fs::copy(&from, &to).map_err(|err| {
+                format!("Could not copy {name} from the previous app data folder: {err}")
+            })?;
+        }
+    }
+    Ok(())
 }
 
 pub fn data_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -41,6 +65,7 @@ fn remove_legacy(path: &Path) {
 }
 
 pub fn load(app: &AppHandle) -> Result<AppData, String> {
+    migrate_legacy_bundle(&app_dir(app)?)?;
     let path = data_path(app)?;
     let legacy = legacy_data_path(app)?;
     if path.exists() {

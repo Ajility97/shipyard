@@ -1305,7 +1305,7 @@ mod tests {
 
     fn temp_dir() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "krakdown-test-{}-{}",
+            "shipyard-test-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -1327,8 +1327,8 @@ mod tests {
     fn init_repo() -> PathBuf {
         let repo = temp_dir();
         git(&repo, &["init", "-b", "develop"]);
-        git(&repo, &["config", "user.name", "Krakdown Test"]);
-        git(&repo, &["config", "user.email", "test@krakdown.local"]);
+        git(&repo, &["config", "user.name", "Shipyard Test"]);
+        git(&repo, &["config", "user.email", "test@shipyard.local"]);
         fs::write(repo.join("README.md"), "hello\n").unwrap();
         git(&repo, &["add", "README.md"]);
         git(&repo, &["commit", "-m", "initial"]);
@@ -1569,8 +1569,8 @@ mod tests {
 
         let work = temp_dir();
         git(&work, &["clone", origin.to_str().unwrap(), "."]);
-        git(&work, &["config", "user.name", "Krakdown Test"]);
-        git(&work, &["config", "user.email", "test@krakdown.local"]);
+        git(&work, &["config", "user.name", "Shipyard Test"]);
+        git(&work, &["config", "user.email", "test@shipyard.local"]);
         fs::write(work.join("README.md"), "from work\n").unwrap();
         git(&work, &["add", "README.md"]);
         git(&work, &["commit", "-m", "work commit"]);
@@ -1578,8 +1578,8 @@ mod tests {
 
         let other = temp_dir();
         git(&other, &["clone", origin.to_str().unwrap(), "."]);
-        git(&other, &["config", "user.name", "Krakdown Test"]);
-        git(&other, &["config", "user.email", "test@krakdown.local"]);
+        git(&other, &["config", "user.name", "Shipyard Test"]);
+        git(&other, &["config", "user.email", "test@shipyard.local"]);
         assert!(fs::read_to_string(other.join("README.md"))
             .unwrap()
             .contains("from work"));
@@ -1599,8 +1599,8 @@ mod tests {
         let upstream = init_repo();
         let work = temp_dir();
         git(&work, &["clone", upstream.to_str().unwrap(), "."]);
-        git(&work, &["config", "user.name", "Krakdown Test"]);
-        git(&work, &["config", "user.email", "test@krakdown.local"]);
+        git(&work, &["config", "user.name", "Shipyard Test"]);
+        git(&work, &["config", "user.email", "test@shipyard.local"]);
         let even = live_status(&git_bin(), &work).unwrap();
         assert_eq!((even.ahead, even.behind), (0, 0));
 

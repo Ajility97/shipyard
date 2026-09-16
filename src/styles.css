@@ -1078,9 +1078,20 @@ button.tab-tool:active {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   font-size: 1.15rem;
+}
+
+.brand-icon {
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 0.75rem;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .groups-page {
@@ -1096,10 +1107,10 @@ button.tab-tool:active {
 
 .groups-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 3rem;
 }
 
 .groups-display {

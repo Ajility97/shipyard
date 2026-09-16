@@ -344,9 +344,9 @@ async function removeStandalone(repoId: string) {
   <div class="groups-page">
     <div class="groups-inner">
       <div class="groups-header">
-        <div>
-          <div class="brand">Krakdown</div>
-          <p class="muted tiny">Click a repository to open it in a tab.</p>
+        <div class="brand">
+          <img class="brand-icon" src="/app-icon.png" alt="" width="72" height="72" />
+          Shipyard
         </div>
         <div class="refresh-area">
           <label class="refresh-setting">

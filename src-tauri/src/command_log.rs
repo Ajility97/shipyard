@@ -211,7 +211,7 @@ mod tests {
     fn temp_log() -> PathBuf {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "krakdown-history-{}-{}",
+            "shipyard-history-{}-{}",
             std::process::id(),
             n
         ));

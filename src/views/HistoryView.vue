@@ -122,7 +122,7 @@ async function clearLogs() {
         <div>
           <div class="brand">History</div>
           <p class="muted tiny">
-            Every git command Krakdown runs is recorded here, including refresh, pull, push, and
+            Every git command Shipyard runs is recorded here, including refresh, pull, push, and
             commit.
           </p>
         </div>

@@ -57,7 +57,7 @@ No custom domain is required. GitHub Releases is the download host.
    git push origin v1.0.0
    ```
 
-4. The [Release](.github/workflows/release.yml) workflow builds the Apple Silicon `.dmg`, uploads it with a **stable filename**, and opens a draft GitHub Release. Publish the draft when you have reviewed it.
+4. The [Release](.github/workflows/release.yml) workflow builds the Apple Silicon `.dmg`, uploads it with a **stable filename**, and publishes a GitHub Release.
 
 After the release is published, this URL always points at the latest `.dmg`:
 

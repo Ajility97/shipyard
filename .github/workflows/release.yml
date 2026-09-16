@@ -74,7 +74,7 @@ jobs:
           tagName: v__VERSION__
           releaseName: Shipyard v__VERSION__
           releaseBody: "Download Shipyard-macos-arm64.dmg for Apple Silicon Macs."
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           uploadUpdaterJson: false
           args: "--target aarch64-apple-darwin"

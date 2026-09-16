@@ -182,6 +182,9 @@ export function useUpdater() {
 
 function formatUpdaterError(err: unknown) {
   const text = String(err).replace(/^Error:\s*/i, "").trim();
+  if (/404|not found|latest\.json/i.test(text)) {
+    return "No update feed on GitHub yet. This starts working after the next release.";
+  }
   if (/fetch|network|request|dns|timed out|connection/i.test(text)) {
     return "Could not reach GitHub to check for updates.";
   }

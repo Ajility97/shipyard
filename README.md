@@ -4,14 +4,16 @@ A local-first Git client for macOS. Shipyard talks to the `git` binary already o
 
 <p align="center">
   <a href="https://github.com/fylzero/shipyard/releases/latest/download/Shipyard-macos-arm64.dmg">
-    <img src="docs/download-macos.png" alt="Download Shipyard for macOS" width="240">
+    <img src="docs/download-macos.svg" alt="Download Shipyard for macOS" height="56">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://buymeacoffee.com/fylzero1">
+    <img src="docs/buy-me-a-coffee.svg" alt="Buy me a coffee" height="56">
   </a>
 </p>
 
 <p align="center">
-  Always the latest published <code>.dmg</code> · <a href="https://github.com/fylzero/shipyard/releases/latest">All releases</a>
-  ·
-  <a href="https://buymeacoffee.com/fylzero1">Buy me a coffee</a>
+  Latest Apple Silicon <code>.dmg</code> · <a href="https://github.com/fylzero/shipyard/releases/latest">All releases</a>
 </p>
 
 ## Prerequisites

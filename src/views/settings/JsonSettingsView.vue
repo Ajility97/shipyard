@@ -6,10 +6,10 @@ import { tags as t } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { confirm, open as openFile, save as saveFile } from "@tauri-apps/plugin-dialog";
-import * as api from "../api";
-import { useApp } from "../composables/useApp";
-import { SETTINGS_JSON_TAB_ID, useTabs } from "../composables/useTabs";
-import type { AppData } from "../types";
+import * as api from "../../api";
+import { useApp } from "../../composables/useApp";
+import { SETTINGS_TAB_ID, useTabs } from "../../composables/useTabs";
+import type { AppData } from "../../types";
 
 const {
   groups,
@@ -20,7 +20,7 @@ const {
   replaceSettings,
   showToast,
 } = useApp();
-const { activeId } = useTabs();
+const { activeId, settingsSection } = useTabs();
 
 const editorHost = ref<HTMLDivElement | null>(null);
 const draft = ref("");
@@ -134,15 +134,9 @@ async function syncJsonIfClean() {
   }
 }
 
-onMounted(async () => {
-  try {
-    settingsPath.value = await api.settingsFilePath();
-    await loadSavedJson();
-  } catch (err) {
-    message.value = String(err);
-  }
+async function mountEditor() {
   await nextTick();
-  if (!editorHost.value) {
+  if (view || !editorHost.value) {
     return;
   }
   view = new EditorView({
@@ -160,6 +154,21 @@ onMounted(async () => {
       }),
     ],
   });
+  view.requestMeasure();
+}
+
+onMounted(async () => {
+  try {
+    settingsPath.value = await api.settingsFilePath();
+    await loadSavedJson();
+  } catch (err) {
+    message.value = String(err);
+  }
+  try {
+    await mountEditor();
+  } catch (err) {
+    message.value = String(err);
+  }
 });
 
 onUnmounted(() => {
@@ -167,9 +176,11 @@ onUnmounted(() => {
   view = null;
 });
 
-watch(activeId, (id) => {
-  if (id === SETTINGS_JSON_TAB_ID) {
+watch([activeId, settingsSection], ([id, section]) => {
+  if (id === SETTINGS_TAB_ID && section === "json") {
     void syncJsonIfClean();
+    void mountEditor();
+    view?.requestMeasure();
   }
 });
 
@@ -304,13 +315,13 @@ async function save() {
 </script>
 
 <template>
-  <div class="settings-page">
+  <div class="settings-pane settings-json-pane">
     <div class="settings-inner">
       <div class="settings-header">
         <div>
-          <div class="brand">settings.json</div>
+          <div class="brand">JSON</div>
           <p class="muted tiny settings-path" :title="settingsPath">
-            {{ displayPath || "This is the saved settings file. Edit it here, or import a backup." }}
+            {{ displayPath || "Edit the saved settings file here, or import a backup." }}
           </p>
         </div>
         <div class="settings-header-actions">

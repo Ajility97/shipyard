@@ -176,8 +176,18 @@ pub struct LocalBranch {
     pub name: String,
     pub current: bool,
     pub merged: bool,
+    pub partial: bool,
     #[serde(rename = "protected")]
     pub protected_branch: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteMergedResult {
+    pub deleted: Vec<String>,
+    pub refused: Vec<String>,
+    pub errors: Vec<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

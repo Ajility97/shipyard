@@ -6,6 +6,15 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.0.1",
+    date: "September 15, 2026",
+    notes: [
+      "Check for Updates in Settings, the Shipyard menu, or automatically on launch. Newer builds download from GitHub Releases and install in place.",
+      "A green update button appears in the tab bar when a newer build is available.",
+      "Settings has a left-hand menu: Updates, then General, Window, and the JSON file. The settings icon opens General.",
+    ],
+  },
+  {
     version: "1.0.0",
     date: "September 15, 2026",
     notes: [
@@ -22,6 +31,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "Repository rows and open repo tabs show a repo icon.",
       "Checking out a branch from the Branches view updates the current branch immediately.",
       "Open-repo toolbar is two lines: identity on top, git actions and view toggles below.",
+      "Branches view marks leftover work as Merged or Partial, and delete-merged asks before force-deleting branches git will not remove safely.",
     ],
   },
   {

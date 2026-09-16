@@ -25,6 +25,10 @@ const leftoverCount = computed(
 function isLeftover(branch: LocalBranch) {
   return branch.merged && !branch.protected;
 }
+
+function isPartial(branch: LocalBranch) {
+  return branch.partial && !branch.protected;
+}
 </script>
 
 <template>
@@ -33,8 +37,8 @@ function isLeftover(branch: LocalBranch) {
       <p v-if="!overview" class="muted tiny branch-list-hint">Loading branches…</p>
       <p v-else-if="overview.mergeTarget" class="muted tiny branch-list-hint">
         Merged marks leftover local work already contained in
-        <strong>{{ overview.mergeTarget }}</strong>. Pull first if you want the latest remote
-        picture.
+        <strong>{{ overview.mergeTarget }}</strong>. Partial means some commits are in that
+        branch and some are still unique. Pull first if you want the latest remote picture.
       </p>
       <p v-else class="muted tiny branch-list-hint">
         Couldn’t find origin/develop, develop, main, or master to compare against.
@@ -46,12 +50,37 @@ function isLeftover(branch: LocalBranch) {
         v-for="branch in overview?.branches ?? []"
         :key="branch.name"
         class="branch-row"
-        :class="{ current: branch.current, leftover: isLeftover(branch) }"
+        :class="{
+          current: branch.current,
+          leftover: isLeftover(branch),
+          partial: isPartial(branch),
+        }"
       >
         <BranchIcon />
         <span class="branch-row-name">{{ branch.name }}</span>
         <span v-if="branch.current" class="branch-pill">Current</span>
-        <span v-if="isLeftover(branch)" class="branch-pill merged">Merged</span>
+        <span
+          v-if="isLeftover(branch)"
+          class="branch-pill merged"
+          :title="
+            overview?.mergeTarget
+              ? `Already contained in ${overview.mergeTarget}`
+              : 'Already contained in the integration branch'
+          "
+        >
+          Merged
+        </span>
+        <span
+          v-else-if="isPartial(branch)"
+          class="branch-pill partial"
+          :title="
+            overview?.mergeTarget
+              ? `Some commits are in ${overview.mergeTarget}; others are still unique`
+              : 'Some commits are already merged; others are still unique'
+          "
+        >
+          Partial
+        </span>
         <div class="branch-row-actions">
           <button
             class="ghost tiny"
@@ -99,7 +128,8 @@ function isLeftover(branch: LocalBranch) {
         <span v-if="leftoverCount" class="file-count-badge">{{ leftoverCount }}</span>
       </button>
       <p class="muted tiny branch-footer-hint">
-        Only leftover merged branches. Keeps develop, main, master, and the branch you’re on.
+        Only leftover merged branches. Partial and unique work stay. Keeps develop, main, master,
+        and the branch you’re on.
       </p>
     </div>
   </div>

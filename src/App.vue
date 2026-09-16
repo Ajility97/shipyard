@@ -9,18 +9,18 @@ import TabBar from "./components/TabBar.vue";
 import RepoPane from "./components/RepoPane.vue";
 import OutputModal from "./components/OutputModal.vue";
 import Toast from "./components/Toast.vue";
+import Modal from "./components/Modal.vue";
 import GroupsView from "./views/GroupsView.vue";
 
 const HistoryView = defineAsyncComponent(() => import("./views/HistoryView.vue"));
 const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
-const SettingsJsonView = defineAsyncComponent(() => import("./views/SettingsJsonView.vue"));
 const ChangelogView = defineAsyncComponent(() => import("./views/ChangelogView.vue"));
 import { useApp } from "./composables/useApp";
+import { useUpdater } from "./composables/useUpdater";
 import {
   CHANGELOG_TAB_ID,
   GROUPS_TAB_ID,
   HISTORY_TAB_ID,
-  SETTINGS_JSON_TAB_ID,
   SETTINGS_TAB_ID,
   useTabs,
 } from "./composables/useTabs";
@@ -37,7 +37,20 @@ const {
   dismissToast,
   dismissOutput,
   openOutput,
+  showToast,
 } = useApp();
+const {
+  status,
+  statusText,
+  currentVersion,
+  availableVersion,
+  notes,
+  busy,
+  promptOpen,
+  checkForUpdates,
+  installUpdate,
+  dismissPrompt,
+} = useUpdater();
 
 function onToastDismiss() {
   if (toastKind.value === "error" && !actionOutputOpen.value) {
@@ -46,12 +59,11 @@ function onToastDismiss() {
   dismissToast();
 }
 const GITHUB_URL = "https://github.com/fylzero/shipyard";
-const appVersion = ref("1.0.0");
+const appVersion = ref("1.0.1");
 const {
   repoTabs,
   historyTabOpen,
   settingsTabOpen,
-  settingsJsonTabOpen,
   changelogTabOpen,
   activeId,
   syncFromRoute,
@@ -63,12 +75,23 @@ const {
 
 let stopCloseShortcut: (() => void) | undefined;
 let stopOpenSettings: (() => void) | undefined;
+let stopCheckForUpdates: (() => void) | undefined;
 
 async function closeActiveTabOrWindow() {
   if (closeActiveTab()) {
     return;
   }
   await getCurrentWindow().close();
+}
+
+async function onMenuCheckForUpdates() {
+  openSettings("updates");
+  await checkForUpdates({ prompt: true });
+  if (status.value === "up-to-date") {
+    showToast("You're on the latest version.");
+  } else if (status.value === "error") {
+    showToast(statusText.value, "error");
+  }
 }
 
 async function openGitHub() {
@@ -113,29 +136,37 @@ onMounted(() => {
   }).then((unlisten) => {
     stopOpenSettings = unlisten;
   });
+  void listen("check-for-updates", () => {
+    void onMenuCheckForUpdates();
+  }).then((unlisten) => {
+    stopCheckForUpdates = unlisten;
+  });
+  if (import.meta.env.PROD) {
+    void checkForUpdates({ prompt: true, silent: true });
+  }
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onWindowKeydown, true);
   stopCloseShortcut?.();
   stopOpenSettings?.();
+  stopCheckForUpdates?.();
 });
 
 watch(
-  () => [route.name, route.params.id],
+  () => [route.name, route.params.id, route.params.section],
   () => {
     const repoId = typeof route.params.id === "string" ? route.params.id : undefined;
+    const section = typeof route.params.section === "string" ? route.params.section : undefined;
     const panel =
       route.name === "history"
         ? "history"
         : route.name === "settings"
           ? "settings"
-          : route.name === "settings-json"
-            ? "settings-json"
-            : route.name === "changelog"
+          : route.name === "changelog"
             ? "changelog"
             : undefined;
-    syncFromRoute(repoId, route.name === "home", panel);
+    syncFromRoute(repoId, route.name === "home", panel, section);
   },
   { immediate: true },
 );
@@ -166,13 +197,6 @@ watch(statuses, () => {
       </div>
       <div v-if="settingsTabOpen" class="main-pane" v-show="activeId === SETTINGS_TAB_ID">
         <SettingsView />
-      </div>
-      <div
-        v-if="settingsJsonTabOpen"
-        class="main-pane"
-        v-show="activeId === SETTINGS_JSON_TAB_ID"
-      >
-        <SettingsJsonView />
       </div>
       <div v-if="changelogTabOpen" class="main-pane" v-show="activeId === CHANGELOG_TAB_ID">
         <ChangelogView />
@@ -215,5 +239,30 @@ watch(statuses, () => {
       :results="actionOutput.results"
       @close="dismissOutput"
     />
+    <Modal
+      v-if="promptOpen"
+      title="Update available"
+      @close="busy ? undefined : dismissPrompt()"
+    >
+      <p>
+        Shipyard {{ availableVersion }} is available. You have {{ currentVersion }}.
+      </p>
+      <p v-if="notes" class="muted tiny settings-update-notes">{{ notes }}</p>
+      <p
+        v-if="status === 'downloading' || status === 'installing' || status === 'error'"
+        class="muted tiny"
+        :class="{ 'settings-error': status === 'error' }"
+      >
+        {{ statusText }}
+      </p>
+      <template #actions>
+        <button class="ghost" type="button" :disabled="busy" @click="dismissPrompt">
+          Later
+        </button>
+        <button class="ghost commit" type="button" :disabled="busy" @click="installUpdate">
+          Install and restart
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>

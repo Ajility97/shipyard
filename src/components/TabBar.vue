@@ -3,13 +3,14 @@ import {
   CHANGELOG_TAB_ID,
   GROUPS_TAB_ID,
   HISTORY_TAB_ID,
-  SETTINGS_JSON_TAB_ID,
   SETTINGS_TAB_ID,
   useTabs,
 } from "../composables/useTabs";
+import { useUpdater } from "../composables/useUpdater";
 import RepoIcon from "./RepoIcon.vue";
 
 const { tabs, activeId, activate, closeRepo, openHistory, openSettings } = useTabs();
+const { updateReady, availableVersion, showPrompt } = useUpdater();
 </script>
 
 <template>
@@ -61,17 +62,6 @@ const { tabs, activeId, activate, closeRepo, openHistory, openSettings } = useTa
           <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
         </svg>
         <svg
-          v-else-if="tab.id === SETTINGS_JSON_TAB_ID"
-          class="tab-icon"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-          <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-          <path d="M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1" />
-          <path d="M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1" />
-        </svg>
-        <svg
           v-else-if="tab.id === CHANGELOG_TAB_ID"
           class="tab-icon"
           viewBox="0 0 24 24"
@@ -96,6 +86,20 @@ const { tabs, activeId, activate, closeRepo, openHistory, openSettings } = useTa
     </div>
     <div class="tab-tools">
       <button
+        v-if="updateReady"
+        class="tab-tool update"
+        type="button"
+        :title="availableVersion ? `Update to v${availableVersion}` : 'Update available'"
+        :aria-label="availableVersion ? `Update to v${availableVersion}` : 'Update available'"
+        @click="showPrompt"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4v10" />
+          <path d="m8 10 4 4 4-4" />
+          <path d="M5 18h14" />
+        </svg>
+      </button>
+      <button
         class="tab-tool"
         :class="{ active: activeId === HISTORY_TAB_ID }"
         type="button"
@@ -115,7 +119,7 @@ const { tabs, activeId, activate, closeRepo, openHistory, openSettings } = useTa
         type="button"
         title="Settings"
         aria-label="Settings"
-        @click="openSettings"
+        @click="openSettings()"
       >
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path

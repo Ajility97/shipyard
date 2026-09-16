@@ -5,8 +5,8 @@ use tauri::{AppHandle, State};
 
 use crate::git;
 use crate::models::{
-    AppData, BranchOverview, CommitFile, CommitNode, RepoActionResult, RepoEntry, RepoGroup,
-    RepoStatus, StashEntry, WorkingTreeFile,
+    AppData, BranchOverview, CommitFile, CommitNode, DeleteMergedResult, RepoActionResult,
+    RepoEntry, RepoGroup, RepoStatus, StashEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -902,10 +902,11 @@ pub async fn delete_merged_branches(
     state: State<'_, AppState>,
     path: String,
     preferred: Option<String>,
-) -> Result<String, String> {
+    force: bool,
+) -> Result<DeleteMergedResult, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
-        git::delete_merged_branches(&git, Path::new(&path), preferred.as_deref())
+        git::delete_merged_branches(&git, Path::new(&path), preferred.as_deref(), force)
     })
     .await
     .map_err(|err| err.to_string())?

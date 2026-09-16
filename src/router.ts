@@ -5,8 +5,8 @@ export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     { path: "/", name: "home", component: EmptyView },
-    { path: "/settings", name: "settings", component: EmptyView },
-    { path: "/settings.json", name: "settings-json", component: EmptyView },
+    { path: "/settings/:section?", name: "settings", component: EmptyView },
+    { path: "/settings.json", redirect: "/settings/json" },
     { path: "/history", name: "history", component: EmptyView },
     { path: "/changelog", name: "changelog", component: EmptyView },
     { path: "/repo/:id", name: "repo", component: EmptyView },

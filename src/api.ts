@@ -5,6 +5,7 @@ import type {
   CommandLogEntry,
   CommitFile,
   CommitNode,
+  DeleteMergedResult,
   DiffMode,
   RepoActionResult,
   RepoEntry,
@@ -205,10 +206,11 @@ export function deleteLocalBranch(path: string, branch: string, force = false) {
   return invoke<string>("delete_local_branch", { path, branch, force });
 }
 
-export function deleteMergedBranches(path: string, preferred?: string) {
-  return invoke<string>("delete_merged_branches", {
+export function deleteMergedBranches(path: string, preferred?: string, force = false) {
+  return invoke<DeleteMergedResult>("delete_merged_branches", {
     path,
     preferred: preferred?.trim() || null,
+    force,
   });
 }
 

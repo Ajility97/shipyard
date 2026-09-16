@@ -376,6 +376,7 @@ function markOverviewCurrent(name: string) {
     (left, right) =>
       Number(right.current) - Number(left.current) ||
       Number(left.merged) - Number(right.merged) ||
+      Number(left.partial) - Number(right.partial) ||
       left.name.localeCompare(right.name),
   );
   overview.value = { ...currentOverview, branches: nextBranches };
@@ -759,6 +760,10 @@ async function refreshBranches() {
   }
 }
 
+function notFullyMerged(err: unknown) {
+  return String(err).toLowerCase().includes("not fully merged");
+}
+
 async function deleteBranch(branch: LocalBranch) {
   const match = current.value;
   if (!match || branch.current) {
@@ -768,12 +773,18 @@ async function deleteBranch(branch: LocalBranch) {
   const force = !branch.merged;
   const ok = await confirm(
     force
-      ? `${branch.name} is not fully merged into ${target}. Delete this local branch anyway?`
+      ? branch.partial
+        ? `${branch.name} is only partially merged into ${target}. Some commits are still unique. Delete this local branch anyway?`
+        : `${branch.name} is not fully merged into ${target}. Delete this local branch anyway?`
       : branch.protected
         ? `Delete local branch ${branch.name}? This is a protected integration branch.`
         : `Delete local branch ${branch.name}? It is already merged into ${target}.`,
     {
-      title: force ? "Delete unmerged branch" : "Delete branch",
+      title: force
+        ? branch.partial
+          ? "Delete partial branch"
+          : "Delete unmerged branch"
+        : "Delete branch",
       kind: "warning",
       okLabel: "Delete",
       cancelLabel: "Cancel",
@@ -782,9 +793,28 @@ async function deleteBranch(branch: LocalBranch) {
   if (!ok) {
     return;
   }
-  return runRepoAction("Deleting…", () =>
-    api.deleteLocalBranch(match.repo.path, branch.name, force),
-  );
+  return runRepoAction("Deleting…", async () => {
+    try {
+      return await api.deleteLocalBranch(match.repo.path, branch.name, force);
+    } catch (err) {
+      if (
+        force ||
+        !notFullyMerged(err) ||
+        !(await confirm(
+          `${branch.name} is marked merged into ${target}, but git will not delete it safely. Force delete this local branch?`,
+          {
+            title: "Force delete branch",
+            kind: "warning",
+            okLabel: "Force delete",
+            cancelLabel: "Keep",
+          },
+        ))
+      ) {
+        throw err;
+      }
+      return api.deleteLocalBranch(match.repo.path, branch.name, true);
+    }
+  });
 }
 
 async function deleteMerged() {
@@ -798,7 +828,7 @@ async function deleteMerged() {
   }
   const target = overview.value?.mergeTarget ?? "the integration branch";
   const ok = await confirm(
-    `Delete ${count} leftover local ${count === 1 ? "branch" : "branches"} already merged into ${target}? This never deletes develop, main, master, or the current branch.`,
+    `Delete ${count} leftover local ${count === 1 ? "branch" : "branches"} already merged into ${target}? Partial and unique branches stay. This never deletes develop, main, master, or the current branch.`,
     {
       title: "Delete merged branches",
       kind: "warning",
@@ -809,9 +839,55 @@ async function deleteMerged() {
   if (!ok) {
     return;
   }
-  return runRepoAction("Deleting merged branches…", () =>
-    api.deleteMergedBranches(match.repo.path, preferredMergeTarget()),
-  );
+  if (actionBusy.value) {
+    return;
+  }
+  actionBusy.value = true;
+  actionLabel.value = "Deleting merged branches…";
+  message.value = "";
+  try {
+    let result = await api.deleteMergedBranches(
+      match.repo.path,
+      preferredMergeTarget(),
+      false,
+    );
+    if (result.refused.length) {
+      const refused = result.refused.join(", ");
+      const forceOk = await confirm(
+        result.deleted.length
+          ? `Deleted ${result.deleted.length}. Git would not safely delete ${refused}. Those branches are already contained in ${target}, but not fully merged into the branch you're on (squash merges and unmerged remotes do this). Force delete them?`
+          : `Git would not safely delete ${refused}. Those leftover branches are already contained in ${target}, but not fully merged into the branch you're on (squash merges and unmerged remotes do this). Force delete them?`,
+        {
+          title: "Force delete leftover branches",
+          kind: "warning",
+          okLabel: "Force delete",
+          cancelLabel: "Keep",
+        },
+      );
+      if (forceOk) {
+        result = await api.deleteMergedBranches(
+          match.repo.path,
+          preferredMergeTarget(),
+          true,
+        );
+      }
+    }
+    const failed = result.deleted.length === 0 && result.errors.length > 0;
+    const text = result.message;
+    if (failed) {
+      message.value = text;
+    }
+    showToast(text, failed ? "error" : "success");
+    await loadRepo();
+    await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+  } catch (err) {
+    const text = String(err);
+    message.value = text;
+    showToast(text, "error");
+  } finally {
+    actionBusy.value = false;
+    actionLabel.value = "";
+  }
 }
 
 async function discardAll() {

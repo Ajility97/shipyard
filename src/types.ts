@@ -86,7 +86,15 @@ export interface LocalBranch {
   name: string;
   current: boolean;
   merged: boolean;
+  partial: boolean;
   protected: boolean;
+}
+
+export interface DeleteMergedResult {
+  deleted: string[];
+  refused: string[];
+  errors: string[];
+  message: string;
 }
 
 export interface BranchOverview {

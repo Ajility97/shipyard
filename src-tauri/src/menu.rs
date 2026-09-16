@@ -3,6 +3,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 pub const CLOSE_TAB_OR_WINDOW_ID: &str = "close-tab-or-window";
 pub const OPEN_SETTINGS_ID: &str = "open-settings";
+pub const CHECK_FOR_UPDATES_ID: &str = "check-for-updates";
 
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let pkg_info = app.package_info();
@@ -30,6 +31,21 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         true,
         Some("CmdOrCtrl+,"),
     )?;
+    #[cfg(target_os = "macos")]
+    let check_updates = MenuItem::with_id(
+        app,
+        CHECK_FOR_UPDATES_ID,
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
+    let check_updates_help = MenuItem::with_id(
+        app,
+        CHECK_FOR_UPDATES_ID,
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
 
     let window_menu = Submenu::with_items(
         app,
@@ -53,6 +69,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 true,
                 &[
                     &PredefinedMenuItem::about(app, None, Some(about_metadata.clone()))?,
+                    &check_updates,
                     &PredefinedMenuItem::separator(app)?,
                     &settings,
                     &PredefinedMenuItem::separator(app)?,
@@ -97,6 +114,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
                 &[
                     #[cfg(not(target_os = "macos"))]
                     &PredefinedMenuItem::about(app, None, Some(about_metadata))?,
+                    &check_updates_help,
                 ],
             )?,
         ],
@@ -113,6 +131,9 @@ pub fn handle_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
         }
         OPEN_SETTINGS_ID => {
             let _ = window.emit(OPEN_SETTINGS_ID, ());
+        }
+        CHECK_FOR_UPDATES_ID => {
+            let _ = window.emit(CHECK_FOR_UPDATES_ID, ());
         }
         _ => {}
     }

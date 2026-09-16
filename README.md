@@ -12,10 +12,6 @@ A local-first Git client for macOS. Shipyard talks to the `git` binary already o
   </a>
 </p>
 
-<p align="center">
-  Latest Apple Silicon <code>.dmg</code> · <a href="https://github.com/fylzero/shipyard/releases/latest">All releases</a>
-</p>
-
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+

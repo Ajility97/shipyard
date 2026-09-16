@@ -6,6 +6,7 @@ import {
   useTabs,
 } from "../composables/useTabs";
 import GeneralSettingsView from "./settings/GeneralSettingsView.vue";
+import ScheduleSettingsView from "./settings/ScheduleSettingsView.vue";
 import UpdatesSettingsView from "./settings/UpdatesSettingsView.vue";
 import WindowSettingsView from "./settings/WindowSettingsView.vue";
 
@@ -27,6 +28,7 @@ const primarySections: { id: SettingsSection; label: string }[] = [
 
 const preferenceSections: { id: SettingsSection; label: string }[] = [
   { id: "general", label: "General" },
+  { id: "schedule", label: "Schedule" },
   { id: "window", label: "Window" },
   { id: "json", label: "JSON" },
 ];
@@ -70,6 +72,10 @@ const current = computed(() =>
           <path d="M4 12h10" />
           <path d="M4 18h13" />
         </svg>
+        <svg v-else-if="item.id === 'schedule'" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 8v4.5L15 14" />
+        </svg>
         <svg v-else-if="item.id === 'window'" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="3.5" y="5.5" width="17" height="13" rx="1.5" />
           <path d="M3.5 9h17" />
@@ -83,6 +89,7 @@ const current = computed(() =>
     </nav>
     <div class="settings-content" :class="{ fill: current === 'json' }">
       <GeneralSettingsView v-show="current === 'general'" />
+      <ScheduleSettingsView v-show="current === 'schedule'" />
       <WindowSettingsView v-show="current === 'window'" />
       <UpdatesSettingsView v-show="current === 'updates'" />
       <JsonSettingsView v-if="current === 'json'" />

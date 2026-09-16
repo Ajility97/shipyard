@@ -3,6 +3,7 @@ import * as api from "../api";
 import type {
   AppData,
   DiffMode,
+  RefreshActiveHours,
   RepoActionResult,
   RepoEntry,
   RepoGroup,
@@ -10,6 +11,14 @@ import type {
   WindowState,
 } from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
+import {
+  DEFAULT_REFRESH_ACTIVE_HOURS,
+  formatClockLabel,
+  isWithinActiveHours,
+  nextActiveHoursStart,
+  normalizeRefreshActiveHours,
+  resolvedRefreshHours,
+} from "../refreshHours";
 
 const groups = ref<RepoGroup[]>([]);
 const standaloneRepos = ref<RepoEntry[]>([]);
@@ -19,6 +28,7 @@ const busy = ref<Record<string, string>>({});
 const error = ref("");
 const loaded = ref(false);
 const refreshIntervalSeconds = ref(300);
+const refreshActiveHours = ref<RefreshActiveHours>({ ...DEFAULT_REFRESH_ACTIVE_HOURS });
 const filesPaneWidth = ref(320);
 const diffMode = ref<DiffMode>("split");
 const windowState = ref<WindowState | null>(null);
@@ -70,6 +80,7 @@ export function useApp() {
     groups.value = data.groups;
     standaloneRepos.value = data.repos ?? [];
     refreshIntervalSeconds.value = data.refreshIntervalSeconds ?? 300;
+    refreshActiveHours.value = normalizeRefreshActiveHours(data.refreshActiveHours);
     filesPaneWidth.value = clampFilesPaneWidth(data.filesPaneWidth ?? 320);
     diffMode.value = data.diffMode === "inline" ? "inline" : "split";
     windowState.value = data.window ?? null;
@@ -415,10 +426,23 @@ export function useApp() {
     if (seconds <= 0) {
       return;
     }
-    nextRefreshAt.value = Date.now() + seconds * 1000;
+    const now = new Date();
+    const sleeping =
+      refreshActiveHours.value.enabled && !isWithinActiveHours(now, refreshActiveHours.value);
+    const delayMs = sleeping
+      ? Math.max(0, nextActiveHoursStart(now, refreshActiveHours.value).getTime() - now.getTime())
+      : seconds * 1000;
+    nextRefreshAt.value = Date.now() + delayMs;
     autoRefreshTimer = setTimeout(() => {
+      if (
+        refreshActiveHours.value.enabled &&
+        !isWithinActiveHours(new Date(), refreshActiveHours.value)
+      ) {
+        startAutoRefresh();
+        return;
+      }
       void refreshAll({ notify: false });
-    }, seconds * 1000);
+    }, delayMs);
   }
 
   function clampFilesPaneWidth(width: number) {
@@ -449,6 +473,13 @@ export function useApp() {
     startAutoRefresh();
   }
 
+  async function saveRefreshActiveHours(hours: RefreshActiveHours) {
+    refreshActiveHours.value = await api.updateRefreshActiveHours(
+      normalizeRefreshActiveHours(hours),
+    );
+    startAutoRefresh();
+  }
+
   async function saveWindowState(next: WindowState) {
     windowState.value = await api.updateWindowState(next);
     return windowState.value;
@@ -472,8 +503,23 @@ export function useApp() {
     return `Refreshing ${refreshDone.value}/${refreshTotal.value}`;
   });
 
+  const autoRefreshPaused = computed(() => {
+    return (
+      refreshIntervalSeconds.value > 0 &&
+      refreshActiveHours.value.enabled &&
+      !isWithinActiveHours(new Date(nowTick.value), refreshActiveHours.value)
+    );
+  });
+
   const countdownLabel = computed(() => {
-    if (!nextRefreshAt.value || refreshIntervalSeconds.value <= 0) {
+    if (refreshIntervalSeconds.value <= 0) {
+      return "";
+    }
+    if (autoRefreshPaused.value) {
+      const { start } = resolvedRefreshHours(refreshActiveHours.value);
+      return `Paused until ${formatClockLabel(start)}`;
+    }
+    if (!nextRefreshAt.value) {
       return "";
     }
     const remaining = Math.max(0, Math.ceil((nextRefreshAt.value - nowTick.value) / 1000));
@@ -933,7 +979,7 @@ export function useApp() {
 
   if (!autoRefreshStarted) {
     autoRefreshStarted = true;
-    watch(refreshIntervalSeconds, () => {
+    watch([refreshIntervalSeconds, refreshActiveHours], () => {
       startAutoRefresh();
     });
     if (!tickTimer) {
@@ -952,6 +998,8 @@ export function useApp() {
     error,
     loaded,
     refreshIntervalSeconds,
+    refreshActiveHours,
+    saveRefreshActiveHours,
     filesPaneWidth,
     setFilesPaneWidth,
     saveFilesPaneWidth,

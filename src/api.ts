@@ -7,6 +7,7 @@ import type {
   CommitNode,
   DeleteMergedResult,
   DiffMode,
+  RefreshActiveHours,
   RepoActionResult,
   RepoEntry,
   RepoGroup,
@@ -108,6 +109,10 @@ export function updateFilesPaneWidth(width: number) {
 
 export function updateDiffMode(mode: DiffMode) {
   return invoke<DiffMode>("update_diff_mode", { mode });
+}
+
+export function updateRefreshActiveHours(hours: RefreshActiveHours) {
+  return invoke<RefreshActiveHours>("update_refresh_active_hours", { hours });
 }
 
 export function getWindowState() {

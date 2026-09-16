@@ -12,6 +12,97 @@ fn default_diff_mode() -> String {
     "split".into()
 }
 
+pub const BUSINESS_REFRESH_HOURS_START: &str = "08:00";
+pub const BUSINESS_REFRESH_HOURS_END: &str = "18:00";
+pub const PERSONAL_REFRESH_HOURS_START: &str = "06:00";
+pub const PERSONAL_REFRESH_HOURS_END: &str = "23:00";
+
+fn default_refresh_hours_preset() -> String {
+    "business".into()
+}
+
+fn default_refresh_hours_start() -> String {
+    BUSINESS_REFRESH_HOURS_START.into()
+}
+
+fn default_refresh_hours_end() -> String {
+    BUSINESS_REFRESH_HOURS_END.into()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshActiveHours {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_refresh_hours_preset")]
+    pub preset: String,
+    #[serde(default = "default_refresh_hours_start")]
+    pub start: String,
+    #[serde(default = "default_refresh_hours_end")]
+    pub end: String,
+}
+
+impl Default for RefreshActiveHours {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            preset: default_refresh_hours_preset(),
+            start: default_refresh_hours_start(),
+            end: default_refresh_hours_end(),
+        }
+    }
+}
+
+pub fn sanitize_clock(value: &str) -> Option<String> {
+    let value = value.trim();
+    let mut parts = value.split(':');
+    let hour = parts.next()?.parse::<u32>().ok()?;
+    let minute = parts.next()?.parse::<u32>().ok()?;
+    if let Some(seconds) = parts.next() {
+        let seconds = seconds
+            .split('.')
+            .next()?
+            .parse::<u32>()
+            .ok()?;
+        if seconds > 59 {
+            return None;
+        }
+    }
+    if parts.next().is_some() || hour > 23 || minute > 59 {
+        return None;
+    }
+    Some(format!("{hour:02}:{minute:02}"))
+}
+
+pub fn sanitize_refresh_active_hours(hours: RefreshActiveHours) -> RefreshActiveHours {
+    let preset = match hours.preset.trim() {
+        "personal" => "personal",
+        "custom" => "custom",
+        _ => "business",
+    };
+    let (start, end) = match preset {
+        "personal" => (
+            PERSONAL_REFRESH_HOURS_START.to_string(),
+            PERSONAL_REFRESH_HOURS_END.to_string(),
+        ),
+        "custom" => (
+            sanitize_clock(&hours.start)
+                .unwrap_or_else(|| BUSINESS_REFRESH_HOURS_START.to_string()),
+            sanitize_clock(&hours.end).unwrap_or_else(|| BUSINESS_REFRESH_HOURS_END.to_string()),
+        ),
+        _ => (
+            BUSINESS_REFRESH_HOURS_START.to_string(),
+            BUSINESS_REFRESH_HOURS_END.to_string(),
+        ),
+    };
+    RefreshActiveHours {
+        enabled: hours.enabled,
+        preset: preset.into(),
+        start,
+        end,
+    }
+}
+
 pub const MIN_WINDOW_WIDTH: u32 = 960;
 pub const MIN_WINDOW_HEIGHT: u32 = 640;
 
@@ -39,6 +130,8 @@ pub struct AppData {
     #[serde(default = "default_diff_mode")]
     pub diff_mode: String,
     #[serde(default)]
+    pub refresh_active_hours: RefreshActiveHours,
+    #[serde(default)]
     pub window: Option<WindowState>,
 }
 
@@ -50,6 +143,7 @@ impl Default for AppData {
             refresh_interval_seconds: default_refresh_interval(),
             files_pane_width: default_files_pane_width(),
             diff_mode: default_diff_mode(),
+            refresh_active_hours: RefreshActiveHours::default(),
             window: None,
         }
     }
@@ -82,6 +176,7 @@ mod tests {
             refresh_interval_seconds: 300,
             files_pane_width: 320,
             diff_mode: "split".into(),
+            refresh_active_hours: RefreshActiveHours::default(),
             window: None,
             repos: Vec::new(),
             groups: vec![RepoGroup {
@@ -104,6 +199,49 @@ mod tests {
         assert!(json.contains("\"checkoutFallbacks\""));
         let parsed: AppData = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.groups[0].repos[0].path, "/tmp/api");
+        assert!(!parsed.refresh_active_hours.enabled);
+        assert_eq!(parsed.refresh_active_hours.preset, "business");
+        assert_eq!(parsed.refresh_active_hours.start, "08:00");
+        assert_eq!(parsed.refresh_active_hours.end, "18:00");
+    }
+
+    #[test]
+    fn missing_refresh_active_hours_uses_defaults() {
+        let parsed: AppData = serde_json::from_str(
+            r#"{"groups":[],"repos":[],"refreshIntervalSeconds":300,"filesPaneWidth":320,"diffMode":"split"}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.refresh_active_hours, RefreshActiveHours::default());
+    }
+
+    #[test]
+    fn sanitizes_refresh_active_hours_presets_and_clocks() {
+        let personal = sanitize_refresh_active_hours(RefreshActiveHours {
+            enabled: true,
+            preset: "personal".into(),
+            start: "01:00".into(),
+            end: "02:00".into(),
+        });
+        assert_eq!(personal.start, "06:00");
+        assert_eq!(personal.end, "23:00");
+
+        let custom = sanitize_refresh_active_hours(RefreshActiveHours {
+            enabled: true,
+            preset: "custom".into(),
+            start: "9:5".into(),
+            end: "22:30".into(),
+        });
+        assert_eq!(custom.start, "09:05");
+        assert_eq!(custom.end, "22:30");
+
+        let invalid = sanitize_refresh_active_hours(RefreshActiveHours {
+            enabled: false,
+            preset: "custom".into(),
+            start: "25:00".into(),
+            end: "nope".into(),
+        });
+        assert_eq!(invalid.start, "08:00");
+        assert_eq!(invalid.end, "18:00");
     }
 }
 

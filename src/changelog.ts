@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.0.3",
+    date: "September 16, 2026",
+    notes: [
+      "Optional active hours for auto-refresh in Schedule settings. Off by default; Business (8am–6pm) and Personal (6am–11pm) presets, or custom times. Automatic fetches pause outside the window.",
+    ],
+  },
+  {
     version: "1.0.2",
     date: "September 15, 2026",
     notes: [

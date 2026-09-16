@@ -92,6 +92,7 @@ input[type="text"] {
 
 input[type="text"]:focus,
 input[type="number"]:focus,
+input[type="time"]:focus,
 textarea:focus {
   outline: 1px solid var(--accent);
 }
@@ -883,6 +884,16 @@ button.toast.error:hover:not(:disabled) {
 
 .settings-field input[type="number"] {
   width: 6.75rem;
+}
+
+.settings-field input[type="time"] {
+  width: 7.5rem;
+  border: 1px solid var(--border);
+  background: #0d1016;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem;
+  color-scheme: dark;
 }
 
 .settings-path {

@@ -17,6 +17,15 @@ export interface RepoGroup {
 
 export type DiffMode = "inline" | "split";
 
+export type RefreshHoursPreset = "business" | "personal" | "custom";
+
+export interface RefreshActiveHours {
+  enabled: boolean;
+  preset: RefreshHoursPreset;
+  start: string;
+  end: string;
+}
+
 export const STANDALONE_GROUP_ID = "standalone";
 
 export interface WindowState {
@@ -38,6 +47,7 @@ export interface AppData {
   refreshIntervalSeconds?: number;
   filesPaneWidth?: number;
   diffMode?: DiffMode;
+  refreshActiveHours?: RefreshActiveHours;
   window?: WindowState;
 }
 

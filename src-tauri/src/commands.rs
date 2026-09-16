@@ -5,8 +5,9 @@ use tauri::{AppHandle, State};
 
 use crate::git;
 use crate::models::{
-    AppData, BranchOverview, CommitFile, CommitNode, DeleteMergedResult, RepoActionResult,
-    RepoEntry, RepoGroup, RepoStatus, StashEntry, WorkingTreeFile,
+    sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
+    DeleteMergedResult, RefreshActiveHours, RepoActionResult, RepoEntry, RepoGroup, RepoStatus,
+    StashEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -276,6 +277,19 @@ pub fn update_diff_mode(
 }
 
 #[tauri::command]
+pub fn update_refresh_active_hours(
+    app: AppHandle,
+    state: State<AppState>,
+    hours: RefreshActiveHours,
+) -> Result<RefreshActiveHours, String> {
+    let hours = sanitize_refresh_active_hours(hours);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.refresh_active_hours = hours.clone();
+    persist_data(&app, &data)?;
+    Ok(hours)
+}
+
+#[tauri::command]
 pub fn replace_app_data(
     app: AppHandle,
     state: State<AppState>,
@@ -303,6 +317,7 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
     };
     data.files_pane_width = data.files_pane_width.clamp(220, 800);
     data.diff_mode = sanitize_diff_mode(&data.diff_mode)?;
+    data.refresh_active_hours = sanitize_refresh_active_hours(data.refresh_active_hours);
     if let Some(window) = &mut data.window {
         window.width = window.width.max(crate::models::MIN_WINDOW_WIDTH);
         window.height = window.height.max(crate::models::MIN_WINDOW_HEIGHT);

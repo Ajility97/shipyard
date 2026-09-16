@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
+import { useApp } from "../../composables/useApp";
 import { useUpdater } from "../../composables/useUpdater";
 
+const { showToast } = useApp();
 const {
   status,
   statusText,
@@ -19,6 +21,11 @@ onMounted(() => {
 
 async function onCheckForUpdates() {
   await checkForUpdates({ prompt: false });
+  if (status.value === "up-to-date") {
+    showToast("You're on the latest version.");
+  } else if (status.value === "error") {
+    showToast(statusText.value, "error");
+  }
 }
 </script>
 

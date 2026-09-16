@@ -3,13 +3,8 @@
 A local-first Git client for macOS. Shipyard talks to the `git` binary already on your machine, so it uses the same SSH agent, credential helper, and user identity you use in Terminal. There is no in-app login.
 
 <p align="center">
-  <a href="https://github.com/fylzero/shipyard/releases/latest/download/Shipyard-macos-arm64.dmg">
-    <img src="docs/download-macos.svg" alt="Download Shipyard for macOS" height="56">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://buymeacoffee.com/fylzero1">
-    <img src="docs/buy-me-a-coffee.svg" alt="Buy me a coffee" height="56">
-  </a>
+  <a href="https://github.com/fylzero/shipyard/releases/latest/download/Shipyard-macos-arm64.dmg"><img src="docs/download-macos.svg" alt="Download Shipyard for macOS" height="56"></a>
+  <a href="https://buymeacoffee.com/fylzero1"><img src="docs/buy-me-a-coffee.svg" alt="Buy me a coffee" height="56"></a>
 </p>
 
 ## Prerequisites

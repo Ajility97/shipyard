@@ -301,3 +301,19 @@ export function commandHistory() {
 export function clearCommandHistory() {
   return invoke<void>("clear_command_history");
 }
+
+export function openTerminal(path: string, cols: number, rows: number) {
+  return invoke<string>("open_terminal", { path, cols, rows });
+}
+
+export function writeTerminal(id: string, data: string) {
+  return invoke<void>("write_terminal", { id, data });
+}
+
+export function resizeTerminal(id: string, cols: number, rows: number) {
+  return invoke<void>("resize_terminal", { id, cols, rows });
+}
+
+export function closeTerminal(id: string) {
+  return invoke<void>("close_terminal", { id });
+}

@@ -4,9 +4,11 @@ mod git;
 mod menu;
 mod models;
 mod persist;
+mod pty;
 mod window_state;
 
 use commands::AppState;
+use pty::TerminalState;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -32,6 +34,7 @@ pub fn run() {
                 data: Mutex::new(data),
                 git: git::resolve_git_binary(),
             });
+            app.manage(TerminalState::default());
             if let (Some(window), Some(bounds)) = (app.get_webview_window("main"), bounds) {
                 window_state::apply(&window, &bounds);
             }
@@ -102,6 +105,10 @@ pub fn run() {
             commands::reveal_settings_file,
             commands::command_history,
             commands::clear_command_history,
+            pty::open_terminal,
+            pty::write_terminal,
+            pty::resize_terminal,
+            pty::close_terminal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

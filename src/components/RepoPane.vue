@@ -10,6 +10,7 @@ import Modal from "./Modal.vue";
 import PathLabel from "./PathLabel.vue";
 import RepoToolbar from "./RepoToolbar.vue";
 import StashList from "./StashList.vue";
+import TerminalPane from "./TerminalPane.vue";
 import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
 import * as api from "../api";
@@ -50,6 +51,7 @@ const branchesView = ref(false);
 const graphStale = ref(false);
 const stashes = ref<StashEntry[]>([]);
 const stashView = ref(false);
+const terminalOpen = ref(false);
 const overview = ref<BranchOverview | null>(null);
 let overviewGeneration = 0;
 const selectedFile = ref<WorkingTreeFile | null>(null);
@@ -745,6 +747,10 @@ function toggleStashView() {
   }
 }
 
+function toggleTerminal() {
+  terminalOpen.value = !terminalOpen.value;
+}
+
 function stashRef(index: number) {
   return `stash@{${index}}`;
 }
@@ -1004,6 +1010,7 @@ watch(
   () => {
     branchesView.value = false;
     stashView.value = false;
+    terminalOpen.value = false;
     graphStale.value = false;
     overviewGeneration += 1;
     overview.value = null;
@@ -1029,7 +1036,7 @@ watch(
     :class="{ 'files-collapsed': filesCollapsed, resizing }"
     :style="{ '--files-pane-width': `${filesPaneWidth}px` }"
   >
-    <section v-if="!showingDiff" class="graph-pane">
+    <section v-show="!showingDiff" class="graph-pane">
       <RepoToolbar
         :repo-id="current.repo.id"
         :name="current.status?.name ?? current.repo.path"
@@ -1044,6 +1051,7 @@ watch(
         :files-open="!filesCollapsed"
         :unstaged-count="unstagedCount"
         :staged-count="stagedCount"
+        :terminal-open="terminalOpen"
         @pull="pullRepo"
         @pull-options="openPullOptions"
         @push="pushRepo"
@@ -1053,36 +1061,44 @@ watch(
         @stash="toggleStashView"
         @files="filesCollapsed = !filesCollapsed"
         @refresh-branches="refreshBranches"
+        @terminal="toggleTerminal"
       />
       <p v-if="message" class="banner">{{ message }}</p>
-      <BranchList
-        v-if="branchesView"
-        :overview="overview"
-        :busy="actionBusy"
-        @checkout="checkoutListedBranch"
-        @rename="openRenameBranch"
-        @delete="deleteBranch"
-        @delete-merged="deleteMerged"
-      />
-      <StashList
-        v-else-if="stashView"
-        :stashes="stashes"
-        :busy="actionBusy"
-        :can-stash="files.length > 0"
-        @apply="applyStash"
-        @pop="popStash"
-        @drop="dropStash"
-        @push="openStash"
-      />
-      <div v-else class="graph-scroll">
-        <CommitGraph
-          :commits="commits"
-          :selected-hash="selectedCommit?.hash ?? ''"
-          @select="selectCommit"
+      <div class="graph-body" :class="{ 'with-terminal': terminalOpen }">
+        <BranchList
+          v-if="branchesView"
+          :overview="overview"
+          :busy="actionBusy"
+          @checkout="checkoutListedBranch"
+          @rename="openRenameBranch"
+          @delete="deleteBranch"
+          @delete-merged="deleteMerged"
+        />
+        <StashList
+          v-else-if="stashView"
+          :stashes="stashes"
+          :busy="actionBusy"
+          :can-stash="files.length > 0"
+          @apply="applyStash"
+          @pop="popStash"
+          @drop="dropStash"
+          @push="openStash"
+        />
+        <div v-else class="graph-scroll">
+          <CommitGraph
+            :commits="commits"
+            :selected-hash="selectedCommit?.hash ?? ''"
+            @select="selectCommit"
+          />
+        </div>
+        <TerminalPane
+          v-if="terminalOpen"
+          :cwd="current.repo.path"
+          @close="terminalOpen = false"
         />
       </div>
     </section>
-    <section v-else class="diff-main">
+    <section v-if="showingDiff" class="diff-main">
       <div class="pane-header">
         <div class="diff-heading">
           <button class="ghost tiny" type="button" @click="closeDiff">← Back</button>

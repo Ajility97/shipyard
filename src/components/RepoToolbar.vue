@@ -20,6 +20,7 @@ const props = defineProps<{
   filesOpen: boolean;
   unstagedCount: number;
   stagedCount: number;
+  terminalOpen: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -32,6 +33,7 @@ const emit = defineEmits<{
   stash: [];
   files: [];
   refreshBranches: [];
+  terminal: [];
 }>();
 
 const { statuses } = useApp();
@@ -149,6 +151,21 @@ async function toggleBranches() {
         </button>
       </div>
       <div class="repo-toolbar-views">
+        <button
+          class="ghost tiny"
+          :class="{ active: terminalOpen }"
+          type="button"
+          :aria-pressed="terminalOpen"
+          title="Open a terminal in this repository"
+          @click="emit('terminal')"
+        >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H3.75A2.25 2.25 0 001.5 6v12a2.25 2.25 0 002.25 2.25z"
+            />
+          </svg>
+          Terminal
+        </button>
         <button
           class="ghost tiny"
           :class="{ active: branchesView }"

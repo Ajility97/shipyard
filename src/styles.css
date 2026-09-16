@@ -2238,6 +2238,88 @@ body.reordering-repos .repo-row,
   overflow: auto;
 }
 
+.graph-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.graph-body > .branch-pane,
+.graph-body > .graph-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.graph-body.with-terminal > .branch-pane,
+.graph-body.with-terminal > .graph-scroll {
+  flex: 1 1 50%;
+}
+
+.repo-terminal {
+  display: flex;
+  flex: 1 1 50%;
+  flex-direction: column;
+  min-height: 8rem;
+  border-top: 1px solid var(--border);
+  background: #0d1016;
+}
+
+.repo-terminal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  min-height: 1.85rem;
+  padding: 0.15rem 0.55rem 0.15rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.repo-terminal-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.repo-terminal-host {
+  flex: 1;
+  min-height: 0;
+  padding: 0.35rem 0.45rem 0.45rem;
+  font-family: var(--font-code);
+}
+
+.repo-terminal-host .xterm,
+.repo-terminal-host .xterm-rows,
+.repo-terminal-host .xterm-rows span {
+  font-family: var(--font-code);
+}
+
+.repo-terminal-host .xterm,
+.repo-terminal-host .xterm * {
+  box-sizing: content-box;
+}
+
+.repo-terminal-host .xterm {
+  height: 100%;
+}
+
+.repo-terminal-host .xterm-viewport {
+  overflow-y: auto;
+}
+
+.repo-terminal-error {
+  margin: 0;
+  padding: 0.35rem 0.7rem 0.5rem;
+  color: var(--bad);
+  font-size: 12px;
+}
+
 .diff-heading {
   display: flex;
   align-items: center;

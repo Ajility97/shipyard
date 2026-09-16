@@ -42,6 +42,15 @@ fn path_already_added(data: &AppData, root: &str) -> bool {
             .any(|group| group.repos.iter().any(|repo| repo.path == root))
 }
 
+fn sanitize_color(color: &str) -> Option<String> {
+    let color = color.trim().to_string();
+    if color.starts_with('#') && (color.len() == 7 || color.len() == 4) {
+        Some(color)
+    } else {
+        None
+    }
+}
+
 fn sanitize_repos(repos: &mut Vec<RepoEntry>) -> Result<(), String> {
     for repo in repos {
         if repo.id.trim().is_empty() {
@@ -51,6 +60,8 @@ fn sanitize_repos(repos: &mut Vec<RepoEntry>) -> Result<(), String> {
         if repo.path.is_empty() {
             return Err("Repository path cannot be empty".into());
         }
+        repo.label = repo.label.trim().to_string();
+        repo.header_color = sanitize_color(&repo.header_color).unwrap_or_default();
     }
     Ok(())
 }
@@ -214,8 +225,7 @@ pub fn update_group_settings(
         fallbacks
     };
     if let Some(color) = header_color {
-        let color = color.trim().to_string();
-        if color.starts_with('#') && (color.len() == 7 || color.len() == 4) {
+        if let Some(color) = sanitize_color(&color) {
             group.header_color = color;
         }
     }
@@ -330,12 +340,7 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
         } else {
             fallbacks
         };
-        let color = group.header_color.trim().to_string();
-        group.header_color = if color.starts_with('#') && (color.len() == 7 || color.len() == 4) {
-            color
-        } else {
-            "#16323c".into()
-        };
+        group.header_color = sanitize_color(&group.header_color).unwrap_or_else(|| "#16323c".into());
         sanitize_repos(&mut group.repos)?;
     }
     Ok(data)
@@ -363,6 +368,8 @@ pub fn add_repo(
     let entry = RepoEntry {
         id: uuid::Uuid::new_v4().to_string(),
         path: root,
+        label: String::new(),
+        header_color: String::new(),
     };
     group.repos.push(entry.clone());
     persist_data(&app, &data)?;
@@ -447,6 +454,35 @@ pub fn reorder_groups(
 }
 
 #[tauri::command]
+pub fn reorder_standalone_repos(
+    app: AppHandle,
+    state: State<AppState>,
+    repo_ids: Vec<String>,
+) -> Result<(), String> {
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    if repo_ids.len() != data.repos.len() {
+        return Err("Repository list does not match saved repositories.".into());
+    }
+    let mut by_id: std::collections::HashMap<_, _> = data
+        .repos
+        .drain(..)
+        .map(|repo| (repo.id.clone(), repo))
+        .collect();
+    let mut next = Vec::with_capacity(repo_ids.len());
+    for id in repo_ids {
+        let repo = by_id
+            .remove(&id)
+            .ok_or_else(|| "Repository not found".to_string())?;
+        next.push(repo);
+    }
+    if !by_id.is_empty() {
+        return Err("Repository list does not match saved repositories.".into());
+    }
+    data.repos = next;
+    persist_data(&app, &data)
+}
+
+#[tauri::command]
 pub fn add_standalone_repo(
     app: AppHandle,
     state: State<AppState>,
@@ -463,10 +499,39 @@ pub fn add_standalone_repo(
     let entry = RepoEntry {
         id: uuid::Uuid::new_v4().to_string(),
         path: root,
+        label: String::new(),
+        header_color: String::new(),
     };
     data.repos.push(entry.clone());
     persist_data(&app, &data)?;
     Ok(entry)
+}
+
+#[tauri::command]
+pub fn update_standalone_repo(
+    app: AppHandle,
+    state: State<AppState>,
+    repo_id: String,
+    label: Option<String>,
+    header_color: Option<String>,
+) -> Result<RepoEntry, String> {
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    let updated = {
+        let repo = data
+            .repos
+            .iter_mut()
+            .find(|repo| repo.id == repo_id)
+            .ok_or_else(|| "Repository not found".to_string())?;
+        if let Some(label) = label {
+            repo.label = label.trim().to_string();
+        }
+        if let Some(color) = header_color {
+            repo.header_color = sanitize_color(&color).unwrap_or_default();
+        }
+        repo.clone()
+    };
+    persist_data(&app, &data)?;
+    Ok(updated)
 }
 
 #[tauri::command]
@@ -551,12 +616,7 @@ pub async fn pull_repo(
     repo_id: String,
     branch: Option<String>,
 ) -> Result<RepoActionResult, String> {
-    let (git, group) = repo_list(&state, &group_id)?;
-    let repo = group
-        .repos
-        .into_iter()
-        .find(|entry| entry.id == repo_id)
-        .ok_or_else(|| "Repository not found".to_string())?;
+    let (git, repo) = repo_entry(&state, &group_id, &repo_id)?;
     let branch = branch
         .as_deref()
         .map(str::trim)
@@ -667,12 +727,7 @@ pub async fn checkout_repo(
     target: String,
     fallbacks: Vec<String>,
 ) -> Result<RepoActionResult, String> {
-    let (git, group) = repo_list(&state, &group_id)?;
-    let repo = group
-        .repos
-        .into_iter()
-        .find(|entry| entry.id == repo_id)
-        .ok_or_else(|| "Repository not found".to_string())?;
+    let (git, repo) = repo_entry(&state, &group_id, &repo_id)?;
     let mut branches = Vec::new();
     let target = target.trim().to_string();
     if !target.is_empty() {
@@ -879,6 +934,21 @@ pub async fn create_and_checkout_branch(
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
         git::create_and_checkout_branch(&git, Path::new(&path), &branch)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn rename_local_branch(
+    state: State<'_, AppState>,
+    path: String,
+    branch: String,
+    new_name: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::rename_local_branch(&git, Path::new(&path), &branch, &new_name)
     })
     .await
     .map_err(|err| err.to_string())?

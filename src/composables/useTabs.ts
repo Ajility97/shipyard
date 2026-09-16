@@ -40,11 +40,14 @@ export function useTabs() {
 
   const tabs = computed<AppTab[]>(() => [
     { id: GROUPS_TAB_ID, title: "Repositories", closable: false },
-    ...repoTabs.value.map((tab) => ({
-      ...tab,
-      closable: true,
-      accentColor: findRepo(tab.id)?.group?.headerColor,
-    })),
+    ...repoTabs.value.map((tab) => {
+      const match = findRepo(tab.id);
+      return {
+        ...tab,
+        closable: true,
+        accentColor: match?.group?.headerColor || match?.repo.headerColor,
+      };
+    }),
     ...(historyTabOpen.value
       ? [{ id: HISTORY_TAB_ID, title: "History", closable: true }]
       : []),

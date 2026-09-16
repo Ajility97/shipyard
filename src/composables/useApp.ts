@@ -80,6 +80,22 @@ export function useApp() {
     lastRefreshAt.value = new Date();
   }
 
+  function patchRepoStatus(repoId: string, patch: Partial<RepoStatus>) {
+    const current = statuses.value[repoId];
+    if (!current) {
+      return;
+    }
+    applyStatus({ ...current, ...patch });
+  }
+
+  async function refreshRepoStatus(groupId: string, repoId: string) {
+    try {
+      applyStatus(await api.refreshRepo(groupId, repoId, false));
+    } catch (err) {
+      error.value = String(err);
+    }
+  }
+
   async function refreshStatus(groupId: string, fetch = false) {
     try {
       const list =
@@ -546,6 +562,18 @@ export function useApp() {
     return repo;
   }
 
+  function patchStandaloneRepo(repoId: string, patch: Partial<RepoEntry>) {
+    standaloneRepos.value = standaloneRepos.value.map((repo) =>
+      repo.id === repoId ? { ...repo, ...patch } : repo,
+    );
+  }
+
+  async function updateStandaloneRepo(repoId: string, label?: string, headerColor?: string) {
+    const repo = await api.updateStandaloneRepo(repoId, label, headerColor);
+    patchStandaloneRepo(repoId, repo);
+    return repo;
+  }
+
   async function removeStandaloneRepo(repoId: string) {
     await api.removeStandaloneRepo(repoId);
     standaloneRepos.value = standaloneRepos.value.filter((repo) => repo.id !== repoId);
@@ -589,6 +617,24 @@ export function useApp() {
     }
   }
 
+  async function reorderStandaloneRepos(repoIds: string[]) {
+    const byId = new Map(standaloneRepos.value.map((repo) => [repo.id, repo]));
+    if (
+      repoIds.length !== standaloneRepos.value.length ||
+      repoIds.some((id) => !byId.has(id))
+    ) {
+      throw new Error("Repository list does not match saved repositories.");
+    }
+    const previous = standaloneRepos.value;
+    standaloneRepos.value = repoIds.map((id) => byId.get(id)!);
+    try {
+      await api.reorderStandaloneRepos(repoIds);
+    } catch (err) {
+      standaloneRepos.value = previous;
+      throw err;
+    }
+  }
+
   async function reorderGroupRepos(groupId: string, repoIds: string[]) {
     const group = groups.value.find((item) => item.id === groupId);
     if (!group) {
@@ -614,6 +660,70 @@ export function useApp() {
       path.split("/").filter(Boolean).pop() ??
       path
     );
+  }
+
+  async function refreshStandaloneRepo(repoId: string) {
+    const repo = standaloneRepos.value.find((item) => item.id === repoId);
+    if (!repo || refreshingRepos.value[repoId]) {
+      return;
+    }
+    markReposRefreshing([repoId]);
+    error.value = "";
+    try {
+      applyStatus(await api.refreshRepo(STANDALONE_GROUP_ID, repoId, true));
+      showToast(`Refreshed ${repoDisplayName(repoId, repo.path)}.`);
+    } catch (err) {
+      const text = String(err);
+      error.value = text;
+      showToast(text, "error");
+    } finally {
+      unmarkRepoRefreshing(repoId);
+    }
+  }
+
+  async function pullStandaloneRepo(repoId: string, branch?: string) {
+    const repo = standaloneRepos.value.find((item) => item.id === repoId);
+    if (!repo || refreshingRepos.value[repoId]) {
+      return;
+    }
+    markReposRefreshing([repoId]);
+    error.value = "";
+    try {
+      const result = await api.pullRepo(STANDALONE_GROUP_ID, repoId, branch);
+      applyStatus(await api.refreshRepo(STANDALONE_GROUP_ID, repoId, false));
+      showToast(result.message, result.ok ? "success" : "error");
+    } catch (err) {
+      const text = String(err);
+      error.value = text;
+      showToast(text, "error");
+    } finally {
+      unmarkRepoRefreshing(repoId);
+    }
+  }
+
+  async function checkoutStandaloneRepo(repoId: string, target: string, fallbacks: string[]) {
+    const repo = standaloneRepos.value.find((item) => item.id === repoId);
+    const branch = target.trim();
+    if (!repo || !branch || refreshingRepos.value[repoId]) {
+      return;
+    }
+    if (statuses.value[repoId]?.branch === branch) {
+      showToast(`Already on ${branch}`);
+      return;
+    }
+    markReposRefreshing([repoId]);
+    error.value = "";
+    try {
+      const result = await api.checkoutRepo(STANDALONE_GROUP_ID, repoId, branch, fallbacks);
+      applyStatus(await api.refreshRepo(STANDALONE_GROUP_ID, repoId, false));
+      showToast(result.message, result.ok ? "success" : "error");
+    } catch (err) {
+      const text = String(err);
+      error.value = text;
+      showToast(text, "error");
+    } finally {
+      unmarkRepoRefreshing(repoId);
+    }
   }
 
   async function pullGroup(groupId: string, branch?: string) {
@@ -869,8 +979,13 @@ export function useApp() {
     cancelCheckout,
     load,
     refreshStatus,
+    refreshRepoStatus,
+    patchRepoStatus,
     refreshGroup,
+    refreshStandaloneRepo,
     refreshAll,
+    pullStandaloneRepo,
+    checkoutStandaloneRepo,
     pullGroup,
     pullProgress,
     pullBranchByGroup,
@@ -889,9 +1004,11 @@ export function useApp() {
     saveSettings,
     addRepo,
     addStandaloneRepo,
+    updateStandaloneRepo,
     removeStandaloneRepo,
     removeRepo,
     reorderGroups,
+    reorderStandaloneRepos,
     reorderGroupRepos,
     repoDisplayName,
     runAction,

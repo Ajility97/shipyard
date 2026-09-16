@@ -1,6 +1,8 @@
 export interface RepoEntry {
   id: string;
   path: string;
+  label?: string;
+  headerColor?: string;
 }
 
 export interface RepoGroup {

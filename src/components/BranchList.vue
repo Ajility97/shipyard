@@ -9,6 +9,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  checkout: [branch: LocalBranch];
+  rename: [branch: LocalBranch];
   delete: [branch: LocalBranch];
   deleteMerged: [];
 }>();
@@ -50,15 +52,40 @@ function isLeftover(branch: LocalBranch) {
         <span class="branch-row-name">{{ branch.name }}</span>
         <span v-if="branch.current" class="branch-pill">Current</span>
         <span v-if="isLeftover(branch)" class="branch-pill merged">Merged</span>
-        <button
-          class="ghost tiny danger branch-row-delete"
-          type="button"
-          :disabled="busy || branch.current"
-          :title="branch.current ? 'Cannot delete the current branch' : `Delete ${branch.name}`"
-          @click="emit('delete', branch)"
-        >
-          Delete
-        </button>
+        <div class="branch-row-actions">
+          <button
+            class="ghost tiny"
+            type="button"
+            :disabled="busy || branch.current"
+            :title="branch.current ? 'Already on this branch' : `Check out ${branch.name}`"
+            @click="emit('checkout', branch)"
+          >
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"
+              />
+            </svg>
+            Checkout
+          </button>
+          <button
+            class="ghost tiny"
+            type="button"
+            :disabled="busy"
+            :title="`Rename ${branch.name}`"
+            @click="emit('rename', branch)"
+          >
+            Rename
+          </button>
+          <button
+            class="ghost tiny danger"
+            type="button"
+            :disabled="busy || branch.current"
+            :title="branch.current ? 'Cannot delete the current branch' : `Delete ${branch.name}`"
+            @click="emit('delete', branch)"
+          >
+            Delete
+          </button>
+        </div>
       </div>
     </div>
     <div class="branch-footer">

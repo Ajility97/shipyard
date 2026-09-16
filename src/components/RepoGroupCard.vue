@@ -4,12 +4,14 @@ import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
 import { useTabs } from "../composables/useTabs";
+import { contrastingText, DEFAULT_HEADER_COLOR } from "../color";
 import type { RepoGroup } from "../types";
 import BranchIcon from "./BranchIcon.vue";
 import Modal from "./Modal.vue";
 import RepoRow from "./RepoRow.vue";
+import SplitAction from "./SplitAction.vue";
 
-const DEFAULT_HEADER = "#16323c";
+const DEFAULT_HEADER = DEFAULT_HEADER_COLOR;
 const LAST_FALLBACKS = ["develop", "master", "main"] as const;
 type LastFallback = (typeof LAST_FALLBACKS)[number];
 
@@ -56,6 +58,7 @@ const {
   checkoutProgress,
   checkoutCancelled,
   cancelCheckout,
+  statuses,
 } = useApp();
 const { hasTab, closeRepos } = useTabs();
 const {
@@ -365,6 +368,23 @@ const pullLabel = computed(() => {
   return pulling.value ? "Cancel" : "Pull";
 });
 
+const pullTitle = computed(() => {
+  const branches = [
+    ...new Set(
+      props.group.repos
+        .map((repo) => statuses.value[repo.id]?.branch?.trim())
+        .filter((branch): branch is string => Boolean(branch)),
+    ),
+  ];
+  if (branches.length === 1) {
+    return `Pull from ${branches[0]}`;
+  }
+  if (branches.length > 1) {
+    return `Pull from ${branches.join(", ")}`;
+  }
+  return "Pull from current branch";
+});
+
 const pullBranch = computed(() => {
   if (pullSource.value === "current") {
     return "";
@@ -429,6 +449,14 @@ function openPull() {
   modal.value = "pull";
 }
 
+function pullCurrent() {
+  if (pulling.value) {
+    cancelPull(props.group.id);
+    return;
+  }
+  return pullGroup(props.group.id);
+}
+
 function openCheckout() {
   if (checkingOut.value) {
     cancelCheckout(props.group.id);
@@ -484,24 +512,6 @@ function onHeaderClick(event: MouseEvent) {
   void toggleGroup(props.group.id);
 }
 
-function contrastingText(color: string) {
-  const hex = color.replace("#", "");
-  const normalized =
-    hex.length === 3
-      ? hex
-          .split("")
-          .map((part) => part + part)
-          .join("")
-      : hex;
-  if (normalized.length < 6) {
-    return "#e8edf5";
-  }
-  const red = Number.parseInt(normalized.slice(0, 2), 16);
-  const green = Number.parseInt(normalized.slice(2, 4), 16);
-  const blue = Number.parseInt(normalized.slice(4, 6), 16);
-  const luma = red * 0.299 + green * 0.587 + blue * 0.114;
-  return luma > 150 ? "#14161b" : "#e8edf5";
-}
 </script>
 
 <template>
@@ -558,7 +568,7 @@ function contrastingText(color: string) {
         <span v-else class="group-title">{{ group.name }}</span>
         <span v-if="!renaming" class="group-count">{{ group.repos.length }}</span>
         <label v-if="renaming" class="color-picker">
-          <span class="color-picker-label">Background</span>
+          <span class="color-picker-label">Color</span>
           <span class="color-picker-swatch" aria-hidden="true">
             <input type="color" :value="headerColor" @input="onHeaderColor" />
           </span>
@@ -596,23 +606,28 @@ function contrastingText(color: string) {
               <span class="spinner" aria-hidden="true" />
               {{ pullProgress[group.id] }}
             </span>
-            <button
-              class="tiny"
-              type="button"
-              :class="pulling ? 'danger' : 'ghost'"
-              :disabled="(!!actionLabel && !pulling) || pullCancelled[group.id]"
-              @click="openPull"
+            <SplitAction
+              v-if="!pulling"
+              :primary-title="pullTitle"
+              more-title="Pull from another branch"
+              :disabled="!!actionLabel"
+              @primary="pullCurrent"
+              @more="openPull"
             >
-              <svg
-                v-if="!pulling"
-                class="button-icon"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path
                   d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
                 />
               </svg>
+              Pull
+            </SplitAction>
+            <button
+              v-else
+              class="tiny danger"
+              type="button"
+              :disabled="pullCancelled[group.id]"
+              @click="openPull"
+            >
               {{ pullLabel }}
             </button>
           </div>

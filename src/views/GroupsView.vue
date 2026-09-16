@@ -33,6 +33,8 @@ const {
   refreshProgressLabel,
   saveRefreshInterval,
   reorderGroups,
+  reorderStandaloneRepos,
+  repoDisplayName,
 } = useApp();
 const { hasTab, closeRepos } = useTabs();
 const creating = ref(false);
@@ -59,7 +61,18 @@ const hasRepos = computed(
     standaloneRepos.value.length > 0 || groups.value.some((group) => group.repos.length > 0),
 );
 
-const standaloneIds = computed(() => standaloneRepos.value.map((repo) => repo.id));
+const canSortStandalone = computed(() => standaloneRepos.value.length > 1);
+const draggingStandaloneId = ref<string | null>(null);
+const draftStandaloneIds = ref<string[] | null>(null);
+const visibleStandalone = computed(() => {
+  const ids = draftStandaloneIds.value ?? standaloneRepos.value.map((repo) => repo.id);
+  const byId = new Map(standaloneRepos.value.map((repo) => [repo.id, repo]));
+  return ids.flatMap((id) => {
+    const repo = byId.get(id);
+    return repo ? [repo] : [];
+  });
+});
+const standaloneIds = computed(() => visibleStandalone.value.map((repo) => repo.id));
 
 const isEmpty = computed(() => !groups.value.length && !standaloneRepos.value.length);
 
@@ -94,6 +107,28 @@ const canSortGroupsAlpha = computed(
     canSortGroups.value &&
     alphaGroupIds.value.join("\0") !== groups.value.map((group) => group.id).join("\0"),
 );
+
+function standaloneSortKey(repo: (typeof standaloneRepos.value)[number]) {
+  return `${repoDisplayName(repo.id, repo.path)}\0${repo.label ?? ""}`;
+}
+
+const alphaStandaloneIds = computed(() =>
+  [...standaloneRepos.value]
+    .sort((left, right) =>
+      standaloneSortKey(left).localeCompare(standaloneSortKey(right), undefined, {
+        sensitivity: "base",
+        numeric: true,
+      }),
+    )
+    .map((repo) => repo.id),
+);
+const canSortStandaloneAlpha = computed(
+  () =>
+    canSortStandalone.value &&
+    alphaStandaloneIds.value.join("\0") !==
+      standaloneRepos.value.map((repo) => repo.id).join("\0"),
+);
+const canSortAlpha = computed(() => canSortGroupsAlpha.value || canSortStandaloneAlpha.value);
 
 function moveDraggingGroupTo(targetId: string, before: boolean) {
   const dragging = draggingGroupId.value;
@@ -161,6 +196,74 @@ async function finishReorderGroups() {
   }
 }
 
+function moveDraggingStandaloneTo(targetId: string, before: boolean) {
+  const dragging = draggingStandaloneId.value;
+  if (!dragging || dragging === targetId) {
+    return;
+  }
+  const ids = [...(draftStandaloneIds.value ?? standaloneRepos.value.map((repo) => repo.id))];
+  const from = ids.indexOf(dragging);
+  if (from === -1) {
+    return;
+  }
+  ids.splice(from, 1);
+  let to = ids.indexOf(targetId);
+  if (to === -1) {
+    return;
+  }
+  if (!before) {
+    to += 1;
+  }
+  ids.splice(to, 0, dragging);
+  if (ids.join("\0") !== (draftStandaloneIds.value ?? []).join("\0")) {
+    draftStandaloneIds.value = ids;
+  }
+}
+
+function onReorderStandaloneMove(event: PointerEvent) {
+  if (!draggingStandaloneId.value) {
+    return;
+  }
+  const node = document.elementFromPoint(event.clientX, event.clientY);
+  const row = node instanceof Element ? node.closest("[data-repo-id]") : null;
+  if (!(row instanceof HTMLElement) || !row.dataset.repoId) {
+    return;
+  }
+  const rect = row.getBoundingClientRect();
+  moveDraggingStandaloneTo(row.dataset.repoId, event.clientY < rect.top + rect.height / 2);
+}
+
+async function finishReorderStandalone() {
+  window.removeEventListener("pointermove", onReorderStandaloneMove);
+  window.removeEventListener("pointerup", finishReorderStandalone);
+  window.removeEventListener("pointercancel", finishReorderStandalone);
+  document.body.classList.remove("reordering-repos");
+  const ids = draftStandaloneIds.value;
+  draggingStandaloneId.value = null;
+  draftStandaloneIds.value = null;
+  if (!ids || ids.join("\0") === standaloneRepos.value.map((repo) => repo.id).join("\0")) {
+    return;
+  }
+  try {
+    await reorderStandaloneRepos(ids);
+  } catch (err) {
+    window.alert(String(err));
+  }
+}
+
+function onReorderStandaloneStart(event: PointerEvent, repoId: string) {
+  if (event.button !== 0 || !canSortStandalone.value) {
+    return;
+  }
+  event.preventDefault();
+  draggingStandaloneId.value = repoId;
+  draftStandaloneIds.value = standaloneRepos.value.map((repo) => repo.id);
+  document.body.classList.add("reordering-repos");
+  window.addEventListener("pointermove", onReorderStandaloneMove);
+  window.addEventListener("pointerup", finishReorderStandalone);
+  window.addEventListener("pointercancel", finishReorderStandalone);
+}
+
 function onReorderGroupsStart(event: PointerEvent, groupId: string) {
   if (event.button !== 0 || !canSortGroups.value) {
     return;
@@ -174,12 +277,17 @@ function onReorderGroupsStart(event: PointerEvent, groupId: string) {
   window.addEventListener("pointercancel", finishReorderGroups);
 }
 
-async function sortGroupsAlphabetically() {
-  if (!canSortGroupsAlpha.value) {
+async function sortAlphabetically() {
+  if (!canSortAlpha.value) {
     return;
   }
   try {
-    await reorderGroups(alphaGroupIds.value);
+    if (canSortGroupsAlpha.value) {
+      await reorderGroups(alphaGroupIds.value);
+    }
+    if (canSortStandaloneAlpha.value) {
+      await reorderStandaloneRepos(alphaStandaloneIds.value);
+    }
   } catch (err) {
     window.alert(String(err));
   }
@@ -189,7 +297,11 @@ onUnmounted(() => {
   window.removeEventListener("pointermove", onReorderGroupsMove);
   window.removeEventListener("pointerup", finishReorderGroups);
   window.removeEventListener("pointercancel", finishReorderGroups);
+  window.removeEventListener("pointermove", onReorderStandaloneMove);
+  window.removeEventListener("pointerup", finishReorderStandalone);
+  window.removeEventListener("pointercancel", finishReorderStandalone);
   document.body.classList.remove("reordering-groups");
+  document.body.classList.remove("reordering-repos");
 });
 
 function startCreate() {
@@ -293,8 +405,8 @@ async function removeStandalone(repoId: string) {
             <button
               class="ghost"
               type="button"
-              :disabled="!canSortGroupsAlpha"
-              @click="sortGroupsAlphabetically"
+              :disabled="!canSortAlpha"
+              @click="sortAlphabetically"
             >
               Sort A–Z
             </button>
@@ -329,14 +441,21 @@ async function removeStandalone(repoId: string) {
           Add a repository, or create a group for several at once.
         </p>
 
-        <div v-if="standaloneRepos.length" class="standalone-list">
+        <div
+          v-if="standaloneRepos.length"
+          class="standalone-list"
+          :class="{ reordering: Boolean(draggingStandaloneId) }"
+        >
           <RepoRow
-            v-for="repo in standaloneRepos"
+            v-for="repo in visibleStandalone"
             :key="repo.id"
             :repo="repo"
             :sibling-ids="standaloneIds"
             flush
+            :sortable="canSortStandalone"
+            :dragging="draggingStandaloneId === repo.id"
             @remove="removeStandalone"
+            @reorder-start="onReorderStandaloneStart"
           />
         </div>
 

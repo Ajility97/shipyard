@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, nextTick, ref } from "vue";
+import { contrastingText, DEFAULT_HEADER_COLOR } from "../color";
 import { rangeIds } from "../selection";
 import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
@@ -7,6 +8,8 @@ import { useTabs } from "../composables/useTabs";
 import type { RepoEntry } from "../types";
 import BranchIcon from "./BranchIcon.vue";
 import FileIcon from "./FileIcon.vue";
+import RepoIcon from "./RepoIcon.vue";
+import StandaloneRepoActions from "./StandaloneRepoActions.vue";
 
 const lastRepoClick = ref<string | null>(null);
 
@@ -23,11 +26,28 @@ const emit = defineEmits<{
   reorderStart: [event: PointerEvent, repoId: string];
 }>();
 
-const { statuses, isRepoRefreshing } = useApp();
+const { statuses, isRepoRefreshing, updateStandaloneRepo } = useApp();
 const { activeId, hasTab, openRepo, openRepos } = useTabs();
 const { isOpen: menuOpen, toggle: toggleMenu, close: closeMenu } = useOverflowMenu(
   () => `repo:${props.repo.id}`,
 );
+
+const editing = ref(false);
+const labelDraft = ref("");
+const colorDraft = ref(DEFAULT_HEADER_COLOR);
+const labelInput = ref<HTMLInputElement | null>(null);
+
+const colored = computed(() => Boolean(props.flush && (props.repo.headerColor || editing.value)));
+const headerStyle = computed(() => {
+  if (!colored.value) {
+    return undefined;
+  }
+  const color = editing.value ? colorDraft.value : props.repo.headerColor || DEFAULT_HEADER_COLOR;
+  return {
+    "--group-header": color,
+    "--group-header-fg": contrastingText(color),
+  };
+});
 
 function folderName(path: string) {
   const parts = path.split("/").filter(Boolean);
@@ -35,6 +55,16 @@ function folderName(path: string) {
 }
 
 function handleClick(event: MouseEvent) {
+  if (editing.value) {
+    return;
+  }
+  const target = event.target;
+  if (
+    target instanceof Element &&
+    target.closest("button, input, label, .overflow-menu, .repo-drag, .repo-row-actions")
+  ) {
+    return;
+  }
   if (event.shiftKey && lastRepoClick.value) {
     openRepos(rangeIds(props.siblingIds, lastRepoClick.value, props.repo.id), props.repo.id);
   } else {
@@ -46,6 +76,31 @@ function handleClick(event: MouseEvent) {
 function onRemove() {
   closeMenu();
   emit("remove", props.repo.id);
+}
+
+async function startEdit() {
+  closeMenu();
+  labelDraft.value = props.repo.label ?? "";
+  colorDraft.value = props.repo.headerColor || DEFAULT_HEADER_COLOR;
+  editing.value = true;
+  await nextTick();
+  labelInput.value?.focus();
+  labelInput.value?.select();
+}
+
+function cancelEdit() {
+  editing.value = false;
+  labelDraft.value = props.repo.label ?? "";
+  colorDraft.value = props.repo.headerColor || DEFAULT_HEADER_COLOR;
+}
+
+function onHeaderColor(event: Event) {
+  colorDraft.value = (event.target as HTMLInputElement).value;
+}
+
+async function saveEdit() {
+  await updateStandaloneRepo(props.repo.id, labelDraft.value.trim(), colorDraft.value);
+  editing.value = false;
 }
 </script>
 
@@ -59,20 +114,24 @@ function onRemove() {
       flush,
       sortable,
       dragging,
+      colored,
+      editing,
     }"
+    :style="headerStyle"
     :data-repo-id="repo.id"
     @click="handleClick"
   >
     <span
-      v-if="sortable"
       class="repo-drag"
+      :class="{ spacer: !sortable }"
       role="button"
       title="Drag to reorder"
       aria-label="Drag to reorder"
+      :aria-hidden="!sortable"
       @click.stop
-      @pointerdown.stop="emit('reorderStart', $event, repo.id)"
+      @pointerdown.stop="sortable && emit('reorderStart', $event, repo.id)"
     >
-      <svg viewBox="0 0 16 16" aria-hidden="true">
+      <svg v-if="sortable" viewBox="0 0 16 16" aria-hidden="true">
         <circle cx="5.5" cy="4" r="1.15" />
         <circle cx="10.5" cy="4" r="1.15" />
         <circle cx="5.5" cy="8" r="1.15" />
@@ -81,8 +140,45 @@ function onRemove() {
         <circle cx="10.5" cy="12" r="1.15" />
       </svg>
     </span>
-    <span class="repo-name">{{ statuses[repo.id]?.name ?? folderName(repo.path) }}</span>
-    <span class="branch">
+    <span class="repo-identity">
+      <RepoIcon />
+      <span class="repo-name">{{ statuses[repo.id]?.name ?? folderName(repo.path) }}</span>
+      <span v-if="!editing && repo.label" class="repo-label">{{ repo.label }}</span>
+      <input
+        v-if="editing"
+        ref="labelInput"
+        v-model="labelDraft"
+        type="text"
+        class="repo-label-input"
+        placeholder="Label, e.g. code review"
+        @click.stop
+        @keydown.enter="saveEdit"
+        @keydown.escape="cancelEdit"
+      />
+      <label v-if="editing" class="color-picker" @click.stop>
+        <span class="color-picker-label">Color</span>
+        <span class="color-picker-swatch" aria-hidden="true">
+          <input type="color" :value="colorDraft" @input="onHeaderColor" />
+        </span>
+      </label>
+      <button
+        v-if="editing"
+        class="ghost tiny"
+        type="button"
+        @mousedown.prevent="saveEdit"
+      >
+        Save
+      </button>
+      <button
+        v-if="editing"
+        class="ghost tiny"
+        type="button"
+        @mousedown.prevent="cancelEdit"
+      >
+        Cancel
+      </button>
+    </span>
+    <span v-if="!editing" class="branch">
       <span v-if="isRepoRefreshing(repo.id)" class="spinner" aria-label="Refreshing repository" />
       <span class="branch-name">
         <BranchIcon />
@@ -122,6 +218,8 @@ function onRemove() {
         </span>
       </span>
     </span>
+    <StandaloneRepoActions v-if="flush && !editing" :repo="repo" />
+    <div v-else-if="!editing" class="repo-row-actions" aria-hidden="true" />
     <div class="overflow-menu repo-menu" @click.stop>
       <button
         class="ghost tiny overflow-menu-trigger"
@@ -138,6 +236,15 @@ function onRemove() {
         </svg>
       </button>
       <div v-if="menuOpen" class="overflow-menu-dropdown" role="menu">
+        <button
+          v-if="flush"
+          class="overflow-menu-item"
+          type="button"
+          role="menuitem"
+          @click.stop="startEdit"
+        >
+          Edit repository
+        </button>
         <button
           class="overflow-menu-item danger"
           type="button"

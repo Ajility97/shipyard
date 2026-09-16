@@ -94,6 +94,8 @@ mod tests {
                 repos: vec![RepoEntry {
                     id: "r1".into(),
                     path: "/tmp/api".into(),
+                    label: String::new(),
+                    header_color: String::new(),
                 }],
             }],
         };
@@ -110,6 +112,10 @@ mod tests {
 pub struct RepoEntry {
     pub id: String,
     pub path: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub header_color: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

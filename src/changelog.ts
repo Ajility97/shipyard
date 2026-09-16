@@ -11,10 +11,16 @@ export const CHANGELOG: ChangelogRelease[] = [
     notes: [
       "First official release.",
       "Click a commit in the graph to see the files it changed and open a diff.",
-      "Stash working-tree changes, then apply, pop, or drop them from the repo toolbar.",
+      "Stashes view on the repo toolbar to apply, pop, or drop saved changes. Stash working-tree changes from the files pane or that view.",
+      "Branches view has checkout and rename buttons on each local branch.",
       "Settings tab has preferences for auto-refresh, diff layout, files pane width, and window size and position. Open settings.json from the top-right icon to edit, export, or import the full file.",
       "App data lives in settings.json. An existing groups.json is migrated on launch.",
-      "Drag handles reorder group repos or the groups themselves. Sort A–Z is in the group menu and the repositories toolbar.",
+      "Drag handles reorder group repos, standalone repos, or the groups themselves. Sort A–Z in the repositories toolbar sorts groups and standalone repos; the group menu sorts that group’s repos.",
+      "Standalone repositories are spaced like groups, with a color and optional label from the row menu. Each row has pull, checkout, and refresh.",
+      "Pull on groups, standalone repos, and the open-repo toolbar runs the current branch. The caret opens the existing branch-options modal.",
+      "Repository rows and open repo tabs show a repo icon.",
+      "Checking out a branch from the Branches view updates the current branch immediately.",
+      "Open-repo toolbar is two lines: identity on top, git actions and view toggles below.",
     ],
   },
   {

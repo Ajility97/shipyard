@@ -629,6 +629,36 @@ pub fn create_and_checkout_branch(git: &Path, repo: &Path, branch: &str) -> Resu
     ))
 }
 
+pub fn rename_local_branch(
+    git: &Path,
+    repo: &Path,
+    branch: &str,
+    new_name: &str,
+) -> Result<String, String> {
+    validate_ref(branch)?;
+    validate_ref(new_name)?;
+    if branch == new_name {
+        return Ok(format!("Already named {new_name}"));
+    }
+    if !ref_exists(git, repo, &format!("refs/heads/{branch}")) {
+        return Err(format!("Local branch {branch} does not exist."));
+    }
+    if ref_exists(git, repo, &format!("refs/heads/{new_name}")) {
+        return Err(format!("Branch {new_name} already exists."));
+    }
+    let output = run_git(git, repo, &["branch", "-m", branch, new_name])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to rename {branch}"),
+        ));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Renamed {branch} to {new_name}"),
+    ))
+}
+
 /// Standard `git pull` only. Never add `--force` or other overwrite flags.
 pub fn pull(git: &Path, repo: &Path) -> Result<String, String> {
     let output = run_git(git, repo, &["pull"])?;
@@ -1452,6 +1482,15 @@ mod tests {
             .unwrap()
             .contains(&"task/123".into()));
         assert!(create_and_checkout_branch(&git_bin(), &repo, "task/123").is_err());
+
+        let renamed = rename_local_branch(&git_bin(), &repo, "task/123", "task/456").unwrap();
+        assert!(renamed.contains("task/456"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "task/456");
+        let after_rename = local_branches(&git_bin(), &repo).unwrap();
+        assert!(after_rename.contains(&"task/456".into()));
+        assert!(!after_rename.contains(&"task/123".into()));
+        assert!(rename_local_branch(&git_bin(), &repo, "missing", "other").is_err());
+        assert!(rename_local_branch(&git_bin(), &repo, "develop", "task/456").is_err());
     }
 
     #[test]

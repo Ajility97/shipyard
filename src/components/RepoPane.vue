@@ -38,6 +38,8 @@ const {
   diffMode,
   saveDiffMode,
   refreshStatus,
+  refreshRepoStatus,
+  patchRepoStatus,
   showToast,
 } = useApp();
 
@@ -45,6 +47,7 @@ const commits = ref<CommitNode[]>([]);
 const files = ref<WorkingTreeFile[]>([]);
 const branches = ref<string[]>([]);
 const branchesView = ref(false);
+const graphStale = ref(false);
 const stashes = ref<StashEntry[]>([]);
 const stashView = ref(false);
 const overview = ref<BranchOverview | null>(null);
@@ -63,6 +66,9 @@ const message = ref("");
 const creatingBranch = ref(false);
 const newBranchName = ref("");
 const newBranchInput = ref<HTMLInputElement | null>(null);
+const renamingBranch = ref<LocalBranch | null>(null);
+const renameBranchName = ref("");
+const renameBranchInput = ref<HTMLInputElement | null>(null);
 const committing = ref(false);
 const commitTitle = ref("");
 const commitDescription = ref("");
@@ -70,10 +76,17 @@ const commitTitleInput = ref<HTMLInputElement | null>(null);
 const stashing = ref(false);
 const stashMessage = ref("");
 const stashMessageInput = ref<HTMLInputElement | null>(null);
+const pullingOptions = ref(false);
+const pullSource = ref<"current" | "develop" | "master" | "main" | "specify">("current");
+const specifyBranch = ref("");
 
 const COMMIT_TITLE_MAX = 72;
 
 const canCreateBranch = computed(() => Boolean(newBranchName.value.trim()));
+const canRenameBranch = computed(() => {
+  const next = renameBranchName.value.trim();
+  return Boolean(next) && next !== (renamingBranch.value?.name ?? "");
+});
 const commitTitleLength = computed(() => [...commitTitle.value].length);
 const commitTitleLeft = computed(() => Math.max(0, COMMIT_TITLE_MAX - commitTitleLength.value));
 const canCommit = computed(
@@ -124,7 +137,7 @@ onUnmounted(() => {
   stopResize();
 });
 
-async function loadRepo() {
+async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?: boolean }) {
   const match = current.value;
   if (!match) {
     commits.value = [];
@@ -138,23 +151,30 @@ async function loadRepo() {
     return;
   }
 
-  loading.value = true;
+  const wantOverview = options?.overview ?? branchesView.value;
+  const wantGraph = options?.graph ?? true;
+  if (!options?.silent) {
+    loading.value = true;
+  }
   message.value = "";
   try {
     const [nextCommits, nextFiles, nextBranches, nextStashes, nextOverview] = await Promise.all([
-      api.logGraph(match.repo.path),
+      wantGraph ? api.logGraph(match.repo.path) : Promise.resolve(commits.value),
       api.workingTree(match.repo.path),
       api.listLocalBranches(match.repo.path).catch(() => [] as string[]),
       api.stashList(match.repo.path).catch(() => [] as StashEntry[]),
-      branchesView.value
+      wantOverview
         ? api.branchOverview(match.repo.path, preferredMergeTarget()).catch(() => null)
         : Promise.resolve(overview.value),
     ]);
-    commits.value = nextCommits;
+    if (wantGraph) {
+      commits.value = nextCommits;
+      graphStale.value = false;
+    }
     files.value = nextFiles;
     branches.value = nextBranches;
     stashes.value = nextStashes;
-    if (branchesView.value) {
+    if (wantOverview) {
       overview.value = nextOverview;
     }
     if (selectedFile.value && !nextFiles.some((file) => sameFile(file, selectedFile.value))) {
@@ -343,6 +363,24 @@ async function unstageAll() {
   }
 }
 
+function markOverviewCurrent(name: string) {
+  const currentOverview = overview.value;
+  if (!currentOverview) {
+    return;
+  }
+  const nextBranches = currentOverview.branches.map((branch) => ({
+    ...branch,
+    current: branch.name === name,
+  }));
+  nextBranches.sort(
+    (left, right) =>
+      Number(right.current) - Number(left.current) ||
+      Number(left.merged) - Number(right.merged) ||
+      left.name.localeCompare(right.name),
+  );
+  overview.value = { ...currentOverview, branches: nextBranches };
+}
+
 async function runRepoAction(label: string, work: () => Promise<string>) {
   const match = current.value;
   if (!match || actionBusy.value) {
@@ -355,7 +393,7 @@ async function runRepoAction(label: string, work: () => Promise<string>) {
     const result = await work();
     showToast(result);
     await loadRepo();
-    await refreshStatus(match.group?.id ?? STANDALONE_GROUP_ID);
+    await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
   } catch (err) {
     const text = String(err);
     message.value = text;
@@ -366,12 +404,75 @@ async function runRepoAction(label: string, work: () => Promise<string>) {
   }
 }
 
-function pullRepo() {
+const pullBranch = computed(() => {
+  if (pullSource.value === "current") {
+    return "";
+  }
+  if (pullSource.value === "specify") {
+    return specifyBranch.value.trim();
+  }
+  return pullSource.value;
+});
+
+const canConfirmPull = computed(
+  () => pullSource.value === "current" || Boolean(pullBranch.value),
+);
+
+const pullRemoteLabel = computed(() => {
+  if (pullSource.value === "current") {
+    return "current-branch";
+  }
+  return pullBranch.value || "…";
+});
+
+const pullHint = computed(() =>
+  pullSource.value === "current"
+    ? "Use this to pick up others’ commits on the same branch."
+    : "Brings that remote branch into this checkout. If Git hits conflicts, resolve them in your local files.",
+);
+
+function runPull(branch?: string) {
   const match = current.value;
   if (!match) {
     return;
   }
-  return runRepoAction("Pulling…", () => api.repoPull(match.repo.path));
+  return runRepoAction("Pulling…", async () => {
+    const result = await api.pullRepo(
+      match.group?.id ?? STANDALONE_GROUP_ID,
+      match.repo.id,
+      branch,
+    );
+    if (!result.ok) {
+      throw result.message;
+    }
+    return result.message;
+  });
+}
+
+function pullRepo() {
+  return runPull();
+}
+
+function openPullOptions() {
+  if (actionBusy.value) {
+    return;
+  }
+  pullSource.value = "current";
+  specifyBranch.value = preferredMergeTarget() || "develop";
+  pullingOptions.value = true;
+}
+
+function closePullOptions() {
+  pullingOptions.value = false;
+}
+
+function confirmPull() {
+  if (!canConfirmPull.value) {
+    return;
+  }
+  const branch = pullBranch.value;
+  closePullOptions();
+  return runPull(branch || undefined);
 }
 
 function pushRepo() {
@@ -382,12 +483,51 @@ function pushRepo() {
   return runRepoAction("Pushing…", () => api.repoPush(match.repo.path));
 }
 
-function checkoutBranch(branch: string) {
+async function checkoutBranch(branch: string) {
   const match = current.value;
-  if (!match) {
+  if (!match || actionBusy.value) {
     return;
   }
-  return runRepoAction("Checking out…", () => api.checkoutLocalBranch(match.repo.path, branch));
+  const previous = match.status?.branch ?? "";
+  if (previous === branch) {
+    return;
+  }
+  markOverviewCurrent(branch);
+  patchRepoStatus(match.repo.id, { branch });
+  actionBusy.value = true;
+  actionLabel.value = "Checking out…";
+  message.value = "";
+  await nextTick();
+  try {
+    const result = await api.checkoutLocalBranch(match.repo.path, branch);
+    showToast(result);
+  } catch (err) {
+    markOverviewCurrent(previous);
+    if (previous) {
+      patchRepoStatus(match.repo.id, { branch: previous });
+    }
+    const text = String(err);
+    message.value = text;
+    showToast(text, "error");
+    return;
+  } finally {
+    actionBusy.value = false;
+    actionLabel.value = "";
+  }
+  graphStale.value = true;
+  void loadRepo({
+    overview: false,
+    graph: !branchesView.value,
+    silent: true,
+  });
+  void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+}
+
+function checkoutListedBranch(branch: LocalBranch) {
+  if (branch.current) {
+    return;
+  }
+  return checkoutBranch(branch.name);
 }
 
 async function openCreateBranch() {
@@ -415,6 +555,33 @@ function createBranch() {
   return runRepoAction("Creating branch…", () =>
     api.createAndCheckoutBranch(match.repo.path, branch),
   );
+}
+
+async function openRenameBranch(branch: LocalBranch) {
+  if (actionBusy.value) {
+    return;
+  }
+  renamingBranch.value = branch;
+  renameBranchName.value = branch.name;
+  await nextTick();
+  renameBranchInput.value?.focus();
+  renameBranchInput.value?.select();
+}
+
+function closeRenameBranch() {
+  renamingBranch.value = null;
+  renameBranchName.value = "";
+}
+
+function renameBranch() {
+  const match = current.value;
+  const from = renamingBranch.value;
+  const to = renameBranchName.value.trim();
+  if (!match || !from || !to || to === from.name) {
+    return;
+  }
+  closeRenameBranch();
+  return runRepoAction("Renaming…", () => api.renameLocalBranch(match.repo.path, from.name, to));
 }
 
 async function openCommit() {
@@ -487,6 +654,9 @@ async function loadOverview() {
 async function toggleBranchesView() {
   branchesView.value = !branchesView.value;
   if (!branchesView.value) {
+    if (graphStale.value) {
+      void loadRepo({ overview: false, silent: true });
+    }
     return;
   }
   stashView.value = false;
@@ -502,6 +672,10 @@ function toggleStashView() {
   stashView.value = !stashView.value;
   if (stashView.value) {
     branchesView.value = false;
+    return;
+  }
+  if (graphStale.value) {
+    void loadRepo({ overview: false, silent: true });
   }
 }
 
@@ -672,6 +846,7 @@ watch(
   () => {
     branchesView.value = false;
     stashView.value = false;
+    graphStale.value = false;
     overview.value = null;
     closeCommitDetail();
     closeDiff();
@@ -711,6 +886,7 @@ watch(
         :unstaged-count="unstagedCount"
         :staged-count="stagedCount"
         @pull="pullRepo"
+        @pull-options="openPullOptions"
         @push="pushRepo"
         @checkout="checkoutBranch"
         @create="openCreateBranch"
@@ -724,6 +900,8 @@ watch(
         v-if="branchesView"
         :overview="overview"
         :busy="actionBusy"
+        @checkout="checkoutListedBranch"
+        @rename="openRenameBranch"
         @delete="deleteBranch"
         @delete-merged="deleteMerged"
       />
@@ -829,6 +1007,50 @@ watch(
   <div v-else class="empty-home">
     <p class="muted">{{ loaded ? "Repository not found." : "Loading…" }}</p>
   </div>
+  <Modal v-if="pullingOptions" title="Pull from remote" @close="closePullOptions">
+    <p class="pull-summary">
+      Merges <code>origin/{{ pullRemoteLabel }}</code> into the currently checked-out branch.
+      Checkout does not change.
+    </p>
+    <fieldset class="radio-list">
+      <legend class="muted tiny">Remote branch</legend>
+      <label class="radio-option">
+        <input v-model="pullSource" type="radio" value="current" />
+        origin/current-branch
+      </label>
+      <label class="radio-option">
+        <input v-model="pullSource" type="radio" value="develop" />
+        origin/develop
+      </label>
+      <label class="radio-option">
+        <input v-model="pullSource" type="radio" value="master" />
+        origin/master
+      </label>
+      <label class="radio-option">
+        <input v-model="pullSource" type="radio" value="main" />
+        origin/main
+      </label>
+      <label class="radio-option">
+        <input v-model="pullSource" type="radio" value="specify" />
+        Specify
+      </label>
+      <input
+        v-if="pullSource === 'specify'"
+        v-model="specifyBranch"
+        type="text"
+        placeholder="branch name"
+        autofocus
+        @keydown.enter="confirmPull"
+      />
+    </fieldset>
+    <p class="muted tiny pull-hint">{{ pullHint }}</p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closePullOptions">Cancel</button>
+      <button class="primary" type="button" :disabled="!canConfirmPull" @click="confirmPull">
+        Pull
+      </button>
+    </template>
+  </Modal>
   <Modal v-if="committing" title="Commit" medium @close="closeCommit">
     <label class="modal-label">
       <span class="modal-label-row">
@@ -898,6 +1120,24 @@ watch(
       <button class="ghost" type="button" @click="closeCreateBranch">Cancel</button>
       <button class="primary" type="button" :disabled="!canCreateBranch" @click="createBranch">
         Create and switch
+      </button>
+    </template>
+  </Modal>
+  <Modal v-if="renamingBranch" title="Rename branch" @close="closeRenameBranch">
+    <label class="modal-label">
+      <span class="muted tiny">Branch name</span>
+      <input
+        ref="renameBranchInput"
+        v-model="renameBranchName"
+        type="text"
+        placeholder="feature/JIRA-123"
+        @keydown.enter="renameBranch"
+      />
+    </label>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeRenameBranch">Cancel</button>
+      <button class="primary" type="button" :disabled="!canRenameBranch" @click="renameBranch">
+        Rename
       </button>
     </template>
   </Modal>

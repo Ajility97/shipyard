@@ -61,6 +61,18 @@ export function addStandaloneRepo(path: string) {
   return invoke<RepoEntry>("add_standalone_repo", { path });
 }
 
+export function updateStandaloneRepo(
+  repoId: string,
+  label?: string,
+  headerColor?: string,
+) {
+  return invoke<RepoEntry>("update_standalone_repo", {
+    repoId,
+    label: label ?? null,
+    headerColor: headerColor ?? null,
+  });
+}
+
 export function removeStandaloneRepo(repoId: string) {
   return invoke<void>("remove_standalone_repo", { repoId });
 }
@@ -79,6 +91,10 @@ export function reorderGroupRepos(groupId: string, repoIds: string[]) {
 
 export function reorderGroups(groupIds: string[]) {
   return invoke<void>("reorder_groups", { groupIds });
+}
+
+export function reorderStandaloneRepos(repoIds: string[]) {
+  return invoke<void>("reorder_standalone_repos", { repoIds });
 }
 
 export function updateAppSettings(refreshIntervalSeconds: number) {
@@ -202,6 +218,10 @@ export function checkoutLocalBranch(path: string, branch: string) {
 
 export function createAndCheckoutBranch(path: string, branch: string) {
   return invoke<string>("create_and_checkout_branch", { path, branch });
+}
+
+export function renameLocalBranch(path: string, branch: string, newName: string) {
+  return invoke<string>("rename_local_branch", { path, branch, newName });
 }
 
 export function repoPull(path: string) {

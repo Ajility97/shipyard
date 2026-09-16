@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import BranchIcon from "./BranchIcon.vue";
 import ChangesToggle from "./ChangesToggle.vue";
+import SplitAction from "./SplitAction.vue";
+import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
 
 const props = defineProps<{
@@ -21,6 +24,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   pull: [];
+  pullOptions: [];
   push: [];
   checkout: [branch: string];
   create: [];
@@ -30,7 +34,20 @@ const emit = defineEmits<{
   refreshBranches: [];
 }>();
 
+const { statuses } = useApp();
 const { isOpen, toggle, close } = useOverflowMenu(() => `branch-${props.repoId}`);
+
+const currentBranch = computed(
+  () => statuses.value[props.repoId]?.branch || props.branch,
+);
+
+const pullTitle = computed(() =>
+  currentBranch.value ? `Pull from ${currentBranch.value}` : "Pull from current branch",
+);
+
+const pushTitle = computed(() =>
+  currentBranch.value ? `Push to ${currentBranch.value}` : "Push current branch",
+);
 
 function selectBranch(branch: string) {
   close();
@@ -90,68 +107,84 @@ async function toggleBranches() {
       </div>
       <span class="repo-path" :title="path">{{ path }}</span>
     </div>
-    <div class="pane-header-end repo-toolbar-actions">
-      <span v-if="busyLabel" class="muted tiny">{{ busyLabel }}</span>
-      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('create')">
-        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M6 3v12a3 3 0 0 0 3 3h4.5" />
-          <circle cx="6" cy="5" r="2" />
-          <circle cx="6" cy="19" r="2" />
-          <path d="M15 6h6M18 3v6" />
-        </svg>
-        New branch
-      </button>
-      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('pull')">
-        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
-          />
-        </svg>
-        Pull
-      </button>
-      <button class="ghost tiny" type="button" :disabled="busy" @click="emit('push')">
-        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 7.5 12 3m0 0 4.5 4.5M12 3v13.5"
-          />
-        </svg>
-        Push
-      </button>
-      <button
-        class="ghost tiny"
-        :class="{ active: branchesView }"
-        type="button"
-        :disabled="busy"
-        :aria-pressed="branchesView"
-        @click="emit('branches')"
-      >
-        <BranchIcon />
-        Branches
-        <span v-if="branches.length" class="file-count-badge">{{ branches.length }}</span>
-      </button>
-      <button
-        class="ghost tiny"
-        :class="{ active: stashView }"
-        type="button"
-        :disabled="busy"
-        :aria-pressed="stashView"
-        @click="emit('stash')"
-      >
-        <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"
-          />
-        </svg>
-        Stash
-        <span v-if="stashCount" class="file-count-badge">{{ stashCount }}</span>
-      </button>
-      <ChangesToggle
-        :open="filesOpen"
-        :unstaged="unstagedCount"
-        :staged="stagedCount"
-        @click="emit('files')"
-      />
-      <slot />
+    <div class="repo-toolbar-bar repo-toolbar-actions">
+      <div class="repo-toolbar-work">
+        <span v-if="busyLabel" class="muted tiny">{{ busyLabel }}</span>
+        <button class="ghost tiny" type="button" :disabled="busy" @click="emit('create')">
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 3v12a3 3 0 0 0 3 3h4.5" />
+            <circle cx="6" cy="5" r="2" />
+            <circle cx="6" cy="19" r="2" />
+            <path d="M15 6h6M18 3v6" />
+          </svg>
+          New branch
+        </button>
+        <SplitAction
+          :primary-title="pullTitle"
+          more-title="Pull from another branch"
+          :disabled="busy"
+          @primary="emit('pull')"
+          @more="emit('pullOptions')"
+        >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+            />
+          </svg>
+          Pull
+        </SplitAction>
+        <button
+          class="ghost tiny"
+          type="button"
+          :disabled="busy"
+          :title="pushTitle"
+          @click="emit('push')"
+        >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M7.5 7.5 12 3m0 0 4.5 4.5M12 3v13.5"
+            />
+          </svg>
+          Push
+        </button>
+      </div>
+      <div class="repo-toolbar-views">
+        <button
+          class="ghost tiny"
+          :class="{ active: branchesView }"
+          type="button"
+          :disabled="busy"
+          :aria-pressed="branchesView"
+          @click="emit('branches')"
+        >
+          <BranchIcon />
+          Branches
+          <span v-if="branches.length" class="file-count-badge">{{ branches.length }}</span>
+        </button>
+        <button
+          class="ghost tiny"
+          :class="{ active: stashView }"
+          type="button"
+          :disabled="busy"
+          :aria-pressed="stashView"
+          @click="emit('stash')"
+        >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"
+            />
+          </svg>
+          Stashes
+          <span v-if="stashCount" class="file-count-badge">{{ stashCount }}</span>
+        </button>
+        <ChangesToggle
+          :open="filesOpen"
+          :unstaged="unstagedCount"
+          :staged="stagedCount"
+          @click="emit('files')"
+        />
+        <slot />
+      </div>
     </div>
   </div>
 </template>

@@ -692,14 +692,6 @@ fn sort_local_branches(branches: &mut [LocalBranch]) {
     });
 }
 
-pub fn branch_overview(
-    git: &Path,
-    repo: &Path,
-    preferred: Option<&str>,
-) -> Result<BranchOverview, String> {
-    branch_overview_with(git, repo, preferred, true)
-}
-
 pub fn branch_overview_with(
     git: &Path,
     repo: &Path,
@@ -1840,7 +1832,7 @@ mod tests {
         git(&repo, &["checkout", "develop"]);
         git(&repo, &["merge", "feature"]);
 
-        let overview = branch_overview(&git_bin(), &repo, Some("develop")).unwrap();
+        let overview = branch_overview_with(&git_bin(), &repo, Some("develop"), true).unwrap();
         assert_eq!(overview.merge_target.as_deref(), Some("develop"));
         let feature = overview
             .branches
@@ -1893,7 +1885,7 @@ mod tests {
         git(&repo, &["merge", "--squash", "feature"]);
         git(&repo, &["commit", "-m", "squash feature"]);
 
-        let overview = branch_overview(&git_bin(), &repo, Some("develop")).unwrap();
+        let overview = branch_overview_with(&git_bin(), &repo, Some("develop"), true).unwrap();
         let feature = overview
             .branches
             .iter()
@@ -2007,7 +1999,7 @@ mod tests {
         git(&repo, &["add", "one.txt"]);
         git(&repo, &["commit", "-m", "same first change"]);
 
-        let overview = branch_overview(&git_bin(), &repo, Some("develop")).unwrap();
+        let overview = branch_overview_with(&git_bin(), &repo, Some("develop"), true).unwrap();
         let feature = overview
             .branches
             .iter()

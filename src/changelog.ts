@@ -10,6 +10,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     date: "September 16, 2026",
     notes: [
       "Optional active hours for auto-refresh in Schedule settings. Off by default; Business (8am–6pm) and Personal (6am–11pm) presets, or custom times. Automatic fetches pause outside the window.",
+      "Pull next to Refresh pulls the current branch for every standalone and grouped repository.",
     ],
   },
   {

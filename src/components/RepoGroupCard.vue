@@ -51,6 +51,7 @@ const {
   refreshGroup,
   cancelRefresh,
   refreshingAll,
+  pullingAll,
   refreshCancelled,
   refreshProgress,
   isGroupRefreshing,
@@ -622,7 +623,7 @@ function onHeaderClick(event: MouseEvent) {
               Pull
             </SplitAction>
             <button
-              v-else
+              v-else-if="!pullingAll"
               class="tiny danger"
               type="button"
               :disabled="pullCancelled[group.id]"
@@ -632,7 +633,7 @@ function onHeaderClick(event: MouseEvent) {
             </button>
           </div>
           <div
-            v-if="!refreshingAll && !groupRefreshing && !pulling"
+            v-if="!refreshingAll && !pullingAll && !groupRefreshing && !pulling"
             class="header-action"
           >
             <span v-if="checkingOut" class="action-progress">
@@ -665,7 +666,7 @@ function onHeaderClick(event: MouseEvent) {
             </button>
           </div>
           <div
-            v-if="refreshingAll || groupRefreshing || (!pulling && !checkingOut)"
+            v-if="refreshingAll || groupRefreshing || (!pullingAll && !pulling && !checkingOut)"
             class="header-action"
           >
             <span v-if="refreshingAll || groupRefreshing" class="action-progress">

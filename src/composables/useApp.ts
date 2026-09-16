@@ -48,6 +48,10 @@ const toastMessage = ref("");
 const toastKind = ref<"success" | "error">("success");
 const actionOutput = ref<{ title: string; results: RepoActionResult[] } | null>(null);
 const actionOutputOpen = ref(false);
+const pullingAll = ref(false);
+const pullAllCancelled = ref(false);
+const pullAllTotal = ref(0);
+const pullAllDone = ref(0);
 const pullProgress = ref<Record<string, string>>({});
 const pullBranchByGroup = ref<Record<string, string>>({});
 const pullCancelled = ref<Record<string, boolean>>({});
@@ -132,6 +136,10 @@ export function useApp() {
     pullCancelled.value = { ...pullCancelled.value, [groupId]: true };
   }
 
+  function cancelPullAll() {
+    pullAllCancelled.value = true;
+  }
+
   function cancelCheckout(groupId: string) {
     checkoutCancelled.value = { ...checkoutCancelled.value, [groupId]: true };
   }
@@ -195,7 +203,11 @@ export function useApp() {
   // launching every `git fetch` at once.
   const REFRESH_CONCURRENCY = 8;
 
-  async function runPool<T>(items: T[], worker: (item: T) => Promise<void>) {
+  async function runPool<T>(
+    items: T[],
+    worker: (item: T) => Promise<void>,
+    cancelled: () => boolean = () => refreshCancelled.value,
+  ) {
     if (!items.length) {
       return;
     }
@@ -203,7 +215,7 @@ export function useApp() {
     const workers = Math.min(REFRESH_CONCURRENCY, items.length);
     await Promise.all(
       Array.from({ length: workers }, async () => {
-        while (!refreshCancelled.value) {
+        while (!cancelled()) {
           const index = next++;
           if (index >= items.length) {
             return;
@@ -352,7 +364,7 @@ export function useApp() {
   async function refreshAll(options?: { notify?: boolean }) {
     const standaloneCount = standaloneRepos.value.length;
     const groupedCount = groups.value.reduce((sum, group) => sum + group.repos.length, 0);
-    if (refreshingAll.value || !(standaloneCount || groupedCount)) {
+    if (refreshingAll.value || pullingAll.value || !(standaloneCount || groupedCount)) {
       return;
     }
     const notify = options?.notify ?? true;
@@ -501,6 +513,16 @@ export function useApp() {
       return "Refreshing…";
     }
     return `Refreshing ${refreshDone.value}/${refreshTotal.value}`;
+  });
+
+  const pullProgressLabel = computed(() => {
+    if (!pullingAll.value) {
+      return "";
+    }
+    if (!pullAllTotal.value) {
+      return "Pulling…";
+    }
+    return `Pulling ${pullAllDone.value}/${pullAllTotal.value}`;
   });
 
   const autoRefreshPaused = computed(() => {
@@ -729,7 +751,7 @@ export function useApp() {
 
   async function pullStandaloneRepo(repoId: string, branch?: string) {
     const repo = standaloneRepos.value.find((item) => item.id === repoId);
-    if (!repo || refreshingRepos.value[repoId]) {
+    if (!repo || refreshingRepos.value[repoId] || pullingAll.value) {
       return;
     }
     markReposRefreshing([repoId]);
@@ -774,7 +796,7 @@ export function useApp() {
 
   async function pullGroup(groupId: string, branch?: string) {
     const group = groups.value.find((item) => item.id === groupId);
-    if (!group || busy.value[groupId] || !group.repos.length) {
+    if (!group || busy.value[groupId] || !group.repos.length || pullingAll.value) {
       return;
     }
     error.value = "";
@@ -840,6 +862,140 @@ export function useApp() {
       const cancelled = { ...pullCancelled.value };
       delete cancelled[groupId];
       pullCancelled.value = cancelled;
+    }
+  }
+
+  function pullDoneMessage(count: number) {
+    const repos = count === 1 ? "1 repository" : `${count} repositories`;
+    return `Pulled ${repos}.`;
+  }
+
+  async function pullAll() {
+    const standaloneCount = standaloneRepos.value.length;
+    const groupedCount = groups.value.reduce((sum, group) => sum + group.repos.length, 0);
+    if (
+      pullingAll.value ||
+      refreshingAll.value ||
+      Object.keys(pullProgress.value).length ||
+      !(standaloneCount || groupedCount)
+    ) {
+      return;
+    }
+    pullingAll.value = true;
+    pullAllCancelled.value = false;
+    error.value = "";
+    pullAllDone.value = 0;
+    pullAllTotal.value = standaloneCount + groupedCount;
+    const groupTotals: Record<string, number> = {};
+    const completed: Record<string, number> = {};
+    const progress = { ...pullProgress.value };
+    const branches = { ...pullBranchByGroup.value };
+    if (standaloneCount) {
+      groupTotals[STANDALONE_GROUP_ID] = standaloneCount;
+      completed[STANDALONE_GROUP_ID] = 0;
+      progress[STANDALONE_GROUP_ID] = `0/${standaloneCount}`;
+    }
+    for (const group of groups.value) {
+      if (!group.repos.length) {
+        continue;
+      }
+      groupTotals[group.id] = group.repos.length;
+      completed[group.id] = 0;
+      progress[group.id] = `0/${group.repos.length}`;
+      branches[group.id] = "current";
+    }
+    pullProgress.value = progress;
+    pullBranchByGroup.value = branches;
+    const paths = new Map<string, string>();
+    for (const repo of standaloneRepos.value) {
+      paths.set(repo.id, repo.path);
+    }
+    for (const group of groups.value) {
+      for (const repo of group.repos) {
+        paths.set(repo.id, repo.path);
+      }
+    }
+    const jobs = interleaveRefreshJobs([
+      ...standaloneRepos.value.map((repo) => ({
+        groupId: STANDALONE_GROUP_ID,
+        repoId: repo.id,
+      })),
+      ...groups.value.flatMap((group) =>
+        group.repos.map((repo) => ({ groupId: group.id, repoId: repo.id })),
+      ),
+    ]);
+    markReposRefreshing(jobs.map((job) => job.repoId));
+    await nextTick();
+    const outcomes: RepoActionResult[] = [];
+    if (autoRefreshTimer) {
+      clearTimeout(autoRefreshTimer);
+      autoRefreshTimer = null;
+    }
+    try {
+      await runPool(
+        jobs,
+        async (job) => {
+          if (pullAllCancelled.value) {
+            unmarkRepoRefreshing(job.repoId);
+            return;
+          }
+          const activeBranch = statuses.value[job.repoId]?.branch || "current";
+          pullBranchByGroup.value = {
+            ...pullBranchByGroup.value,
+            [job.groupId]: activeBranch,
+          };
+          const path = paths.get(job.repoId) ?? job.repoId;
+          try {
+            outcomes.push(await api.pullRepo(job.groupId, job.repoId));
+            applyStatus(await api.refreshRepo(job.groupId, job.repoId, false));
+          } catch (err) {
+            outcomes.push({
+              path,
+              ok: false,
+              message: String(err),
+            });
+          } finally {
+            unmarkRepoRefreshing(job.repoId);
+            completed[job.groupId] = (completed[job.groupId] ?? 0) + 1;
+            const total = groupTotals[job.groupId];
+            if (total) {
+              pullProgress.value = {
+                ...pullProgress.value,
+                [job.groupId]: `${completed[job.groupId]}/${total}`,
+              };
+            }
+            if (pullAllTotal.value > 0) {
+              pullAllDone.value += 1;
+            }
+          }
+        },
+        () => pullAllCancelled.value,
+      );
+      if (outcomes.length && !pullAllCancelled.value) {
+        const failed = outcomes.filter((item) => !item.ok).length;
+        presentActionResults("Pull", outcomes, {
+          success: pullDoneMessage(pullAllTotal.value),
+          error:
+            failed === 1
+              ? "Pull failed for 1 repository."
+              : `Pull failed for ${failed} repositories.`,
+        });
+      }
+    } finally {
+      pullingAll.value = false;
+      pullAllCancelled.value = false;
+      pullAllDone.value = 0;
+      pullAllTotal.value = 0;
+      const leftoverProgress = { ...pullProgress.value };
+      const leftoverBranches = { ...pullBranchByGroup.value };
+      for (const groupId of Object.keys(groupTotals)) {
+        delete leftoverProgress[groupId];
+        delete leftoverBranches[groupId];
+      }
+      pullProgress.value = leftoverProgress;
+      pullBranchByGroup.value = leftoverBranches;
+      clearReposRefreshing(jobs.map((job) => job.repoId));
+      startAutoRefresh();
     }
   }
 
@@ -1024,6 +1180,7 @@ export function useApp() {
     openOutput,
     cancelRefresh,
     cancelPull,
+    cancelPullAll,
     cancelCheckout,
     load,
     refreshStatus,
@@ -1034,6 +1191,10 @@ export function useApp() {
     refreshAll,
     pullStandaloneRepo,
     checkoutStandaloneRepo,
+    pullAll,
+    pullingAll,
+    pullAllCancelled,
+    pullProgressLabel,
     pullGroup,
     pullProgress,
     pullBranchByGroup,

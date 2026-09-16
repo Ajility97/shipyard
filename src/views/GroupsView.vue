@@ -25,12 +25,18 @@ const {
   removeStandaloneRepo,
   refreshAll,
   cancelRefresh,
+  pullAll,
+  cancelPullAll,
   refreshIntervalSeconds,
   refreshingAll,
   refreshCancelled,
   lastRefreshAt,
   countdownLabel,
   refreshProgressLabel,
+  pullingAll,
+  pullAllCancelled,
+  pullProgress,
+  pullProgressLabel,
   saveRefreshInterval,
   reorderGroups,
   reorderStandaloneRepos,
@@ -56,9 +62,21 @@ const refreshAllProgress = computed(
   () => refreshProgressLabel.value.replace(/^Refreshing\s+/, "") || "…",
 );
 
+const pullAllProgress = computed(
+  () => pullProgressLabel.value.replace(/^Pulling\s+/, "") || "…",
+);
+
 const hasRepos = computed(
   () =>
     standaloneRepos.value.length > 0 || groups.value.some((group) => group.repos.length > 0),
+);
+
+const canStartPullAll = computed(
+  () =>
+    hasRepos.value &&
+    !pullAllCancelled.value &&
+    !refreshingAll.value &&
+    (pullingAll.value || !Object.keys(pullProgress.value).length),
 );
 
 const canSortStandalone = computed(() => standaloneRepos.value.length > 1);
@@ -411,6 +429,31 @@ async function removeStandalone(repoId: string) {
               Sort A–Z
             </button>
             <div class="header-action">
+              <span v-if="pullingAll" class="action-progress">
+                <span class="spinner" aria-hidden="true" />
+                {{ pullAllProgress }}
+              </span>
+              <button
+                type="button"
+                :class="{ danger: pullingAll }"
+                :disabled="!canStartPullAll"
+                :title="pullingAll ? undefined : 'Pull the current branch for every repository'"
+                @click="pullingAll ? cancelPullAll() : pullAll()"
+              >
+                <svg
+                  v-if="!pullingAll"
+                  class="button-icon"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+                  />
+                </svg>
+                {{ pullAllCancelled ? "Cancelling…" : pullingAll ? "Cancel" : "Pull" }}
+              </button>
+            </div>
+            <div class="header-action">
               <span v-if="refreshingAll" class="action-progress">
                 <span class="spinner" aria-hidden="true" />
                 {{ refreshAllProgress }}
@@ -418,7 +461,7 @@ async function removeStandalone(repoId: string) {
               <button
                 type="button"
                 :class="{ danger: refreshingAll }"
-                :disabled="!hasRepos || refreshCancelled"
+                :disabled="!hasRepos || refreshCancelled || pullingAll"
                 @click="refreshingAll ? cancelRefresh() : refreshAll()"
               >
                 <svg

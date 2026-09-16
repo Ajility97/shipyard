@@ -16,6 +16,7 @@ const {
   statuses,
   isRepoRefreshing,
   refreshingAll,
+  pullingAll,
   refreshStandaloneRepo,
   pullStandaloneRepo,
   checkoutStandaloneRepo,
@@ -34,6 +35,9 @@ const actionBranch = ref("");
 const progress = computed(() => {
   if (action.value) {
     return action.value;
+  }
+  if (pullingAll.value) {
+    return "pull";
   }
   if (refreshingAll.value && isRepoRefreshing(props.repo.id)) {
     return "refresh";
@@ -175,9 +179,13 @@ function removeFallback() {
   <div class="repo-row-actions">
     <span v-if="progress === 'pull'" class="action-progress">
       Pulling
-      <span v-if="actionBranch" class="action-branch-badge" :title="actionBranch">
+      <span
+        v-if="actionBranch || currentBranch"
+        class="action-branch-badge"
+        :title="actionBranch || currentBranch"
+      >
         <BranchIcon />
-        <span class="action-branch-name">{{ actionBranch }}</span>
+        <span class="action-branch-name">{{ actionBranch || currentBranch }}</span>
       </span>
       <span class="spinner" aria-hidden="true" />
     </span>

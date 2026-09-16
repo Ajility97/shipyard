@@ -1,6 +1,12 @@
-# Shipyard
+<p align="center">
+  <img src="app-icon.png" alt="Shipyard" width="160" height="160">
+</p>
 
-A local-first Git client for macOS. Shipyard talks to the `git` binary already on your machine, so it uses the same SSH agent, credential helper, and user identity you use in Terminal. There is no in-app login.
+<h1 align="center">Shipyard</h1>
+
+<p align="center">
+  A local-first Git client for macOS. Shipyard talks to the <code>git</code> binary already on your machine, so it uses the same SSH agent, credential helper, and user identity you use in Terminal. There is no in-app login.
+</p>
 
 <p align="center">
   <a href="https://github.com/fylzero/shipyard/releases/latest/download/Shipyard-macos-arm64.dmg"><img src="docs/download-macos.svg" alt="Download Shipyard for macOS" height="56"></a>

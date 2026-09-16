@@ -33,15 +33,43 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - uses: tauri-apps/tauri-action@v1
+      - name: Configure Apple signing
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No Apple certificate secret; using ad-hoc signing."
+            exit 0
+          fi
+          {
+            echo "APPLE_CERTIFICATE<<EOF"
+            echo "$APPLE_CERTIFICATE"
+            echo "EOF"
+            echo "APPLE_CERTIFICATE_PASSWORD<<EOF"
+            echo "$APPLE_CERTIFICATE_PASSWORD"
+            echo "EOF"
+            echo "APPLE_SIGNING_IDENTITY<<EOF"
+            echo "$APPLE_SIGNING_IDENTITY"
+            echo "EOF"
+            echo "APPLE_ID<<EOF"
+            echo "$APPLE_ID"
+            echo "EOF"
+            echo "APPLE_PASSWORD<<EOF"
+            echo "$APPLE_PASSWORD"
+            echo "EOF"
+            echo "APPLE_TEAM_ID<<EOF"
+            echo "$APPLE_TEAM_ID"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: v__VERSION__
           releaseName: Shipyard v__VERSION__

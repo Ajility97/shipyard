@@ -139,7 +139,7 @@ button.commit:hover:not(:disabled) {
 .status-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   flex: 0 0 auto;
   min-height: 1.55rem;
   padding: 0 0.7rem;
@@ -151,7 +151,8 @@ button.commit:hover:not(:disabled) {
   line-height: 1;
 }
 
-.status-bar-version {
+.status-bar-version,
+.status-bar-github {
   appearance: none;
   margin: 0;
   padding: 0;
@@ -164,8 +165,25 @@ button.commit:hover:not(:disabled) {
   cursor: pointer;
 }
 
+.status-bar-github {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-bar-github svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.status-bar-version-prefix {
+  opacity: 0.55;
+}
+
 .status-bar-version:hover:not(:disabled),
-.status-bar-version.active {
+.status-bar-version.active,
+.status-bar-github:hover:not(:disabled) {
   background: transparent;
   color: var(--text);
 }

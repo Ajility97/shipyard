@@ -2,6 +2,16 @@
 
 A local-first Git client for macOS. Shipyard talks to the `git` binary already on your machine, so it uses the same SSH agent, credential helper, and user identity you use in Terminal. There is no in-app login.
 
+<p align="center">
+  <a href="https://github.com/fylzero/shipyard/releases/latest/download/Shipyard-macos-arm64.dmg">
+    <img src="https://img.shields.io/badge/⬇%20Download-macOS-2ea44f?style=for-the-badge&logo=apple&logoColor=white" alt="Download Shipyard for macOS" height="48">
+  </a>
+</p>
+
+<p align="center">
+  Always the latest published <code>.dmg</code> · <a href="https://github.com/fylzero/shipyard/releases/latest">All releases</a>
+</p>
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+
@@ -29,7 +39,7 @@ When the build finishes:
 | Artifact | Path |
 | --- | --- |
 | App bundle | `src-tauri/target/release/bundle/macos/Shipyard.app` |
-| Disk image | `src-tauri/target/release/bundle/dmg/Shipyard_1.0.0_aarch64.dmg` (Apple Silicon) or the `x64` equivalent on Intel |
+| Disk image | `src-tauri/target/release/bundle/dmg/Shipyard_1.0.0_aarch64.dmg` |
 
 To run it locally, open the `.app` (or drag it to `/Applications`). macOS Gatekeeper may warn that an unsigned local build is unidentified: right-click the app, choose **Open**, then confirm.
 
@@ -52,13 +62,12 @@ No custom domain is required. GitHub Releases is the download host.
    git push origin v1.0.0
    ```
 
-4. The [Release](.github/workflows/release.yml) workflow builds Apple Silicon and Intel `.dmg` files, uploads them with **stable filenames**, and opens a draft GitHub Release. Publish the draft when you have reviewed it.
+4. The [Release](.github/workflows/release.yml) workflow builds the Apple Silicon `.dmg`, uploads it with a **stable filename**, and opens a draft GitHub Release. Publish the draft when you have reviewed it.
 
-After the release is published, these URLs always point at the latest `.dmg`:
+After the release is published, this URL always points at the latest `.dmg`:
 
 ```
-https://github.com/<you>/shipyard/releases/latest/download/Shipyard-macos-arm64.dmg
-https://github.com/<you>/shipyard/releases/latest/download/Shipyard-macos-x64.dmg
+https://github.com/fylzero/shipyard/releases/latest/download/Shipyard-macos-arm64.dmg
 ```
 
 The filenames stay the same from version to version. Only publish one latest release at a time; GitHub’s `/latest/download/` link ignores drafts and prereleases.
@@ -94,6 +103,6 @@ Preferences, repository groups, and window position are stored at:
 
 `~/Library/Application Support/com.shipyard.app/settings.json`
 
-On first launch, Shipyard copies `settings.json`, `groups.json`, and command history from `~/Library/Application Support/com.krakdown.app/` if that folder still exists.
+On first launch, Shipyard copies `settings.json`, `groups.json`, and command history from a previous app data folder if one still exists.
 
 The Settings tab has form controls; open `settings.json` from the top-right icon to edit, export, or import the full file. It stores group names and local folder paths only — never credentials.

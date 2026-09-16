@@ -9,7 +9,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     version: "1.0.0",
     date: "September 15, 2026",
     notes: [
-      "Renamed the app to Shipyard. Existing Krakdown settings and history are copied on first launch.",
+      "GitHub icon in the status bar opens the public repository.",
       "First official release.",
       "Click a commit in the graph to see the files it changed and open a diff.",
       "Stashes view on the repo toolbar to apply, pop, or drop saved changes. Stash working-tree changes from the files pane or that view.",

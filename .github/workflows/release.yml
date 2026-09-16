@@ -10,15 +10,6 @@ jobs:
   release:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - args: "--target aarch64-apple-darwin"
-            asset: "Shipyard-macos-arm64[ext]"
-          - args: "--target x86_64-apple-darwin"
-            asset: "Shipyard-macos-x64[ext]"
-
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
@@ -32,7 +23,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
@@ -54,9 +45,9 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: Shipyard v__VERSION__
-          releaseBody: "Download the .dmg for your Mac. Apple Silicon uses Shipyard-macos-arm64.dmg; Intel uses Shipyard-macos-x64.dmg."
+          releaseBody: "Download Shipyard-macos-arm64.dmg for Apple Silicon Macs."
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: false
-          args: ${{ matrix.args }}
-          releaseAssetNamePattern: ${{ matrix.asset }}
+          args: "--target aarch64-apple-darwin"
+          releaseAssetNamePattern: "Shipyard-macos-arm64[ext]"

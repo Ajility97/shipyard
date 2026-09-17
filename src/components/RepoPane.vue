@@ -76,6 +76,7 @@ const showingDiff = computed(() => Boolean(selectedFile.value || selectedCommitF
 const loading = ref(false);
 const actionBusy = ref(false);
 const actionLabel = ref("");
+const actionBranch = ref("");
 const message = ref("");
 const creatingBranch = ref(false);
 const newBranchName = ref("");
@@ -487,13 +488,14 @@ function markOverviewCurrent(name: string) {
   overview.value = { ...currentOverview, branches: nextBranches };
 }
 
-async function runRepoAction(label: string, work: () => Promise<string>) {
+async function runRepoAction(label: string, work: () => Promise<string>, branch = "") {
   const match = current.value;
   if (!match || actionBusy.value) {
     return;
   }
   actionBusy.value = true;
   actionLabel.value = label;
+  actionBranch.value = branch;
   message.value = "";
   try {
     const result = await work();
@@ -517,6 +519,7 @@ async function runRepoAction(label: string, work: () => Promise<string>) {
   } finally {
     actionBusy.value = false;
     actionLabel.value = "";
+    actionBranch.value = "";
   }
 }
 
@@ -552,17 +555,21 @@ function runPull(branch?: string) {
   if (!match) {
     return;
   }
-  return runRepoAction("Pulling…", async () => {
-    const result = await api.pullRepo(
-      match.group?.id ?? STANDALONE_GROUP_ID,
-      match.repo.id,
-      branch,
-    );
-    if (!result.ok) {
-      throw result.message;
-    }
-    return result.message;
-  });
+  return runRepoAction(
+    "Pulling…",
+    async () => {
+      const result = await api.pullRepo(
+        match.group?.id ?? STANDALONE_GROUP_ID,
+        match.repo.id,
+        branch,
+      );
+      if (!result.ok) {
+        throw result.message;
+      }
+      return result.message;
+    },
+    branch || match.status?.branch || "",
+  );
 }
 
 function pullRepo() {
@@ -596,7 +603,7 @@ function pushRepo() {
   if (!match) {
     return;
   }
-  return runRepoAction("Pushing…", () => api.repoPush(match.repo.path));
+  return runRepoAction("Pushing…", () => api.repoPush(match.repo.path), match.status?.branch ?? "");
 }
 
 async function checkoutBranch(branch: string) {
@@ -612,6 +619,7 @@ async function checkoutBranch(branch: string) {
   patchRepoStatus(match.repo.id, { branch });
   actionBusy.value = true;
   actionLabel.value = "Checking out…";
+  actionBranch.value = branch;
   message.value = "";
   await nextTick();
   try {
@@ -629,6 +637,7 @@ async function checkoutBranch(branch: string) {
   } finally {
     actionBusy.value = false;
     actionLabel.value = "";
+    actionBranch.value = "";
   }
   graphStale.value = true;
   void loadRepo({
@@ -668,8 +677,10 @@ function createBranch() {
     return;
   }
   closeCreateBranch();
-  return runRepoAction("Creating branch…", () =>
-    api.createAndCheckoutBranch(match.repo.path, branch),
+  return runRepoAction(
+    "Creating branch…",
+    () => api.createAndCheckoutBranch(match.repo.path, branch),
+    branch,
   );
 }
 
@@ -1200,6 +1211,7 @@ watch(
         :branches="branches"
         :busy="actionBusy"
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
+        :busy-branch="actionBranch"
         :branches-view="branchesView"
         :stash-view="stashView"
         :stash-count="stashes.length"

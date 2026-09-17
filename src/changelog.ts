@@ -11,6 +11,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     notes: [
       "Commit can amend the last commit. The checkbox fills in that message; a warning appears if it is already on the remote.",
       "Repository rows sit the branch icon closer to the branch name.",
+      "Push and pull progress on an open repo sits after Push, with the branch badge and a spinner.",
       "When a pull leaves merge or rebase conflicts, the files list shows them with Open in the chosen editor, Mark resolved, Continue, and Abort. Repository rows show a conflict count.",
       "General settings pick the editor used on conflicted files, or the system default. The button uses that name.",
       "Git settings edit your global git config: name, email, default branch, pull.rebase, checkout.defaultRemote, and the config file itself.",

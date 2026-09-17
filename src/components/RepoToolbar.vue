@@ -14,6 +14,7 @@ const props = defineProps<{
   branches: string[];
   busy: boolean;
   busyLabel: string;
+  busyBranch?: string;
   branchesView: boolean;
   stashView: boolean;
   stashCount: number;
@@ -51,6 +52,9 @@ const pullTitle = computed(() =>
 const pushTitle = computed(() =>
   currentBranch.value ? `Push to ${currentBranch.value}` : "Push current branch",
 );
+
+const progressLabel = computed(() => props.busyLabel.replace(/…$/, "").trim());
+const progressBranch = computed(() => props.busyBranch?.trim() || "");
 
 function selectBranch(branch: string) {
   close();
@@ -112,7 +116,6 @@ async function toggleBranches() {
     </div>
     <div class="repo-toolbar-bar repo-toolbar-actions">
       <div class="repo-toolbar-work">
-        <span v-if="busyLabel" class="muted tiny">{{ busyLabel }}</span>
         <button class="ghost tiny" type="button" :disabled="busy" @click="emit('create')">
           <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 3v12a3 3 0 0 0 3 3h4.5" />
@@ -150,6 +153,14 @@ async function toggleBranches() {
           </svg>
           Push
         </button>
+        <span v-if="busyLabel" class="action-progress">
+          {{ progressLabel }}
+          <span v-if="progressBranch" class="action-branch-badge" :title="progressBranch">
+            <BranchIcon />
+            <span class="action-branch-name">{{ progressBranch }}</span>
+          </span>
+          <span class="spinner" aria-hidden="true" />
+        </span>
       </div>
       <div class="repo-toolbar-views">
         <button

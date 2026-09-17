@@ -94,12 +94,14 @@ const standaloneIds = computed(() => visibleStandalone.value.map((repo) => repo.
 
 const isEmpty = computed(() => !groups.value.length && !standaloneRepos.value.length);
 
+const hasGroups = computed(() => groups.value.length > 0);
+
 const canExpandAll = computed(
-  () => groups.value.length > 0 && groups.value.some((group) => !group.expanded),
+  () => hasGroups.value && groups.value.some((group) => !group.expanded),
 );
 
 const canCollapseAll = computed(
-  () => groups.value.length > 0 && groups.value.some((group) => group.expanded),
+  () => hasGroups.value && groups.value.some((group) => group.expanded),
 );
 
 const canSortGroups = computed(() => groups.value.length > 1);
@@ -399,6 +401,7 @@ async function removeStandalone(repoId: string) {
           </div>
           <div class="toolbar-end">
             <button
+              v-if="hasGroups"
               class="ghost"
               type="button"
               :disabled="!canExpandAll"
@@ -410,6 +413,7 @@ async function removeStandalone(repoId: string) {
               Expand
             </button>
             <button
+              v-if="hasGroups"
               class="ghost"
               type="button"
               :disabled="!canCollapseAll"

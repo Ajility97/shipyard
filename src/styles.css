@@ -1510,6 +1510,39 @@ button:has(.spinner) {
   color: #ffd6d8;
 }
 
+.conflict-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0.5rem 0.75rem 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #6e1e24;
+  border-radius: 8px;
+  background: #1a1214;
+  color: var(--text);
+}
+
+.conflict-banner-copy {
+  min-width: 0;
+}
+
+.conflict-banner-copy strong {
+  display: block;
+}
+
+.conflict-banner-copy p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+}
+
+.conflict-banner-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.4rem;
+}
+
 .empty-home {
   height: 100%;
   display: grid;
@@ -2067,31 +2100,44 @@ body.reordering-repos .repo-row,
 .sync-count {
   display: inline-flex;
   align-items: center;
-  padding: 0.05rem 0.4rem;
-  border-radius: 4px;
+  gap: 0.28rem;
+  height: 1.35rem;
+  padding: 0 0.5rem;
+  border-radius: 999px;
   background: #2a3140;
+  color: var(--text);
+  font-family: inherit;
   font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  font-weight: 600;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
 
 .sync-count.behind {
   color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, #2a3140);
 }
 
 .sync-count.ahead {
   color: var(--good);
+  background: color-mix(in srgb, var(--good) 14%, #2a3140);
+}
+
+.sync-count.conflicted {
+  color: #fff;
+  background: #6e1e24;
+  font-weight: 500;
 }
 
 .branch {
   display: inline-flex;
   align-items: center;
   min-width: 0;
-  gap: 0.85rem;
+  gap: 0.75rem;
   color: var(--muted);
   font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: inherit;
+  font-weight: 500;
 }
 
 .branch-name,
@@ -2487,6 +2533,11 @@ body.is-resizing-y * {
   border-top: 1px solid var(--border);
 }
 
+.file-section.conflicted {
+  flex: 0 1 auto;
+  max-height: 42%;
+}
+
 .file-section .pane-header {
   flex-shrink: 0;
   min-height: 2.7rem;
@@ -2561,6 +2612,11 @@ body.is-resizing-y * {
 .file-count-badge.staged {
   color: var(--good);
   background: color-mix(in srgb, var(--good) 16%, var(--chip));
+}
+
+.file-count-badge.conflicted {
+  color: #fff;
+  background: #6e1e24;
 }
 
 .pane-header-end {
@@ -2982,6 +3038,42 @@ body.is-resizing-y * {
 .file-item:focus-within .file-item-action {
   opacity: 1;
   pointer-events: auto;
+}
+
+.file-item-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.3rem;
+}
+
+.file-section.conflicted .file-item {
+  flex-wrap: wrap;
+}
+
+.file-section.conflicted .file-item-main {
+  flex: 1 1 100%;
+}
+
+.file-section.conflicted .file-item-actions {
+  width: 100%;
+  justify-content: flex-end;
+  padding: 0 0 0.3rem;
+}
+
+.file-section.conflicted .file-item-action {
+  position: static;
+  transform: none;
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.file-section.conflicted .file-item-action::before {
+  display: none;
+}
+
+.file-item-action.editor {
+  background: color-mix(in srgb, var(--text) 10%, #12151b);
 }
 
 .file-item.active {

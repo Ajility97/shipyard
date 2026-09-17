@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useApp } from "../../composables/useApp";
-import type { DiffMode } from "../../types";
+import { EDITOR_OPTIONS, type DiffMode } from "../../types";
 
 const FILES_PANE_MIN = 220;
 const FILES_PANE_MAX = 800;
@@ -19,6 +19,8 @@ const {
   saveTerminalPaneHeight,
   diffMode,
   saveDiffMode,
+  editor,
+  saveEditor,
   saveRefreshInterval,
   showToast,
 } = useApp();
@@ -35,6 +37,14 @@ async function onRefreshInterval(event: Event) {
 async function onDiffMode(mode: DiffMode) {
   try {
     await saveDiffMode(mode);
+  } catch (err) {
+    showToast(String(err), "error");
+  }
+}
+
+async function onEditor(event: Event) {
+  try {
+    await saveEditor((event.target as HTMLSelectElement).value);
   } catch (err) {
     showToast(String(err), "error");
   }
@@ -131,6 +141,33 @@ async function resetTerminalHeight() {
               Side by side
             </button>
           </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-row-copy">
+            <h3>Editor</h3>
+            <p class="muted tiny">
+              Used when you open a conflicted file. System default follows the macOS file
+              association.
+            </p>
+          </div>
+          <label class="settings-control">
+            <span class="visually-hidden">Editor</span>
+            <select :value="editor" @change="onEditor">
+              <option
+                v-for="option in EDITOR_OPTIONS"
+                :key="option.id"
+                :value="option.id"
+              >
+                {{ option.label }}
+              </option>
+              <option
+                v-if="!EDITOR_OPTIONS.some((option) => option.id === editor)"
+                :value="editor"
+              >
+                {{ editor }}
+              </option>
+            </select>
+          </label>
         </div>
         <div class="settings-row">
           <div class="settings-row-copy">

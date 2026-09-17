@@ -5,7 +5,7 @@ use tauri::{AppHandle, State};
 
 use crate::git;
 use crate::models::{
-    sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
+    sanitize_editor, sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
     DeleteMergedResult, GitConfig, RefreshActiveHours, RepoActionResult, RepoEntry, RepoGroup,
     RepoStatus, StashEntry, WorkingTreeFile,
 };
@@ -290,6 +290,19 @@ pub fn update_diff_mode(
 }
 
 #[tauri::command]
+pub fn update_editor(
+    app: AppHandle,
+    state: State<AppState>,
+    editor: String,
+) -> Result<String, String> {
+    let editor = sanitize_editor(&editor);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.editor = editor.clone();
+    persist_data(&app, &data)?;
+    Ok(editor)
+}
+
+#[tauri::command]
 pub fn update_refresh_active_hours(
     app: AppHandle,
     state: State<AppState>,
@@ -331,6 +344,7 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
     data.files_pane_width = data.files_pane_width.clamp(220, 800);
     data.terminal_pane_height = data.terminal_pane_height.clamp(160, 720);
     data.diff_mode = sanitize_diff_mode(&data.diff_mode)?;
+    data.editor = sanitize_editor(&data.editor);
     data.refresh_active_hours = sanitize_refresh_active_hours(data.refresh_active_hours);
     if let Some(window) = &mut data.window {
         window.width = window.width.max(crate::models::MIN_WINDOW_WIDTH);
@@ -868,6 +882,29 @@ pub async fn commit(
 }
 
 #[tauri::command]
+pub fn abort_operation(state: State<AppState>, path: String) -> Result<String, String> {
+    let git = require_git(&state)?;
+    git::abort_operation(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn continue_operation(state: State<AppState>, path: String) -> Result<String, String> {
+    let git = require_git(&state)?;
+    git::continue_operation(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn open_in_editor(state: State<AppState>, path: String, file: String) -> Result<(), String> {
+    let editor = state
+        .data
+        .lock()
+        .map_err(|err| err.to_string())?
+        .editor
+        .clone();
+    git::open_in_editor(Path::new(&path), &file, &editor)
+}
+
+#[tauri::command]
 pub fn stage_file(state: State<AppState>, path: String, file: String) -> Result<(), String> {
     let git = require_git(&state)?;
     git::stage_file(&git, Path::new(&path), &file)
@@ -1108,6 +1145,8 @@ fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> 
             insertions: status.insertions,
             deletions: status.deletions,
             changed_files: status.changed_files,
+            conflicted_files: status.conflicted_files,
+            operation: status.operation,
         },
         Err(err) => RepoStatus {
             id: repo.id.clone(),
@@ -1120,6 +1159,8 @@ fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> 
             insertions: 0,
             deletions: 0,
             changed_files: 0,
+            conflicted_files: 0,
+            operation: String::new(),
         },
     }
 }

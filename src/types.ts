@@ -17,6 +17,19 @@ export interface RepoGroup {
 
 export type DiffMode = "inline" | "split";
 
+export const EDITOR_OPTIONS: { id: string; label: string; short?: string }[] = [
+  { id: "system", label: "System default" },
+  { id: "cursor", label: "Cursor" },
+  { id: "vscode", label: "Visual Studio Code", short: "VS Code" },
+  { id: "phpstorm", label: "PhpStorm" },
+  { id: "webstorm", label: "WebStorm" },
+  { id: "intellij", label: "IntelliJ IDEA", short: "IntelliJ" },
+  { id: "sublime", label: "Sublime Text", short: "Sublime" },
+  { id: "nova", label: "Nova" },
+  { id: "zed", label: "Zed" },
+  { id: "textedit", label: "TextEdit" },
+];
+
 export type RefreshHoursPreset = "business" | "personal" | "custom";
 
 export interface RefreshActiveHours {
@@ -48,6 +61,7 @@ export interface AppData {
   filesPaneWidth?: number;
   terminalPaneHeight?: number;
   diffMode?: DiffMode;
+  editor?: string;
   refreshActiveHours?: RefreshActiveHours;
   window?: WindowState;
 }
@@ -63,6 +77,8 @@ export interface RepoStatus {
   insertions: number;
   deletions: number;
   changedFiles: number;
+  conflictedFiles: number;
+  operation: string;
 }
 
 export interface RepoActionResult {

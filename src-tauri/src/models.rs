@@ -16,6 +16,33 @@ fn default_diff_mode() -> String {
     "split".into()
 }
 
+fn default_editor() -> String {
+    "system".into()
+}
+
+pub fn sanitize_editor(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 80
+        || value.chars().any(|c| c.is_control() || c == '/' || c == '\\' || c == '\0')
+    {
+        return default_editor();
+    }
+    match value.to_ascii_lowercase().as_str() {
+        "system" | "default" => "system".into(),
+        "cursor" => "cursor".into(),
+        "vscode" | "code" | "visual studio code" => "vscode".into(),
+        "phpstorm" => "phpstorm".into(),
+        "webstorm" => "webstorm".into(),
+        "intellij" | "intellij idea" => "intellij".into(),
+        "sublime" | "sublime text" => "sublime".into(),
+        "nova" => "nova".into(),
+        "zed" => "zed".into(),
+        "textedit" | "text edit" => "textedit".into(),
+        _ => value.to_string(),
+    }
+}
+
 pub const BUSINESS_REFRESH_HOURS_START: &str = "08:00";
 pub const BUSINESS_REFRESH_HOURS_END: &str = "18:00";
 pub const PERSONAL_REFRESH_HOURS_START: &str = "06:00";
@@ -135,6 +162,8 @@ pub struct AppData {
     pub terminal_pane_height: u32,
     #[serde(default = "default_diff_mode")]
     pub diff_mode: String,
+    #[serde(default = "default_editor")]
+    pub editor: String,
     #[serde(default)]
     pub refresh_active_hours: RefreshActiveHours,
     #[serde(default)]
@@ -150,6 +179,7 @@ impl Default for AppData {
             files_pane_width: default_files_pane_width(),
             terminal_pane_height: default_terminal_pane_height(),
             diff_mode: default_diff_mode(),
+            editor: default_editor(),
             refresh_active_hours: RefreshActiveHours::default(),
             window: None,
         }
@@ -184,6 +214,7 @@ mod tests {
             files_pane_width: 320,
             terminal_pane_height: 280,
             diff_mode: "split".into(),
+            editor: "system".into(),
             refresh_active_hours: RefreshActiveHours::default(),
             window: None,
             repos: Vec::new(),
@@ -211,6 +242,16 @@ mod tests {
         assert_eq!(parsed.refresh_active_hours.preset, "business");
         assert_eq!(parsed.refresh_active_hours.start, "08:00");
         assert_eq!(parsed.refresh_active_hours.end, "18:00");
+        assert_eq!(parsed.editor, "system");
+    }
+
+    #[test]
+    fn sanitizes_editor_aliases_and_rejects_paths() {
+        assert_eq!(sanitize_editor("Cursor"), "cursor");
+        assert_eq!(sanitize_editor("visual studio code"), "vscode");
+        assert_eq!(sanitize_editor("BBEdit"), "BBEdit");
+        assert_eq!(sanitize_editor(""), "system");
+        assert_eq!(sanitize_editor("/Applications/Cursor.app"), "system");
     }
 
     #[test]
@@ -278,6 +319,10 @@ pub struct RepoStatus {
     pub insertions: u32,
     pub deletions: u32,
     pub changed_files: u32,
+    #[serde(default)]
+    pub conflicted_files: u32,
+    #[serde(default)]
+    pub operation: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

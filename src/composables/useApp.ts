@@ -32,6 +32,7 @@ const refreshActiveHours = ref<RefreshActiveHours>({ ...DEFAULT_REFRESH_ACTIVE_H
 const filesPaneWidth = ref(320);
 const terminalPaneHeight = ref(280);
 const diffMode = ref<DiffMode>("split");
+const editor = ref("system");
 const windowState = ref<WindowState | null>(null);
 const FILES_PANE_MIN = 220;
 const FILES_PANE_MAX = 800;
@@ -91,6 +92,7 @@ export function useApp() {
     filesPaneWidth.value = clampFilesPaneWidth(data.filesPaneWidth ?? 320);
     terminalPaneHeight.value = clampTerminalPaneHeight(data.terminalPaneHeight ?? 280);
     diffMode.value = data.diffMode === "inline" ? "inline" : "split";
+    editor.value = data.editor?.trim() || "system";
     windowState.value = data.window ?? null;
   }
 
@@ -487,6 +489,10 @@ export function useApp() {
 
   async function saveDiffMode(mode: DiffMode) {
     diffMode.value = await api.updateDiffMode(mode);
+  }
+
+  async function saveEditor(next: string) {
+    editor.value = await api.updateEditor(next);
   }
 
   async function replaceSettings(data: AppData) {
@@ -1180,6 +1186,8 @@ export function useApp() {
     saveTerminalPaneHeight,
     diffMode,
     saveDiffMode,
+    editor,
+    saveEditor,
     windowState,
     saveWindowState,
     replaceSettings,

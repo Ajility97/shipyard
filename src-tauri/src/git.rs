@@ -390,6 +390,8 @@ pub struct LiveStatus {
     pub insertions: u32,
     pub deletions: u32,
     pub changed_files: u32,
+    pub conflicted_files: u32,
+    pub operation: String,
 }
 
 pub fn fetch_remote(git: &Path, repo: &Path) {
@@ -473,6 +475,7 @@ pub fn live_status(git: &Path, repo: &Path) -> Result<LiveStatus, String> {
     let mut behind = 0;
     let mut dirty = false;
     let mut changed_files = 0;
+    let mut conflicted_files = 0;
     let mut saw_ab = false;
 
     for line in output.stdout.lines() {
@@ -490,6 +493,9 @@ pub fn live_status(git: &Path, repo: &Path) -> Result<LiveStatus, String> {
         if !line.is_empty() && !line.starts_with('#') {
             dirty = true;
             changed_files += 1;
+            if line.starts_with("u ") {
+                conflicted_files += 1;
+            }
         }
     }
 
@@ -519,6 +525,8 @@ pub fn live_status(git: &Path, repo: &Path) -> Result<LiveStatus, String> {
         insertions,
         deletions,
         changed_files,
+        conflicted_files,
+        operation: current_operation(repo).unwrap_or_default().to_string(),
     })
 }
 
@@ -609,6 +617,182 @@ pub fn folder_name(path: &str) -> String {
         .map(|name| name.to_string_lossy().into_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| path.to_string())
+}
+
+fn repo_git_dir(repo: &Path) -> Option<PathBuf> {
+    let dot_git = repo.join(".git");
+    if dot_git.is_dir() {
+        return Some(dot_git);
+    }
+    if !dot_git.is_file() {
+        return None;
+    }
+    let contents = fs::read_to_string(&dot_git).ok()?;
+    for line in contents.lines() {
+        let Some(value) = line.strip_prefix("gitdir:") else {
+            continue;
+        };
+        let path = PathBuf::from(value.trim());
+        return Some(if path.is_absolute() {
+            path
+        } else {
+            repo.join(path)
+        });
+    }
+    None
+}
+
+pub fn current_operation(repo: &Path) -> Option<&'static str> {
+    let dir = repo_git_dir(repo)?;
+    if dir.join("rebase-merge").exists() || dir.join("rebase-apply").exists() {
+        Some("rebase")
+    } else if dir.join("MERGE_HEAD").exists() {
+        Some("merge")
+    } else if dir.join("CHERRY_PICK_HEAD").exists() {
+        Some("cherry-pick")
+    } else if dir.join("REVERT_HEAD").exists() {
+        Some("revert")
+    } else {
+        None
+    }
+}
+
+fn unmerged_letters(index: char, worktree: char) -> bool {
+    matches!(
+        (index, worktree),
+        ('U', _) | (_, 'U') | ('A', 'A') | ('D', 'D')
+    )
+}
+
+fn remaining_conflicts(git: &Path, repo: &Path) -> Result<Vec<String>, String> {
+    let output = run_git(git, repo, &["diff", "--name-only", "--diff-filter=U"])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not read remaining conflicts.",
+        ));
+    }
+    Ok(output
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+pub fn abort_operation(git: &Path, repo: &Path) -> Result<String, String> {
+    let operation = current_operation(repo).ok_or_else(|| {
+        "No merge or rebase is in progress.".to_string()
+    })?;
+    let (args, fallback, success): (&[&str], &str, &str) = match operation {
+        "rebase" => (
+            &["rebase", "--abort"],
+            "Failed to abort the rebase.",
+            "Aborted rebase",
+        ),
+        "cherry-pick" => (
+            &["cherry-pick", "--abort"],
+            "Failed to abort the cherry-pick.",
+            "Aborted cherry-pick",
+        ),
+        "revert" => (
+            &["revert", "--abort"],
+            "Failed to abort the revert.",
+            "Aborted revert",
+        ),
+        _ => (
+            &["merge", "--abort"],
+            "Failed to abort the merge.",
+            "Aborted merge",
+        ),
+    };
+    let output = run_git(git, repo, args)?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), fallback));
+    }
+    Ok(or_fallback(&combined_message(&output), success))
+}
+
+pub fn continue_operation(git: &Path, repo: &Path) -> Result<String, String> {
+    let operation = current_operation(repo).ok_or_else(|| {
+        "No merge or rebase is in progress.".to_string()
+    })?;
+    let leftover = remaining_conflicts(git, repo)?;
+    if !leftover.is_empty() {
+        return Err("Resolve remaining conflicts and mark them resolved first.".into());
+    }
+    let (args, fallback, success): (&[&str], &str, &str) = match operation {
+        "rebase" => (
+            &["-c", "core.editor=true", "rebase", "--continue"],
+            "Failed to continue the rebase.",
+            "Continued rebase",
+        ),
+        "cherry-pick" => (
+            &["-c", "core.editor=true", "cherry-pick", "--continue"],
+            "Failed to continue the cherry-pick.",
+            "Continued cherry-pick",
+        ),
+        "revert" => (
+            &["-c", "core.editor=true", "revert", "--continue"],
+            "Failed to continue the revert.",
+            "Continued revert",
+        ),
+        _ => (
+            &["-c", "core.editor=true", "merge", "--continue"],
+            "Failed to continue the merge.",
+            "Continued merge",
+        ),
+    };
+    let output = run_git(git, repo, args)?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), fallback));
+    }
+    Ok(or_fallback(&combined_message(&output), success))
+}
+
+pub fn editor_app_name(editor: &str) -> Option<String> {
+    match editor.trim() {
+        "" | "system" => None,
+        "cursor" => Some("Cursor".into()),
+        "vscode" => Some("Visual Studio Code".into()),
+        "phpstorm" => Some("PhpStorm".into()),
+        "webstorm" => Some("WebStorm".into()),
+        "intellij" => Some("IntelliJ IDEA".into()),
+        "sublime" => Some("Sublime Text".into()),
+        "nova" => Some("Nova".into()),
+        "zed" => Some("Zed".into()),
+        "textedit" => Some("TextEdit".into()),
+        other => Some(other.to_string()),
+    }
+}
+
+pub fn open_in_editor(repo: &Path, file: &str, editor: &str) -> Result<(), String> {
+    require_file_path(file)?;
+    let path = repo.join(file);
+    if !path.exists() {
+        return Err(
+            "That file is not on disk. It may have been deleted in this conflict.".into(),
+        );
+    }
+    let mut command = Command::new("open");
+    if let Some(app) = editor_app_name(editor) {
+        command.arg("-a").arg(&app).arg("--").arg(&path);
+    } else {
+        command.arg(&path);
+    }
+    let status = command
+        .status()
+        .map_err(|err| format!("Could not open the file: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else if let Some(app) = editor_app_name(editor) {
+        Err(format!(
+            "Could not open the file in {app}. Pick another editor in General settings."
+        ))
+    } else {
+        Err("Could not open the file in an editor.".into())
+    }
 }
 
 pub fn ref_exists(git: &Path, repo: &Path, git_ref: &str) -> bool {
@@ -1351,6 +1535,12 @@ pub fn log_graph(git: &Path, repo: &Path) -> Result<Vec<CommitNode>, String> {
 }
 
 pub fn discard_all_changes(git: &Path, repo: &Path) -> Result<(), String> {
+    if current_operation(repo).is_some() {
+        return Err(
+            "Cannot discard all changes while a merge or rebase is in progress. Abort it instead."
+                .into(),
+        );
+    }
     let reset = run_git(git, repo, &["reset", "--hard", "HEAD"])?;
     if !reset.success {
         return Err(or_fallback(
@@ -1722,6 +1912,15 @@ pub fn working_tree(git: &Path, repo: &Path) -> Result<Vec<WorkingTreeFile>, Str
             });
             continue;
         }
+        if unmerged_letters(index, worktree) {
+            files.push(WorkingTreeFile {
+                path,
+                status: "Conflicted".into(),
+                untracked: false,
+                staged: false,
+            });
+            continue;
+        }
         if index != ' ' && index != '?' {
             files.push(WorkingTreeFile {
                 path: path.clone(),
@@ -1798,6 +1997,16 @@ pub fn file_diff(git: &Path, repo: &Path, file: &str, staged: bool) -> Result<St
         let untracked = status.stdout.lines().any(|line| line.starts_with("??"));
         if untracked {
             return untracked_diff(repo, file);
+        }
+        let conflicted = status.stdout.lines().any(|line| {
+            line.len() >= 2
+                && unmerged_letters(line.as_bytes()[0] as char, line.as_bytes()[1] as char)
+        });
+        if conflicted {
+            let combined = run_git(git, repo, &["diff", "--cc", "--", file])?;
+            if combined.success && !combined.stdout.trim().is_empty() {
+                return Ok(combined.stdout);
+            }
         }
     }
 
@@ -2595,5 +2804,97 @@ mod tests {
         let restored = read_git_config_at(&git, Some(&file)).unwrap();
         assert_eq!(restored.user_name, "From File");
         assert!(restored.contents.contains("From File"));
+    }
+
+    #[test]
+    fn maps_editor_setting_to_macos_app_name() {
+        assert_eq!(editor_app_name("system"), None);
+        assert_eq!(editor_app_name("cursor").as_deref(), Some("Cursor"));
+        assert_eq!(
+            editor_app_name("vscode").as_deref(),
+            Some("Visual Studio Code")
+        );
+        assert_eq!(editor_app_name("BBEdit").as_deref(), Some("BBEdit"));
+    }
+
+    fn conflicted_merge_repo() -> PathBuf {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("README.md"), "feature\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "feature change"]);
+        git(&repo, &["checkout", "develop"]);
+        fs::write(repo.join("README.md"), "develop\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "develop change"]);
+        let merge = run_git(&git_bin(), &repo, &["merge", "feature"]).unwrap();
+        assert!(!merge.success);
+        repo
+    }
+
+    #[test]
+    fn reports_merge_conflicts_and_lists_them_once() {
+        let repo = conflicted_merge_repo();
+        let status = live_status(&git_bin(), &repo).unwrap();
+        assert_eq!(status.operation, "merge");
+        assert_eq!(status.conflicted_files, 1);
+        assert!(status.dirty);
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        let conflicted: Vec<_> = files
+            .iter()
+            .filter(|file| file.status == "Conflicted")
+            .collect();
+        assert_eq!(conflicted.len(), 1);
+        assert_eq!(conflicted[0].path, "README.md");
+        assert!(!conflicted[0].staged);
+        assert!(discard_all_changes(&git_bin(), &repo).is_err());
+    }
+
+    #[test]
+    fn marks_conflict_resolved_and_continues_merge() {
+        let repo = conflicted_merge_repo();
+        fs::write(repo.join("README.md"), "resolved\n").unwrap();
+        stage_file(&git_bin(), &repo, "README.md").unwrap();
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(!files.iter().any(|file| file.status == "Conflicted"));
+        assert!(files.iter().any(|file| file.path == "README.md" && file.staged));
+        let message = continue_operation(&git_bin(), &repo).unwrap();
+        assert!(message.to_lowercase().contains("merge") || message.to_lowercase().contains("commit"));
+        let status = live_status(&git_bin(), &repo).unwrap();
+        assert!(status.operation.is_empty());
+        assert_eq!(status.conflicted_files, 0);
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "resolved\n");
+    }
+
+    #[test]
+    fn aborts_merge_and_rebase_conflicts() {
+        let repo = conflicted_merge_repo();
+        let message = abort_operation(&git_bin(), &repo).unwrap();
+        assert!(message.to_lowercase().contains("abort"));
+        let status = live_status(&git_bin(), &repo).unwrap();
+        assert!(status.operation.is_empty());
+        assert_eq!(status.conflicted_files, 0);
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "develop\n");
+
+        git(&repo, &["checkout", "-b", "rebased"]);
+        fs::write(repo.join("README.md"), "rebased\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "rebased change"]);
+        git(&repo, &["checkout", "develop"]);
+        fs::write(repo.join("README.md"), "develop again\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "develop again"]);
+        git(&repo, &["checkout", "rebased"]);
+        let rebase = run_git(&git_bin(), &repo, &["rebase", "develop"]).unwrap();
+        assert!(!rebase.success);
+        let status = live_status(&git_bin(), &repo).unwrap();
+        assert_eq!(status.operation, "rebase");
+        assert!(status.conflicted_files >= 1);
+        let message = abort_operation(&git_bin(), &repo).unwrap();
+        assert!(message.to_lowercase().contains("abort"));
+        let status = live_status(&git_bin(), &repo).unwrap();
+        assert_eq!(status.operation, "");
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "rebased");
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "rebased\n");
     }
 }

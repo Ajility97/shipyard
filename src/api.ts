@@ -116,6 +116,10 @@ export function updateDiffMode(mode: DiffMode) {
   return invoke<DiffMode>("update_diff_mode", { mode });
 }
 
+export function updateEditor(editor: string) {
+  return invoke<string>("update_editor", { editor });
+}
+
 export function updateRefreshActiveHours(hours: RefreshActiveHours) {
   return invoke<RefreshActiveHours>("update_refresh_active_hours", { hours });
 }
@@ -183,6 +187,18 @@ export function discardAllChanges(path: string) {
 
 export function commit(path: string, title: string, description: string) {
   return invoke<string>("commit", { path, title, description });
+}
+
+export function abortOperation(path: string) {
+  return invoke<string>("abort_operation", { path });
+}
+
+export function continueOperation(path: string) {
+  return invoke<string>("continue_operation", { path });
+}
+
+export function openInEditor(path: string, file: string) {
+  return invoke<void>("open_in_editor", { path, file });
 }
 
 export function stageFile(path: string, file: string) {

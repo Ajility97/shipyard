@@ -20,6 +20,7 @@ const props = defineProps<{
   filesOpen: boolean;
   unstagedCount: number;
   stagedCount: number;
+  conflictedCount?: number;
   terminalOpen: boolean;
 }>();
 
@@ -198,6 +199,7 @@ async function toggleBranches() {
           :open="filesOpen"
           :unstaged="unstagedCount"
           :staged="stagedCount"
+          :conflicted="conflictedCount"
           @click="emit('files')"
         />
         <slot />

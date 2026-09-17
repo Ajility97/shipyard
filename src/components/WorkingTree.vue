@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { WorkingTreeFile } from "../types";
+import { useApp } from "../composables/useApp";
+import { isConflicted, openInEditorLabel } from "../gitOperation";
 import FileStatusIcon from "./FileStatusIcon.vue";
 import PathLabel from "./PathLabel.vue";
 
@@ -8,7 +10,11 @@ const props = defineProps<{
   files: WorkingTreeFile[];
   selectedPath: string;
   selectedStaged: boolean;
+  operation?: string;
 }>();
+
+const { editor } = useApp();
+const openEditorLabel = computed(() => openInEditorLabel(editor.value));
 
 const emit = defineEmits<{
   select: [file: WorkingTreeFile];
@@ -19,10 +25,20 @@ const emit = defineEmits<{
   discard: [];
   stash: [];
   commit: [];
+  openEditor: [file: WorkingTreeFile];
 }>();
 
-const unstaged = computed(() => props.files.filter((file) => !file.staged));
-const staged = computed(() => props.files.filter((file) => file.staged));
+const conflicted = computed(() => props.files.filter(isConflicted));
+const unstaged = computed(() =>
+  props.files.filter((file) => !file.staged && !isConflicted(file)),
+);
+const staged = computed(() =>
+  props.files.filter((file) => file.staged && !isConflicted(file)),
+);
+const resolving = computed(() => Boolean(props.operation || conflicted.value.length));
+const canCommit = computed(
+  () => staged.value.length > 0 && (!props.operation || props.operation === "merge"),
+);
 
 function isSelected(file: WorkingTreeFile) {
   return props.selectedPath === file.path && props.selectedStaged === file.staged;
@@ -31,6 +47,43 @@ function isSelected(file: WorkingTreeFile) {
 
 <template>
   <div class="file-pane">
+    <section v-if="conflicted.length" class="file-section conflicted">
+      <div class="pane-header">
+        <div class="file-heading">
+          <strong>Conflicted files</strong>
+          <span class="file-count-badge conflicted">{{ conflicted.length }}</span>
+        </div>
+      </div>
+      <div class="file-list">
+        <div
+          v-for="file in conflicted"
+          :key="`conflicted:${file.path}`"
+          class="file-item"
+          :class="{ active: isSelected(file) }"
+        >
+          <button class="file-item-main" type="button" @click="emit('select', file)">
+            <FileStatusIcon :status="file.status" />
+            <PathLabel class="file-item-path" :path="file.path" />
+          </button>
+          <div class="file-item-actions">
+            <button
+              class="tiny file-item-action editor"
+              type="button"
+              @click.stop="emit('openEditor', file)"
+            >
+              {{ openEditorLabel }}
+            </button>
+            <button
+              class="tiny file-item-action stage"
+              type="button"
+              @click.stop="emit('stage', file)"
+            >
+              Mark resolved
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
     <section class="file-section">
       <div class="pane-header">
         <div class="file-heading">
@@ -121,7 +174,8 @@ function isSelected(file: WorkingTreeFile) {
       <button
         class="ghost tiny danger"
         type="button"
-        :disabled="!files.length"
+        :disabled="!files.length || resolving"
+        :title="resolving ? 'Abort the merge or rebase instead of discarding everything.' : undefined"
         @click="emit('discard')"
       >
         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -134,7 +188,8 @@ function isSelected(file: WorkingTreeFile) {
       <button
         class="ghost tiny"
         type="button"
-        :disabled="!files.length"
+        :disabled="!files.length || resolving"
+        :title="resolving ? 'Finish or abort the merge or rebase before stashing.' : undefined"
         @click="emit('stash')"
       >
         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -147,7 +202,7 @@ function isSelected(file: WorkingTreeFile) {
       <button
         class="ghost tiny commit"
         type="button"
-        :disabled="!staged.length"
+        :disabled="!canCommit"
         @click="emit('commit')"
       >
         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">

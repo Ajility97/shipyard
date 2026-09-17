@@ -23,6 +23,14 @@ import type {
   WorkingTreeFile,
 } from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
+import {
+  abortLabel,
+  continueLabel,
+  isConflicted,
+  openInEditorLabel,
+  operationNoun,
+  operationTitle,
+} from "../gitOperation";
 
 const props = defineProps<{
   repoId: string;
@@ -39,6 +47,7 @@ const {
   terminalPaneHeight,
   diffMode,
   saveDiffMode,
+  editor,
   refreshStatus,
   refreshRepoStatus,
   patchRepoStatus,
@@ -96,8 +105,29 @@ const commitTitleLeft = computed(() => Math.max(0, COMMIT_TITLE_MAX - commitTitl
 const canCommit = computed(
   () => Boolean(commitTitle.value.trim()) && commitTitleLength.value <= COMMIT_TITLE_MAX,
 );
-const unstagedCount = computed(() => files.value.filter((file) => !file.staged).length);
-const stagedCount = computed(() => files.value.filter((file) => file.staged).length);
+const conflictedFiles = computed(() => files.value.filter(isConflicted));
+const unstagedCount = computed(
+  () => files.value.filter((file) => !file.staged && !isConflicted(file)).length,
+);
+const stagedCount = computed(
+  () => files.value.filter((file) => file.staged && !isConflicted(file)).length,
+);
+const conflictedCount = computed(() => conflictedFiles.value.length);
+const operation = computed(() => current.value?.status?.operation ?? "");
+const conflictActive = computed(() => Boolean(operation.value || conflictedCount.value));
+const openEditorLabel = computed(() => openInEditorLabel(editor.value));
+const conflictHeading = computed(() => operationTitle(operation.value));
+const conflictCopy = computed(() => {
+  const count = conflictedCount.value;
+  if (count > 0) {
+    const filesLabel = count === 1 ? "1 file still has conflicts" : `${count} files still have conflicts`;
+    return `${filesLabel}. Open each file, fix the markers, then mark it resolved.`;
+  }
+  if (operation.value) {
+    return `All conflicted files are marked resolved. Continue the ${operationNoun(operation.value)} or abort it.`;
+  }
+  return "";
+});
 
 const current = computed(() => findRepo(props.repoId));
 const resizing = ref(false);
@@ -237,6 +267,10 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
       graphStale.value = false;
     }
     files.value = nextFiles;
+    if (nextFiles.some(isConflicted)) {
+      filesCollapsed.value = false;
+      void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+    }
     branches.value = nextBranches;
     stashes.value = nextStashes;
     if (wantOverview) {
@@ -465,6 +499,16 @@ async function runRepoAction(label: string, work: () => Promise<string>) {
     const text = String(err);
     message.value = text;
     showToast(text, "error");
+    await loadRepo({ silent: true });
+    await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+    if (conflictActive.value) {
+      filesCollapsed.value = false;
+      message.value = "";
+      const first = conflictedFiles.value[0];
+      if (first) {
+        await selectFile(first);
+      }
+    }
   } finally {
     actionBusy.value = false;
     actionLabel.value = "";
@@ -495,7 +539,7 @@ const pullRemoteLabel = computed(() => {
 const pullHint = computed(() =>
   pullSource.value === "current"
     ? "Use this to pick up others’ commits on the same branch."
-    : "Brings that remote branch into this checkout. If Git hits conflicts, resolve them in your local files.",
+    : "Brings that remote branch into this checkout. Conflicts appear in the files list so you can open them, mark them resolved, or abort.",
 );
 
 function runPull(branch?: string) {
@@ -979,6 +1023,50 @@ async function deleteMerged() {
   }
 }
 
+async function openInEditor(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await api.openInEditor(match.repo.path, file.path);
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
+async function abortCurrentOperation() {
+  const match = current.value;
+  if (!match || !operation.value || actionBusy.value) {
+    return;
+  }
+  const noun = operationNoun(operation.value);
+  const ok = await confirm(
+    `Abort this ${noun}? The repository returns to the state before the ${noun} started.`,
+    {
+      title: abortLabel(operation.value),
+      kind: "warning",
+      okLabel: abortLabel(operation.value),
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  closeDiff();
+  return runRepoAction("Aborting…", () => api.abortOperation(match.repo.path));
+}
+
+async function continueCurrentOperation() {
+  const match = current.value;
+  if (!match || !operation.value || actionBusy.value || conflictedCount.value) {
+    return;
+  }
+  closeDiff();
+  return runRepoAction("Continuing…", () => api.continueOperation(match.repo.path));
+}
+
 async function discardAll() {
   const match = current.value;
   if (!match || !files.value.length) {
@@ -1055,6 +1143,7 @@ watch(
         :files-open="!filesCollapsed"
         :unstaged-count="unstagedCount"
         :staged-count="stagedCount"
+        :conflicted-count="conflictedCount"
         :terminal-open="terminalOpen"
         @pull="pullRepo"
         @pull-options="openPullOptions"
@@ -1067,6 +1156,33 @@ watch(
         @refresh-branches="refreshBranches"
         @terminal="toggleTerminal"
       />
+      <div v-if="conflictActive" class="conflict-banner">
+        <div class="conflict-banner-copy">
+          <strong>{{ conflictHeading }}</strong>
+          <p class="tiny">{{ conflictCopy }}</p>
+        </div>
+        <div class="conflict-banner-actions">
+          <button
+            class="ghost tiny danger"
+            type="button"
+            :disabled="actionBusy || !operation"
+            @click="abortCurrentOperation"
+          >
+            {{ abortLabel(operation) }}
+          </button>
+          <button
+            class="ghost tiny commit"
+            type="button"
+            :disabled="actionBusy || !operation || conflictedCount > 0"
+            @click="continueCurrentOperation"
+          >
+            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+            {{ continueLabel(operation) }}
+          </button>
+        </div>
+      </div>
       <p v-if="message" class="banner">{{ message }}</p>
       <div class="graph-body" :class="{ 'with-terminal': terminalOpen }">
         <BranchList
@@ -1112,13 +1228,32 @@ watch(
           />
           <span class="muted tiny">{{
             selectedFile
-              ? selectedFile.staged
-                ? "Staged"
-                : "Unstaged"
+              ? isConflicted(selectedFile)
+                ? "Conflicted"
+                : selectedFile.staged
+                  ? "Staged"
+                  : "Unstaged"
               : selectedCommitFile
                 ? `${selectedCommitFile.status} · ${selectedCommit?.hash.slice(0, 7)}`
                 : ""
           }}</span>
+          <template v-if="selectedFile && isConflicted(selectedFile)">
+            <button class="ghost tiny" type="button" @click="openInEditor(selectedFile)">
+              {{ openEditorLabel }}
+            </button>
+            <button class="ghost tiny stage" type="button" @click="stageFile(selectedFile)">
+              Mark resolved
+            </button>
+          </template>
+          <button
+            v-if="operation"
+            class="ghost tiny danger"
+            type="button"
+            :disabled="actionBusy"
+            @click="abortCurrentOperation"
+          >
+            {{ abortLabel(operation) }}
+          </button>
         </div>
         <div class="pane-header-end">
           <div class="segmented" role="group" aria-label="Diff layout">
@@ -1143,6 +1278,7 @@ watch(
             :open="!filesCollapsed"
             :unstaged="unstagedCount"
             :staged="stagedCount"
+            :conflicted="conflictedCount"
             @click="filesCollapsed = !filesCollapsed"
           />
         </div>
@@ -1172,6 +1308,7 @@ watch(
         :files="files"
         :selected-path="selectedFile?.path ?? ''"
         :selected-staged="selectedFile?.staged ?? false"
+        :operation="operation"
         @select="selectFile"
         @stage="stageFile"
         @unstage="unstageFile"
@@ -1180,6 +1317,7 @@ watch(
         @discard="discardAll"
         @stash="openStash"
         @commit="openCommit"
+        @open-editor="openInEditor"
       />
     </aside>
   </div>

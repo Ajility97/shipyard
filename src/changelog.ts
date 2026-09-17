@@ -9,6 +9,8 @@ export const CHANGELOG: ChangelogRelease[] = [
     version: "1.0.4",
     date: "September 16, 2026",
     notes: [
+      "When a pull leaves merge or rebase conflicts, the files list shows them with Open in the chosen editor, Mark resolved, Continue, and Abort. Repository rows show a conflict count.",
+      "General settings pick the editor used on conflicted files, or the system default. The button uses that name.",
       "Git settings edit your global git config: name, email, default branch, pull.rebase, checkout.defaultRemote, and the config file itself.",
       "The repository terminal pane can be resized vertically. The height is saved in settings.",
       "Reset buttons restore the default files pane width and terminal height in General settings.",

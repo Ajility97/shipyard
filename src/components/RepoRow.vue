@@ -3,6 +3,7 @@ import { computed, nextTick, ref } from "vue";
 import { contrastingText, DEFAULT_HEADER_COLOR } from "../color";
 import { rangeIds } from "../selection";
 import { useApp } from "../composables/useApp";
+import { conflictCountLabel } from "../gitOperation";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
 import { useTabs } from "../composables/useTabs";
 import type { RepoEntry } from "../types";
@@ -198,6 +199,15 @@ async function saveEdit() {
           class="sync-count ahead"
           :title="`${statuses[repo.id]?.ahead} commits ahead`"
         >↑{{ statuses[repo.id]?.ahead }}</span>
+      </span>
+      <span
+        v-if="(statuses[repo.id]?.conflictedFiles ?? 0) > 0"
+        class="sync-count conflicted"
+        :title="`${conflictCountLabel(statuses[repo.id]?.conflictedFiles ?? 0)}${
+          statuses[repo.id]?.operation ? ` · ${statuses[repo.id]?.operation} in progress` : ''
+        }`"
+      >
+        {{ conflictCountLabel(statuses[repo.id]?.conflictedFiles ?? 0) }}
       </span>
       <span
         v-if="(statuses[repo.id]?.changedFiles ?? 0) > 0"

@@ -17,6 +17,7 @@ const {
   refreshIntervalSeconds,
   refreshActiveHours,
   diffMode,
+  editor,
   windowState,
   replaceSettings,
   showToast,
@@ -185,7 +186,7 @@ watch([activeId, settingsSection], ([id, section]) => {
   }
 });
 
-watch([groups, standaloneRepos, refreshIntervalSeconds, refreshActiveHours, diffMode, windowState], () => {
+watch([groups, standaloneRepos, refreshIntervalSeconds, refreshActiveHours, diffMode, editor, windowState], () => {
   void syncJsonIfClean();
 });
 

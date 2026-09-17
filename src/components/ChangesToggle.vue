@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { conflictCountLabel } from "../gitOperation";
 
 const props = defineProps<{
   open: boolean;
   unstaged: number;
   staged: number;
+  conflicted?: number;
 }>();
 
 const emit = defineEmits<{
@@ -13,6 +15,9 @@ const emit = defineEmits<{
 
 const title = computed(() => {
   const parts = [];
+  if (props.conflicted) {
+    parts.push(conflictCountLabel(props.conflicted));
+  }
   if (props.unstaged) {
     parts.push(`${props.unstaged} unstaged`);
   }
@@ -38,6 +43,11 @@ const title = computed(() => {
       <path d="M14.25 4.5v15" />
     </svg>
     Changes
+    <span
+      v-if="conflicted"
+      class="file-count-badge conflicted"
+      :title="conflictCountLabel(conflicted)"
+    >{{ conflicted }}</span>
     <span v-if="unstaged" class="file-count-badge unstaged" title="Unstaged">{{ unstaged }}</span>
     <span v-if="staged" class="file-count-badge staged" title="Staged">{{ staged }}</span>
   </button>

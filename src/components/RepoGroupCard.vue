@@ -414,7 +414,7 @@ const pullDisplayBranch = computed(() => {
 const pullHint = computed(() =>
   pullSource.value === "current"
     ? "Use this to pick up others’ commits on the same branch."
-    : "Brings that remote branch into this checkout. If Git hits conflicts, resolve them in your local files.",
+    : "Brings that remote branch into this checkout. Conflicts appear in the files list so you can open them, mark them resolved, or abort.",
 );
 
 const checkoutLabel = computed(() => {

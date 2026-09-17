@@ -13,7 +13,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "Repository rows sit the branch icon closer to the branch name.",
       "Push and pull progress on an open repo sits after Push, with the branch badge and a spinner.",
       "When a pull leaves merge or rebase conflicts, the files list shows them with Open in the chosen editor, Mark resolved, Continue, and Abort. Repository rows show a conflict count.",
-      "General settings pick the editor used on conflicted files, or the system default. The button uses that name.",
+      "General settings pick the editor used on conflicted files, or the system default. The button uses that name. The editor list is shorter and sorted A–Z after System default.",
       "Git settings edit your global git config: name, email, default branch, pull.rebase, checkout.defaultRemote, and the config file itself.",
       "The repository terminal pane can be resized vertically. The height is saved in settings.",
       "Reset buttons restore the default files pane width and terminal height in General settings.",

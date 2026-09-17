@@ -11,6 +11,8 @@ export const CHANGELOG: ChangelogRelease[] = [
     notes: [
       "The repository terminal pane can be resized vertically. The height is saved in settings.",
       "Reset buttons restore the default files pane width and terminal height in General settings.",
+      "File list paths stay left-aligned; only the directory portion truncates when space is tight.",
+      "Expand and Collapse in the repositories toolbar are hidden until at least one group exists.",
     ],
   },
   {

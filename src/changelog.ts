@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.0.5",
+    date: "September 17, 2026",
+    notes: [
+      "Pull toasts stay short. Git output opens in the scrollable command window only when there is more than a one-line result; Already up to date stays toast-only.",
+    ],
+  },
+  {
     version: "1.0.4",
     date: "September 16, 2026",
     notes: [

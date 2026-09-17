@@ -273,8 +273,13 @@ button.toast.error:hover:not(:disabled) {
 }
 
 .toast-copy {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   text-align: left;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .modal-layer {
@@ -509,21 +514,37 @@ button.toast.error:hover:not(:disabled) {
   line-height: 1.55;
 }
 
+.output-entry {
+  margin-bottom: 0.85rem;
+}
+
+.output-entry:last-child {
+  margin-bottom: 0;
+}
+
 .output-line {
   color: #9aa6b8;
   white-space: pre-wrap;
-  margin-bottom: 0.55rem;
 }
 
-.output-line.ok .output-name {
+.output-detail {
+  margin: 0.35rem 0 0;
+  font: inherit;
+  color: #c6cdd8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.output-entry.ok .output-name {
   color: #7ee0c7;
 }
 
-.output-line.bad {
+.output-entry.bad,
+.output-entry.bad .output-detail {
   color: #ffb4b8;
 }
 
-.output-line.bad .output-name {
+.output-entry.bad .output-name {
   color: #ff8b93;
 }
 

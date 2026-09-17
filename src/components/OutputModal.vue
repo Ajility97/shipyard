@@ -18,6 +18,10 @@ function folderName(path: string) {
   return parts[parts.length - 1] ?? path;
 }
 
+function isDetailed(message: string) {
+  return message.includes("\n");
+}
+
 function onKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") {
     event.stopImmediatePropagation();
@@ -45,18 +49,23 @@ onUnmounted(() => {
             <span />
           </div>
           <div class="output-title">{{ title }}</div>
-          <span class="output-count">{{ failed }} failed</span>
+          <span v-if="failed" class="output-count">{{ failed }} failed</span>
         </div>
         <div class="output-body">
           <div
             v-for="result in results"
             :key="result.path"
-            class="output-line"
+            class="output-entry"
             :class="result.ok ? 'ok' : 'bad'"
           >
-            <span class="output-name">{{ folderName(result.path) }}</span>
-            <span class="output-sep"> — </span>
-            <span class="output-message">{{ result.message }}</span>
+            <div class="output-line">
+              <span class="output-name">{{ folderName(result.path) }}</span>
+              <template v-if="!isDetailed(result.message)">
+                <span class="output-sep"> — </span>
+                <span class="output-message">{{ result.message }}</span>
+              </template>
+            </div>
+            <pre v-if="isDetailed(result.message)" class="output-detail">{{ result.message }}</pre>
           </div>
         </div>
         <div class="output-actions">

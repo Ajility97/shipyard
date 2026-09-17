@@ -181,6 +181,10 @@ export function useApp() {
     }
   }
 
+  function hasDetailedOutput(outcomes: RepoActionResult[]) {
+    return outcomes.some((item) => item.message.includes("\n") || item.message.length > 96);
+  }
+
   function presentActionResults(
     title: string,
     outcomes: RepoActionResult[],
@@ -188,8 +192,10 @@ export function useApp() {
   ) {
     actionOutput.value = { title, results: outcomes };
     const failed = outcomes.filter((item) => !item.ok).length;
-    if (failed) {
+    if (failed || hasDetailedOutput(outcomes)) {
       actionOutputOpen.value = true;
+    }
+    if (failed) {
       showToast(messages.error, "error");
       return;
     }
@@ -781,7 +787,15 @@ export function useApp() {
     try {
       const result = await api.pullRepo(STANDALONE_GROUP_ID, repoId, branch);
       applyStatus(await api.refreshRepo(STANDALONE_GROUP_ID, repoId, false));
-      showToast(result.message, result.ok ? "success" : "error");
+      const name = repoDisplayName(repoId, repo.path);
+      presentActionResults(
+        branch ? `Pull ${branch}` : "Pull",
+        [result],
+        {
+          success: branch ? `Pulled ${branch} into ${name}.` : `Pulled ${name}.`,
+          error: `Pull failed for ${name}.`,
+        },
+      );
     } catch (err) {
       const text = String(err);
       error.value = text;
@@ -861,15 +875,19 @@ export function useApp() {
         const failed = outcomes.filter((item) => !item.ok).length;
         const repos =
           group.repos.length === 1 ? "1 repository" : `${group.repos.length} repositories`;
-        presentActionResults(branch ? `Pull ${branch} — ${group.name}` : `Pull — ${group.name}`, outcomes, {
-          success: branch
-            ? `Pulled ${branch} into ${group.name} (${repos}).`
-            : `Pulled ${group.name} (${repos}).`,
-          error:
-            failed === 1
-              ? `Pull failed for 1 repository in ${group.name}.`
-              : `Pull failed for ${failed} repositories in ${group.name}.`,
-        });
+        presentActionResults(
+          branch ? `Pull ${branch} — ${group.name}` : `Pull — ${group.name}`,
+          outcomes,
+          {
+            success: branch
+              ? `Pulled ${branch} into ${group.name} (${repos}).`
+              : `Pulled ${group.name} (${repos}).`,
+            error:
+              failed === 1
+                ? `Pull failed for 1 repository in ${group.name}.`
+                : `Pull failed for ${failed} repositories in ${group.name}.`,
+          },
+        );
       }
     } finally {
       const next = { ...busy.value };
@@ -995,13 +1013,17 @@ export function useApp() {
       );
       if (outcomes.length && !pullAllCancelled.value) {
         const failed = outcomes.filter((item) => !item.ok).length;
-        presentActionResults("Pull", outcomes, {
-          success: pullDoneMessage(pullAllTotal.value),
-          error:
-            failed === 1
-              ? "Pull failed for 1 repository."
-              : `Pull failed for ${failed} repositories.`,
-        });
+        presentActionResults(
+          "Pull",
+          outcomes,
+          {
+            success: pullDoneMessage(pullAllTotal.value),
+            error:
+              failed === 1
+                ? "Pull failed for 1 repository."
+                : `Pull failed for ${failed} repositories.`,
+          },
+        );
       }
     } finally {
       pullingAll.value = false;
@@ -1203,6 +1225,7 @@ export function useApp() {
     actionOutputOpen,
     showToast,
     dismissToast,
+    presentActionResults,
     dismissOutput,
     openOutput,
     cancelRefresh,

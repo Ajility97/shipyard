@@ -40,7 +40,7 @@ When the build finishes:
 | Artifact | Path |
 | --- | --- |
 | App bundle | `src-tauri/target/release/bundle/macos/Shipyard.app` |
-| Disk image | `src-tauri/target/release/bundle/dmg/Shipyard_1.0.4_aarch64.dmg` |
+| Disk image | `src-tauri/target/release/bundle/dmg/Shipyard_1.0.5_aarch64.dmg` |
 
 To run it locally, open the `.app` (or drag it to `/Applications`). macOS Gatekeeper may warn that an unsigned local build is unidentified: right-click the app, choose **Open**, then confirm.
 

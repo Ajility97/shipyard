@@ -53,6 +53,7 @@ const {
   refreshRepoStatus,
   patchRepoStatus,
   showToast,
+  presentActionResults,
 } = useApp();
 
 const commits = ref<CommitNode[]>([]);
@@ -550,26 +551,59 @@ const pullHint = computed(() =>
     : "Brings that remote branch into this checkout. Conflicts appear in the files list so you can open them, mark them resolved, or abort.",
 );
 
-function runPull(branch?: string) {
+async function runPull(branch?: string) {
   const match = current.value;
-  if (!match) {
+  if (!match || actionBusy.value) {
     return;
   }
-  return runRepoAction(
-    "Pulling…",
-    async () => {
-      const result = await api.pullRepo(
-        match.group?.id ?? STANDALONE_GROUP_ID,
-        match.repo.id,
-        branch,
-      );
-      if (!result.ok) {
-        throw result.message;
+  actionBusy.value = true;
+  actionLabel.value = "Pulling…";
+  actionBranch.value = branch || match.status?.branch || "";
+  message.value = "";
+  const groupId = match.group?.id ?? STANDALONE_GROUP_ID;
+  const name =
+    match.status?.name ??
+    match.repo.path.split("/").filter(Boolean).pop() ??
+    match.repo.path;
+  try {
+    const result = await api.pullRepo(groupId, match.repo.id, branch);
+    presentActionResults(
+      branch ? `Pull ${branch}` : "Pull",
+      [result],
+      {
+        success: branch ? `Pulled ${branch} into ${name}.` : `Pulled ${name}.`,
+        error: `Pull failed for ${name}.`,
+      },
+    );
+    await loadRepo({ silent: !result.ok });
+    await refreshRepoStatus(groupId, match.repo.id);
+    if (!result.ok && conflictActive.value) {
+      filesCollapsed.value = false;
+      message.value = "";
+      const first = conflictedFiles.value[0];
+      if (first) {
+        await selectFile(first);
       }
-      return result.message;
-    },
-    branch || match.status?.branch || "",
-  );
+    }
+  } catch (err) {
+    const text = String(err);
+    message.value = text;
+    showToast(text, "error");
+    await loadRepo({ silent: true });
+    await refreshRepoStatus(groupId, match.repo.id);
+    if (conflictActive.value) {
+      filesCollapsed.value = false;
+      message.value = "";
+      const first = conflictedFiles.value[0];
+      if (first) {
+        await selectFile(first);
+      }
+    }
+  } finally {
+    actionBusy.value = false;
+    actionLabel.value = "";
+    actionBranch.value = "";
+  }
 }
 
 function pullRepo() {

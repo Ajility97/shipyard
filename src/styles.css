@@ -2817,7 +2817,7 @@ body.is-resizing-y * {
 }
 
 .path-dir {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2830,10 +2830,7 @@ body.is-resizing-y * {
 }
 
 .path-file {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 0 0 auto;
 }
 
 .file-status-icon {

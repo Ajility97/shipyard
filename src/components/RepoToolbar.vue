@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import BranchIcon from "./BranchIcon.vue";
 import ChangesToggle from "./ChangesToggle.vue";
+import FileHistoryToggle from "./FileHistoryToggle.vue";
 import SplitAction from "./SplitAction.vue";
 import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
@@ -19,6 +20,7 @@ const props = defineProps<{
   stashView: boolean;
   stashCount: number;
   filesOpen: boolean;
+  historyOpen: boolean;
   unstagedCount: number;
   stagedCount: number;
   conflictedCount?: number;
@@ -34,6 +36,7 @@ const emit = defineEmits<{
   branches: [];
   stash: [];
   files: [];
+  history: [];
   refreshBranches: [];
   terminal: [];
 }>();
@@ -206,6 +209,7 @@ async function toggleBranches() {
           Stashes
           <span v-if="stashCount" class="file-count-badge">{{ stashCount }}</span>
         </button>
+        <FileHistoryToggle :open="historyOpen" @click="emit('history')" />
         <ChangesToggle
           :open="filesOpen"
           :unstaged="unstagedCount"

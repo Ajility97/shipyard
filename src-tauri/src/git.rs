@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use crate::command_log;
 use crate::models::{
     BranchOverview, CommitFile, CommitNode, DeleteMergedResult, GitConfig, LastCommit, LocalBranch,
-    StashEntry, WorkingTreeFile,
+    RepoFile, StashEntry, WorkingTreeFile,
 };
 
 pub struct GitOutput {
@@ -1507,8 +1507,11 @@ pub fn log_graph(git: &Path, repo: &Path) -> Result<Vec<CommitNode>, String> {
         ));
     }
 
-    let commits = output
-        .stdout
+    Ok(parse_log_commits(&output.stdout))
+}
+
+fn parse_log_commits(stdout: &str) -> Vec<CommitNode> {
+    stdout
         .lines()
         .filter(|line| !line.trim().is_empty())
         .filter_map(|line| {
@@ -1529,9 +1532,30 @@ pub fn log_graph(git: &Path, repo: &Path) -> Result<Vec<CommitNode>, String> {
                 refs: parts.next().unwrap_or_default().to_string(),
             })
         })
-        .collect();
+        .collect()
+}
 
-    Ok(commits)
+pub fn file_log(git: &Path, repo: &Path, file: &str) -> Result<Vec<CommitNode>, String> {
+    require_file_path(file)?;
+    let output = run_git(
+        git,
+        repo,
+        &[
+            "log",
+            "--follow",
+            "--max-count=400",
+            "--pretty=format:%H%x1f%P%x1f%s%x1f%an%x1f%aI%x1f%D",
+            "--",
+            file,
+        ],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not read the file history.",
+        ));
+    }
+    Ok(parse_log_commits(&output.stdout))
 }
 
 pub fn discard_all_changes(git: &Path, repo: &Path) -> Result<(), String> {
@@ -1955,6 +1979,85 @@ pub fn commit_file_diff(git: &Path, repo: &Path, hash: &str, file: &str) -> Resu
     Ok(output.stdout)
 }
 
+fn ls_files_z(git: &Path, repo: &Path, args: &[&str]) -> Result<Vec<String>, String> {
+    let output = run_git(git, repo, args)?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not list repository files.",
+        ));
+    }
+    Ok(output
+        .stdout
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(ToOwned::to_owned)
+        .collect())
+}
+
+pub fn repo_files(git: &Path, repo: &Path) -> Result<Vec<RepoFile>, String> {
+    let visible = ls_files_z(
+        git,
+        repo,
+        &[
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ],
+    )?;
+    let tracked_ignored = ls_files_z(
+        git,
+        repo,
+        &["ls-files", "--cached", "--ignored", "--exclude-standard", "-z"],
+    )?;
+    let other_ignored = ls_files_z(
+        git,
+        repo,
+        &[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+            "-z",
+        ],
+    )?;
+
+    let tracked_ignored: HashSet<String> = tracked_ignored.into_iter().collect();
+    let mut by_path = HashMap::new();
+
+    for path in visible {
+        let ignored = tracked_ignored.contains(&path);
+        by_path.insert(
+            path.clone(),
+            RepoFile {
+                path,
+                ignored,
+                directory: false,
+            },
+        );
+    }
+
+    for raw in other_ignored {
+        let directory = raw.ends_with('/');
+        let path = raw.trim_end_matches('/').to_string();
+        if path.is_empty() {
+            continue;
+        }
+        by_path.entry(path.clone()).or_insert(RepoFile {
+            path,
+            ignored: true,
+            directory,
+        });
+    }
+
+    let mut files: Vec<RepoFile> = by_path.into_values().collect();
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(files)
+}
+
 pub fn working_tree(git: &Path, repo: &Path) -> Result<Vec<WorkingTreeFile>, String> {
     let output = run_git(git, repo, &["status", "--porcelain=v1", "-uall"])?;
     if !output.success {
@@ -2200,6 +2303,44 @@ mod tests {
         let files = working_tree(&git_bin(), &repo).unwrap();
         assert!(files.iter().any(|file| file.path == "README.md" && !file.staged));
         assert!(!files.iter().any(|file| file.staged));
+    }
+
+    #[test]
+    fn lists_tracked_and_untracked_repo_files() {
+        let repo = init_repo();
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(repo.join("src/app.ts"), "export {}\n").unwrap();
+        git(&repo, &["add", "src/app.ts"]);
+        git(&repo, &["commit", "-m", "add app"]);
+        fs::write(repo.join("src/new.ts"), "export {}\n").unwrap();
+        fs::write(repo.join("tracked.ignore"), "tracked then ignored\n").unwrap();
+        git(&repo, &["add", "tracked.ignore"]);
+        git(&repo, &["commit", "-m", "track ignored later"]);
+        fs::write(repo.join("ignored.txt"), "nope\n").unwrap();
+        fs::create_dir_all(repo.join("build")).unwrap();
+        fs::write(repo.join("build/out.js"), "ignored dir\n").unwrap();
+        fs::write(repo.join(".gitignore"), "ignored.txt\nbuild/\ntracked.ignore\n").unwrap();
+        let files = repo_files(&git_bin(), &repo).unwrap();
+        assert!(files.iter().any(|file| file.path == "README.md" && !file.ignored));
+        assert!(files.iter().any(|file| file.path == "src/app.ts" && !file.ignored));
+        assert!(files.iter().any(|file| file.path == "src/new.ts" && !file.ignored));
+        assert!(files.iter().any(|file| file.path == ".gitignore" && !file.ignored));
+        assert!(files.iter().any(|file| file.path == "ignored.txt" && file.ignored && !file.directory));
+        assert!(files.iter().any(|file| file.path == "build" && file.ignored && file.directory));
+        assert!(files.iter().any(|file| file.path == "tracked.ignore" && file.ignored));
+        assert!(!files.iter().any(|file| file.path == "build/out.js"));
+    }
+
+    #[test]
+    fn lists_commits_for_a_single_file() {
+        let repo = init_repo();
+        fs::write(repo.join("README.md"), "hello\nagain\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "update readme"]);
+        let commits = file_log(&git_bin(), &repo, "README.md").unwrap();
+        assert!(commits.iter().any(|commit| commit.subject == "initial"));
+        assert!(commits.iter().any(|commit| commit.subject == "update readme"));
+        assert!(file_log(&git_bin(), &repo, "missing.txt").unwrap().is_empty());
     }
 
     #[test]

@@ -354,6 +354,14 @@ pub struct CommitNode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RepoFile {
+    pub path: String,
+    pub ignored: bool,
+    pub directory: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkingTreeFile {
     pub path: String,
     pub status: String,

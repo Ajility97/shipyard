@@ -16,6 +16,7 @@ import type {
   RepoStatus,
   StashEntry,
   WindowState,
+  RepoFile,
   WorkingTreeFile,
 } from "./types";
 
@@ -174,12 +175,20 @@ export function checkoutAll(groupId: string, target: string, fallbacks: string[]
   return invoke<RepoActionResult[]>("checkout_all", { groupId, target, fallbacks });
 }
 
+export function fileLog(path: string, file: string) {
+  return invoke<CommitNode[]>("file_log", { path, file });
+}
+
 export function logGraph(path: string) {
   return invoke<CommitNode[]>("log_graph", { path });
 }
 
 export function workingTree(path: string) {
   return invoke<WorkingTreeFile[]>("working_tree", { path });
+}
+
+export function repoFiles(path: string) {
+  return invoke<RepoFile[]>("repo_files", { path });
 }
 
 export function discardAllChanges(path: string) {

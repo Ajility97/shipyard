@@ -105,6 +105,12 @@ export interface WorkingTreeFile {
   staged: boolean;
 }
 
+export interface RepoFile {
+  path: string;
+  ignored: boolean;
+  directory: boolean;
+}
+
 export interface CommitFile {
   path: string;
   oldPath: string | null;

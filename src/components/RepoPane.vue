@@ -4,6 +4,9 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import BranchList from "./BranchList.vue";
 import ChangesToggle from "./ChangesToggle.vue";
 import CommitFiles from "./CommitFiles.vue";
+import FileHistoryList from "./FileHistoryList.vue";
+import FileHistoryToggle from "./FileHistoryToggle.vue";
+import FileTree from "./FileTree.vue";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
@@ -20,6 +23,7 @@ import type {
   CommitNode,
   LastCommit,
   LocalBranch,
+  RepoFile,
   StashEntry,
   WorkingTreeFile,
 } from "../types";
@@ -72,8 +76,22 @@ const selectedCommitFile = ref<CommitFile | null>(null);
 const commitFiles = ref<CommitFile[]>([]);
 const commitFilesLoading = ref(false);
 const filesCollapsed = ref(false);
+const historyOpen = ref(false);
+const repoFiles = ref<RepoFile[]>([]);
+const repoFilesLoading = ref(false);
+const repoFilesError = ref("");
+let repoFilesGeneration = 0;
+const selectedHistoryFile = ref("");
+const lastHistoryFile = ref("");
+const historyCommits = ref<CommitNode[]>([]);
+const historyCommitsLoading = ref(false);
+const historyCommitsError = ref("");
+const selectedHistoryCommit = ref<CommitNode | null>(null);
+let historyCommitsGeneration = 0;
 const diff = ref("");
-const showingDiff = computed(() => Boolean(selectedFile.value || selectedCommitFile.value));
+const showingDiff = computed(
+  () => Boolean(selectedFile.value || selectedCommitFile.value || selectedHistoryCommit.value),
+);
 const loading = ref(false);
 const actionBusy = ref(false);
 const actionLabel = ref("");
@@ -275,8 +293,11 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
     }
     files.value = nextFiles;
     if (nextFiles.some(isConflicted)) {
-      filesCollapsed.value = false;
+      openChangesPane();
       void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+    }
+    if (historyOpen.value) {
+      void loadRepoFiles();
     }
     branches.value = nextBranches;
     stashes.value = nextStashes;
@@ -316,6 +337,7 @@ function sameFile(file: WorkingTreeFile, other: WorkingTreeFile | null) {
 function closeDiff() {
   selectedFile.value = null;
   selectedCommitFile.value = null;
+  selectedHistoryCommit.value = null;
   diff.value = "";
 }
 
@@ -367,7 +389,7 @@ async function selectCommit(commit: CommitNode) {
   selectedCommit.value = commit;
   selectedCommitFile.value = null;
   diff.value = "";
-  filesCollapsed.value = false;
+  openChangesPane();
   await refreshCommitFiles(commit);
   const first = commitFiles.value[0];
   if (first) {
@@ -510,7 +532,7 @@ async function runRepoAction(label: string, work: () => Promise<string>, branch 
     await loadRepo({ silent: true });
     await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
     if (conflictActive.value) {
-      filesCollapsed.value = false;
+      openChangesPane();
       message.value = "";
       const first = conflictedFiles.value[0];
       if (first) {
@@ -578,7 +600,7 @@ async function runPull(branch?: string) {
     await loadRepo({ silent: !result.ok });
     await refreshRepoStatus(groupId, match.repo.id);
     if (!result.ok && conflictActive.value) {
-      filesCollapsed.value = false;
+      openChangesPane();
       message.value = "";
       const first = conflictedFiles.value[0];
       if (first) {
@@ -592,7 +614,7 @@ async function runPull(branch?: string) {
     await loadRepo({ silent: true });
     await refreshRepoStatus(groupId, match.repo.id);
     if (conflictActive.value) {
-      filesCollapsed.value = false;
+      openChangesPane();
       message.value = "";
       const first = conflictedFiles.value[0];
       if (first) {
@@ -904,6 +926,127 @@ function toggleTerminal() {
   terminalOpen.value = !terminalOpen.value;
 }
 
+function openChangesPane() {
+  filesCollapsed.value = false;
+  historyOpen.value = false;
+  closeHistoryFile();
+  lastHistoryFile.value = "";
+}
+
+function toggleChangesPane() {
+  if (!filesCollapsed.value && !historyOpen.value) {
+    filesCollapsed.value = true;
+    return;
+  }
+  openChangesPane();
+}
+
+function toggleHistoryPane() {
+  if (!filesCollapsed.value && historyOpen.value) {
+    filesCollapsed.value = true;
+    historyOpen.value = false;
+    closeHistoryFile();
+    lastHistoryFile.value = "";
+    return;
+  }
+  filesCollapsed.value = false;
+  historyOpen.value = true;
+  void loadRepoFiles();
+}
+
+function closeHistoryFile() {
+  selectedHistoryFile.value = "";
+  historyCommits.value = [];
+  historyCommitsError.value = "";
+  historyCommitsGeneration += 1;
+  selectedHistoryCommit.value = null;
+  if (!selectedFile.value && !selectedCommitFile.value) {
+    diff.value = "";
+  }
+}
+
+async function selectHistoryFile(path: string) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  closeCommitDetail();
+  selectedFile.value = null;
+  selectedHistoryFile.value = path;
+  lastHistoryFile.value = path;
+  selectedHistoryCommit.value = null;
+  diff.value = "";
+  const generation = ++historyCommitsGeneration;
+  historyCommitsLoading.value = true;
+  historyCommitsError.value = "";
+  try {
+    const next = await api.fileLog(match.repo.path, path);
+    if (generation !== historyCommitsGeneration) {
+      return;
+    }
+    historyCommits.value = next;
+  } catch (err) {
+    if (generation !== historyCommitsGeneration) {
+      return;
+    }
+    historyCommits.value = [];
+    historyCommitsError.value = String(err);
+  } finally {
+    if (generation === historyCommitsGeneration) {
+      historyCommitsLoading.value = false;
+    }
+  }
+}
+
+async function selectHistoryCommit(commit: CommitNode) {
+  const match = current.value;
+  const file = selectedHistoryFile.value;
+  if (!match || !file) {
+    return;
+  }
+  if (selectedHistoryCommit.value?.hash === commit.hash) {
+    closeDiff();
+    return;
+  }
+  selectedFile.value = null;
+  selectedCommitFile.value = null;
+  selectedHistoryCommit.value = commit;
+  try {
+    diff.value = await api.commitFileDiff(match.repo.path, commit.hash, file);
+  } catch (err) {
+    diff.value = String(err);
+  }
+}
+
+async function loadRepoFiles() {
+  const match = current.value;
+  if (!match) {
+    repoFiles.value = [];
+    repoFilesError.value = "";
+    return;
+  }
+  const generation = ++repoFilesGeneration;
+  repoFilesLoading.value = true;
+  repoFilesError.value = "";
+  try {
+    const next = await api.repoFiles(match.repo.path);
+    if (generation !== repoFilesGeneration) {
+      return;
+    }
+    repoFiles.value = next;
+  } catch (err) {
+    if (generation !== repoFilesGeneration) {
+      return;
+    }
+    repoFiles.value = [];
+    repoFilesError.value = String(err);
+  } finally {
+    if (generation === repoFilesGeneration) {
+      repoFilesLoading.value = false;
+    }
+  }
+}
+
 function stashRef(index: number) {
   return `stash@{${index}}`;
 }
@@ -1207,6 +1350,12 @@ watch(
   () => {
     branchesView.value = false;
     stashView.value = false;
+    historyOpen.value = false;
+    repoFiles.value = [];
+    repoFilesError.value = "";
+    repoFilesGeneration += 1;
+    closeHistoryFile();
+    lastHistoryFile.value = "";
     terminalOpen.value = false;
     graphStale.value = false;
     overviewGeneration += 1;
@@ -1249,7 +1398,8 @@ watch(
         :branches-view="branchesView"
         :stash-view="stashView"
         :stash-count="stashes.length"
-        :files-open="!filesCollapsed"
+        :files-open="!filesCollapsed && !historyOpen"
+        :history-open="!filesCollapsed && historyOpen"
         :unstaged-count="unstagedCount"
         :staged-count="stagedCount"
         :conflicted-count="conflictedCount"
@@ -1261,7 +1411,8 @@ watch(
         @create="openCreateBranch"
         @branches="toggleBranchesView"
         @stash="toggleStashView"
-        @files="filesCollapsed = !filesCollapsed"
+        @files="toggleChangesPane"
+        @history="toggleHistoryPane"
         @refresh-branches="refreshBranches"
         @terminal="toggleTerminal"
       />
@@ -1333,7 +1484,7 @@ watch(
           <button class="ghost tiny" type="button" @click="closeDiff">← Back</button>
           <PathLabel
             class="diff-path"
-            :path="selectedFile?.path ?? selectedCommitFile?.path ?? ''"
+            :path="selectedFile?.path ?? selectedCommitFile?.path ?? selectedHistoryFile"
           />
           <span class="muted tiny">{{
             selectedFile
@@ -1344,7 +1495,9 @@ watch(
                   : "Unstaged"
               : selectedCommitFile
                 ? `${selectedCommitFile.status} · ${selectedCommit?.hash.slice(0, 7)}`
-                : ""
+                : selectedHistoryCommit
+                  ? `${selectedHistoryCommit.hash.slice(0, 7)}`
+                  : ""
           }}</span>
           <template v-if="selectedFile && isConflicted(selectedFile)">
             <button class="ghost tiny" type="button" @click="openInEditor(selectedFile)">
@@ -1383,12 +1536,16 @@ watch(
               Side by side
             </button>
           </div>
+          <FileHistoryToggle
+            :open="!filesCollapsed && historyOpen"
+            @click="toggleHistoryPane"
+          />
           <ChangesToggle
-            :open="!filesCollapsed"
+            :open="!filesCollapsed && !historyOpen"
             :unstaged="unstagedCount"
             :staged="stagedCount"
             :conflicted="conflictedCount"
-            @click="filesCollapsed = !filesCollapsed"
+            @click="toggleChangesPane"
           />
         </div>
       </div>
@@ -1403,8 +1560,30 @@ watch(
         aria-label="Resize files panel"
         @pointerdown="startResize"
       />
+      <div v-if="historyOpen" class="file-history-host">
+        <FileTree
+          class="file-history-tree"
+          :class="{ parked: Boolean(selectedHistoryFile) }"
+          :files="repoFiles"
+          :loading="repoFilesLoading"
+          :error="repoFilesError"
+          :parked="Boolean(selectedHistoryFile)"
+          :selected-path="lastHistoryFile"
+          @select="selectHistoryFile"
+        />
+        <FileHistoryList
+          v-if="selectedHistoryFile"
+          :file="selectedHistoryFile"
+          :commits="historyCommits"
+          :selected-hash="selectedHistoryCommit?.hash ?? ''"
+          :loading="historyCommitsLoading"
+          :error="historyCommitsError"
+          @select="selectHistoryCommit"
+          @close="closeHistoryFile"
+        />
+      </div>
       <CommitFiles
-        v-if="selectedCommit"
+        v-else-if="selectedCommit"
         :commit="selectedCommit"
         :files="commitFiles"
         :selected-path="selectedCommitFile?.path ?? ''"

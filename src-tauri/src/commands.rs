@@ -7,7 +7,7 @@ use crate::git;
 use crate::models::{
     sanitize_editor, sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
     DeleteMergedResult, GitConfig, LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry,
-    RepoGroup, RepoStatus, StashEntry, WorkingTreeFile,
+    RepoFile, RepoGroup, RepoStatus, StashEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -855,9 +855,21 @@ pub fn log_graph(state: State<AppState>, path: String) -> Result<Vec<CommitNode>
 }
 
 #[tauri::command]
+pub fn file_log(state: State<AppState>, path: String, file: String) -> Result<Vec<CommitNode>, String> {
+    let git = require_git(&state)?;
+    git::file_log(&git, Path::new(&path), &file)
+}
+
+#[tauri::command]
 pub fn working_tree(state: State<AppState>, path: String) -> Result<Vec<WorkingTreeFile>, String> {
     let git = require_git(&state)?;
     git::working_tree(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn repo_files(state: State<AppState>, path: String) -> Result<Vec<RepoFile>, String> {
+    let git = require_git(&state)?;
+    git::repo_files(&git, Path::new(&path))
 }
 
 #[tauri::command]

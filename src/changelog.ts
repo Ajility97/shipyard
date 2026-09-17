@@ -6,6 +6,16 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.0.6",
+    date: "September 17, 2026",
+    notes: [
+      "File History on the repo toolbar opens a project file tree in the same right-hand pane as Changes. Folders expand on click, with search and collapse-all.",
+      "File tree search treats spaces as wildcards.",
+      "Gitignored files and folders appear muted. Ignored directories are listed without expanding their contents.",
+      "Click a file to see its commit history. Click a commit to open that file’s diff on the left.",
+    ],
+  },
+  {
     version: "1.0.5",
     date: "September 17, 2026",
     notes: [

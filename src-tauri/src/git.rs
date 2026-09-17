@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use crate::command_log;
 use crate::models::{
-    BranchOverview, CommitFile, CommitNode, DeleteMergedResult, GitConfig, LocalBranch, StashEntry,
-    WorkingTreeFile,
+    BranchOverview, CommitFile, CommitNode, DeleteMergedResult, GitConfig, LastCommit, LocalBranch,
+    StashEntry, WorkingTreeFile,
 };
 
 pub struct GitOutput {
@@ -1558,7 +1558,57 @@ pub fn discard_all_changes(git: &Path, repo: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn commit(git: &Path, repo: &Path, title: &str, description: &str) -> Result<String, String> {
+pub fn last_commit(git: &Path, repo: &Path) -> Result<LastCommit, String> {
+    let output = run_git(git, repo, &["log", "-1", "--pretty=format:%s%x1f%b"])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not read the last commit.",
+        ));
+    }
+    if output.stdout.is_empty() {
+        return Err("No commits yet.".into());
+    }
+
+    let mut parts = output.stdout.splitn(2, '\u{1f}');
+    let title = parts.next().unwrap_or_default().to_string();
+    let description = parts.next().unwrap_or_default().trim().to_string();
+    Ok(LastCommit {
+        title,
+        description,
+        published: last_commit_is_published(git, repo),
+    })
+}
+
+fn last_commit_is_published(git: &Path, repo: &Path) -> bool {
+    let upstream = match run_git_quiet(git, repo, &["rev-parse", "--abbrev-ref", "@{upstream}"]) {
+        Ok(output) if output.success => output.stdout.trim().to_string(),
+        _ => return false,
+    };
+    if upstream.is_empty() {
+        return false;
+    }
+    let spec = format!("HEAD...{upstream}");
+    let output = match run_git_quiet(git, repo, &["rev-list", "--left-right", "--count", &spec]) {
+        Ok(output) if output.success => output,
+        _ => return false,
+    };
+    output
+        .stdout
+        .split_whitespace()
+        .next()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(0)
+        == 0
+}
+
+pub fn commit(
+    git: &Path,
+    repo: &Path,
+    title: &str,
+    description: &str,
+    amend: bool,
+) -> Result<String, String> {
     let title = title.trim();
     if title.is_empty() {
         return Err("Enter a commit title.".into());
@@ -1570,23 +1620,44 @@ pub fn commit(git: &Path, repo: &Path, title: &str, description: &str) -> Result
         return Err("Invalid commit message.".into());
     }
 
+    if amend {
+        let head = run_git_quiet(git, repo, &["rev-parse", "--verify", "HEAD"])?;
+        if !head.success {
+            return Err("Nothing to amend.".into());
+        }
+    }
+
     let staged = run_git(git, repo, &["diff", "--cached", "--quiet"])?;
     if staged.success {
-        return Err("Nothing is staged to commit.".into());
+        return Err(if amend {
+            "Nothing is staged to amend.".into()
+        } else {
+            "Nothing is staged to commit.".into()
+        });
     }
 
     let description = description.trim();
-    let output = if description.is_empty() {
-        run_git(git, repo, &["commit", "-m", title])?
-    } else {
-        run_git(git, repo, &["commit", "-m", title, "-m", description])?
+    let output = match (amend, description.is_empty()) {
+        (false, true) => run_git(git, repo, &["commit", "-m", title])?,
+        (false, false) => run_git(git, repo, &["commit", "-m", title, "-m", description])?,
+        (true, true) => run_git(git, repo, &["commit", "--amend", "-m", title])?,
+        (true, false) => {
+            run_git(git, repo, &["commit", "--amend", "-m", title, "-m", description])?
+        }
     };
     if !output.success {
-        return Err(or_fallback(&combined_message(&output), "Commit failed."));
+        return Err(or_fallback(
+            &combined_message(&output),
+            if amend {
+                "Amend failed."
+            } else {
+                "Commit failed."
+            },
+        ));
     }
     Ok(or_fallback(
         &combined_message(&output),
-        &format!("Committed {title}"),
+        &format!("{} {title}", if amend { "Amended" } else { "Committed" }),
     ))
 }
 
@@ -2223,6 +2294,7 @@ mod tests {
             &repo,
             "Update readme",
             "Describe the change.",
+            false,
         )
         .unwrap();
         assert!(message.to_lowercase().contains("update readme") || message.contains("develop"));
@@ -2230,7 +2302,54 @@ mod tests {
         assert!(files.is_empty());
         let commits = log_graph(&git_bin(), &repo).unwrap();
         assert_eq!(commits[0].subject, "Update readme");
-        assert!(commit(&git_bin(), &repo, "Nothing", "").is_err());
+        assert!(commit(&git_bin(), &repo, "Nothing", "", false).is_err());
+    }
+
+    #[test]
+    fn reads_last_commit_and_amends_staged_files() {
+        let repo = init_repo();
+        let last = last_commit(&git_bin(), &repo).unwrap();
+        assert_eq!(last.title, "initial");
+        assert!(last.description.is_empty());
+        assert!(!last.published);
+
+        fs::write(repo.join("README.md"), "updated\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "Update readme", "-m", "More detail."]);
+        let last = last_commit(&git_bin(), &repo).unwrap();
+        assert_eq!(last.title, "Update readme");
+        assert_eq!(last.description, "More detail.");
+
+        fs::write(repo.join("extra.txt"), "forgot\n").unwrap();
+        stage_file(&git_bin(), &repo, "extra.txt").unwrap();
+        let message = commit(&git_bin(), &repo, "Update readme", "More detail.", true).unwrap();
+        assert!(message.to_lowercase().contains("update readme") || message.contains("develop"));
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.is_empty());
+        let commits = log_graph(&git_bin(), &repo).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].subject, "Update readme");
+        assert!(repo.join("extra.txt").exists());
+        assert!(commit(&git_bin(), &repo, "Nothing", "", true).is_err());
+    }
+
+    #[test]
+    fn last_commit_is_published_when_already_pushed() {
+        let upstream = init_repo();
+        let work = temp_dir();
+        git(&work, &["clone", upstream.to_str().unwrap(), "."]);
+        git(&work, &["config", "user.name", "Shipyard Test"]);
+        git(&work, &["config", "user.email", "test@shipyard.local"]);
+        let last = last_commit(&git_bin(), &work).unwrap();
+        assert_eq!(last.title, "initial");
+        assert!(last.published);
+
+        fs::write(work.join("local.txt"), "mine\n").unwrap();
+        git(&work, &["add", "local.txt"]);
+        git(&work, &["commit", "-m", "local commit"]);
+        let last = last_commit(&git_bin(), &work).unwrap();
+        assert_eq!(last.title, "local commit");
+        assert!(!last.published);
     }
 
     #[test]

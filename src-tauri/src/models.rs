@@ -335,6 +335,14 @@ pub struct RepoActionResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct LastCommit {
+    pub title: String,
+    pub description: String,
+    pub published: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CommitNode {
     pub hash: String,
     pub parents: Vec<String>,

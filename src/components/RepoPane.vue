@@ -18,6 +18,7 @@ import type {
   BranchOverview,
   CommitFile,
   CommitNode,
+  LastCommit,
   LocalBranch,
   StashEntry,
   WorkingTreeFile,
@@ -83,6 +84,10 @@ const renamingBranch = ref<LocalBranch | null>(null);
 const renameBranchName = ref("");
 const renameBranchInput = ref<HTMLInputElement | null>(null);
 const committing = ref(false);
+const amending = ref(false);
+const lastCommit = ref<LastCommit | null>(null);
+const draftTitle = ref("");
+const draftDescription = ref("");
 const commitTitle = ref("");
 const commitDescription = ref("");
 const commitTitleInput = ref<HTMLInputElement | null>(null);
@@ -695,32 +700,90 @@ function renameBranch() {
   return runRepoAction("Renaming…", () => api.renameLocalBranch(match.repo.path, from.name, to));
 }
 
+function clipCommitTitle(value: string) {
+  return [...value].slice(0, COMMIT_TITLE_MAX).join("");
+}
+
+function resetCommitForm() {
+  amending.value = false;
+  lastCommit.value = null;
+  draftTitle.value = "";
+  draftDescription.value = "";
+  commitTitle.value = "";
+  commitDescription.value = "";
+}
+
+function applyLastCommitMessage() {
+  const last = lastCommit.value;
+  if (!last) {
+    return;
+  }
+  commitTitle.value = clipCommitTitle(last.title);
+  commitDescription.value = last.description;
+}
+
 async function openCommit() {
   if (actionBusy.value || !files.value.some((file) => file.staged)) {
     return;
   }
-  commitTitle.value = "";
-  commitDescription.value = "";
+  resetCommitForm();
   committing.value = true;
+  const match = current.value;
+  if (match) {
+    lastCommit.value = await api.lastCommit(match.repo.path).catch(() => null);
+    if (amending.value) {
+      applyLastCommitMessage();
+    }
+  }
   await nextTick();
   commitTitleInput.value?.focus();
 }
 
 function closeCommit() {
   committing.value = false;
-  commitTitle.value = "";
-  commitDescription.value = "";
+  resetCommitForm();
 }
 
-function commitChanges() {
+function onAmendChange(event: Event) {
+  const checked = (event.target as HTMLInputElement).checked;
+  if (checked) {
+    draftTitle.value = commitTitle.value;
+    draftDescription.value = commitDescription.value;
+    amending.value = true;
+    applyLastCommitMessage();
+    return;
+  }
+  commitTitle.value = draftTitle.value;
+  commitDescription.value = draftDescription.value;
+  amending.value = false;
+}
+
+async function commitChanges() {
   const match = current.value;
   const title = commitTitle.value.trim();
   if (!match || !title) {
     return;
   }
   const description = commitDescription.value;
+  const amend = amending.value;
+  if (amend && lastCommit.value?.published) {
+    const ok = await confirm(
+      "This commit is already on the remote. Amending rewrites history, and you will need to force-push.",
+      {
+        title: "Amend published commit",
+        kind: "warning",
+        okLabel: "Amend",
+        cancelLabel: "Cancel",
+      },
+    );
+    if (!ok) {
+      return;
+    }
+  }
   closeCommit();
-  return runRepoAction("Committing…", () => api.commit(match.repo.path, title, description));
+  return runRepoAction(amend ? "Amending…" : "Committing…", () =>
+    api.commit(match.repo.path, title, description, amend),
+  );
 }
 
 async function openStash() {
@@ -1368,7 +1431,7 @@ watch(
       </button>
     </template>
   </Modal>
-  <Modal v-if="committing" title="Commit" medium @close="closeCommit">
+  <Modal v-if="committing" :title="amending ? 'Amend last commit' : 'Commit'" medium @close="closeCommit">
     <label class="modal-label">
       <span class="modal-label-row">
         <span class="muted tiny">Title</span>
@@ -1396,10 +1459,17 @@ watch(
         placeholder="Optional details"
       />
     </label>
+    <label v-if="lastCommit" class="radio-option">
+      <input type="checkbox" :checked="amending" @change="onAmendChange" />
+      Amend last commit
+    </label>
+    <p v-if="amending && lastCommit?.published" class="muted tiny">
+      This commit is already on the remote. Amending rewrites it, and you will need to force-push.
+    </p>
     <template #actions>
       <button class="ghost" type="button" @click="closeCommit">Cancel</button>
       <button class="ghost commit" type="button" :disabled="!canCommit" @click="commitChanges">
-        Commit
+        {{ amending ? "Amend" : "Commit" }}
       </button>
     </template>
   </Modal>

@@ -2149,6 +2149,10 @@ body.reordering-repos .repo-row,
   line-height: 1;
 }
 
+.branch-name {
+  gap: 0.15rem;
+}
+
 .branch-icon,
 .file-icon,
 .repo-icon {

@@ -8,6 +8,7 @@ import type {
   DeleteMergedResult,
   DiffMode,
   GitConfig,
+  LastCommit,
   RefreshActiveHours,
   RepoActionResult,
   RepoEntry,
@@ -185,8 +186,12 @@ export function discardAllChanges(path: string) {
   return invoke<void>("discard_all_changes", { path });
 }
 
-export function commit(path: string, title: string, description: string) {
-  return invoke<string>("commit", { path, title, description });
+export function lastCommit(path: string) {
+  return invoke<LastCommit>("last_commit", { path });
+}
+
+export function commit(path: string, title: string, description: string, amend = false) {
+  return invoke<string>("commit", { path, title, description, amend });
 }
 
 export function abortOperation(path: string) {

@@ -87,6 +87,12 @@ export interface RepoActionResult {
   message: string;
 }
 
+export interface LastCommit {
+  title: string;
+  description: string;
+  published: boolean;
+}
+
 export interface CommitNode {
   hash: string;
   parents: string[];

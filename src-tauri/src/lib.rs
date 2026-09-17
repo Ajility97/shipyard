@@ -79,6 +79,7 @@ pub fn run() {
             commands::log_graph,
             commands::working_tree,
             commands::discard_all_changes,
+            commands::last_commit,
             commands::commit,
             commands::abort_operation,
             commands::continue_operation,

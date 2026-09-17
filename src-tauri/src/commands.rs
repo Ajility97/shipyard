@@ -6,8 +6,8 @@ use tauri::{AppHandle, State};
 use crate::git;
 use crate::models::{
     sanitize_editor, sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
-    DeleteMergedResult, GitConfig, RefreshActiveHours, RepoActionResult, RepoEntry, RepoGroup,
-    RepoStatus, StashEntry, WorkingTreeFile,
+    DeleteMergedResult, GitConfig, LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry,
+    RepoGroup, RepoStatus, StashEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -867,15 +867,22 @@ pub fn discard_all_changes(state: State<AppState>, path: String) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn last_commit(state: State<AppState>, path: String) -> Result<LastCommit, String> {
+    let git = require_git(&state)?;
+    git::last_commit(&git, Path::new(&path))
+}
+
+#[tauri::command]
 pub async fn commit(
     state: State<'_, AppState>,
     path: String,
     title: String,
     description: String,
+    amend: bool,
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
-        git::commit(&git, Path::new(&path), &title, &description)
+        git::commit(&git, Path::new(&path), &title, &description, amend)
     })
     .await
     .map_err(|err| err.to_string())?

@@ -1514,25 +1514,61 @@ fn parse_log_commits(stdout: &str) -> Vec<CommitNode> {
     stdout
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| {
-            let mut parts = line.split('\u{1f}');
-            let hash = parts.next()?.to_string();
-            let parents = parts
-                .next()?
-                .split_whitespace()
-                .filter(|parent| !parent.is_empty())
-                .map(ToOwned::to_owned)
-                .collect();
-            Some(CommitNode {
-                hash,
-                parents,
-                subject: parts.next().unwrap_or_default().to_string(),
-                author: parts.next().unwrap_or_default().to_string(),
-                date: parts.next().unwrap_or_default().to_string(),
-                refs: parts.next().unwrap_or_default().to_string(),
-            })
-        })
+        .filter_map(parse_log_commit_line)
         .collect()
+}
+
+fn parse_log_commit_line(line: &str) -> Option<CommitNode> {
+    let mut parts = line.split('\u{1f}');
+    let hash = parts.next()?.to_string();
+    if hash.is_empty() {
+        return None;
+    }
+    let parents = parts
+        .next()?
+        .split_whitespace()
+        .filter(|parent| !parent.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    Some(CommitNode {
+        hash,
+        parents,
+        subject: parts.next().unwrap_or_default().to_string(),
+        author: parts.next().unwrap_or_default().to_string(),
+        date: parts.next().unwrap_or_default().to_string(),
+        refs: parts.next().unwrap_or_default().to_string(),
+        path: None,
+        old_path: None,
+        status: None,
+    })
+}
+
+fn parse_file_log_commits(stdout: &str) -> Vec<CommitNode> {
+    let mut commits = Vec::new();
+    let mut current: Option<CommitNode> = None;
+    for line in stdout.lines() {
+        if line.contains('\u{1f}') {
+            if let Some(commit) = current.take() {
+                commits.push(commit);
+            }
+            current = parse_log_commit_line(line);
+            continue;
+        }
+        let Some(file) = parse_name_status_line(line) else {
+            continue;
+        };
+        if let Some(commit) = current.as_mut() {
+            if commit.path.is_none() {
+                commit.path = Some(file.path);
+                commit.old_path = file.old_path;
+                commit.status = Some(file.status);
+            }
+        }
+    }
+    if let Some(commit) = current {
+        commits.push(commit);
+    }
+    commits
 }
 
 pub fn file_log(git: &Path, repo: &Path, file: &str) -> Result<Vec<CommitNode>, String> {
@@ -1543,8 +1579,11 @@ pub fn file_log(git: &Path, repo: &Path, file: &str) -> Result<Vec<CommitNode>, 
         &[
             "log",
             "--follow",
+            "--find-renames",
+            "--find-copies",
             "--max-count=400",
             "--pretty=format:%H%x1f%P%x1f%s%x1f%an%x1f%aI%x1f%D",
+            "--name-status",
             "--",
             file,
         ],
@@ -1555,7 +1594,7 @@ pub fn file_log(git: &Path, repo: &Path, file: &str) -> Result<Vec<CommitNode>, 
             "Could not read the file history.",
         ));
     }
-    Ok(parse_log_commits(&output.stdout))
+    Ok(parse_file_log_commits(&output.stdout))
 }
 
 pub fn discard_all_changes(git: &Path, repo: &Path) -> Result<(), String> {
@@ -1950,21 +1989,101 @@ pub fn stash_push(git: &Path, repo: &Path, message: &str) -> Result<String, Stri
     Ok(or_fallback(&combined, "Stashed changes"))
 }
 
+fn file_exists_at(git: &Path, repo: &Path, rev: &str, file: &str) -> bool {
+    let spec = format!("{rev}:{file}");
+    run_git_quiet(git, repo, &["cat-file", "-e", &spec])
+        .map(|output| output.success)
+        .unwrap_or(false)
+}
+
+fn followed_path_at_commit(
+    git: &Path,
+    repo: &Path,
+    hash: &str,
+    file: &str,
+) -> Result<Option<String>, String> {
+    let output = run_git_quiet(
+        git,
+        repo,
+        &[
+            "log",
+            "--follow",
+            "--find-renames",
+            "--max-count=400",
+            "--pretty=format:%H",
+            "--name-status",
+            "--",
+            file,
+        ],
+    )?;
+    if !output.success {
+        return Ok(None);
+    }
+
+    let mut current_hash: Option<&str> = None;
+    for line in output.stdout.lines() {
+        if line.contains('\t') {
+            let Some(current_hash) = current_hash else {
+                continue;
+            };
+            if current_hash != hash {
+                continue;
+            }
+            if let Some(file) = parse_name_status_line(line) {
+                return Ok(Some(file.path));
+            }
+            continue;
+        }
+        if line.len() >= 7 && line.chars().all(|c| c.is_ascii_hexdigit()) {
+            current_hash = Some(line);
+        }
+    }
+    Ok(None)
+}
+
+fn resolve_commit_file_path(
+    git: &Path,
+    repo: &Path,
+    hash: &str,
+    file: &str,
+) -> Result<String, String> {
+    if file_exists_at(git, repo, hash, file) {
+        return Ok(file.to_string());
+    }
+    if let Some(parent) = first_parent(git, repo, hash)? {
+        if file_exists_at(git, repo, &parent, file) {
+            return Ok(file.to_string());
+        }
+    }
+    if let Some(followed) = followed_path_at_commit(git, repo, hash, file)? {
+        return Ok(followed);
+    }
+    Ok(file.to_string())
+}
+
 pub fn commit_file_diff(git: &Path, repo: &Path, hash: &str, file: &str) -> Result<String, String> {
     require_file_path(file)?;
     let hash = require_commit(git, repo, hash)?;
+    let file = resolve_commit_file_path(git, repo, &hash, file)?;
     let parent = first_parent(git, repo, &hash)?;
     let output = if let Some(parent) = parent.as_deref() {
         run_git(
             git,
             repo,
-            &["diff", "--find-renames", parent, &hash, "--", file],
+            &["diff", "--find-renames", parent, &hash, "--", &file],
         )?
     } else {
         run_git(
             git,
             repo,
-            &["show", "--pretty=format:", "--find-renames", &hash, "--", file],
+            &[
+                "show",
+                "--pretty=format:",
+                "--find-renames",
+                &hash,
+                "--",
+                &file,
+            ],
         )?
     };
     if !output.success && output.stdout.trim().is_empty() {
@@ -2340,7 +2459,69 @@ mod tests {
         let commits = file_log(&git_bin(), &repo, "README.md").unwrap();
         assert!(commits.iter().any(|commit| commit.subject == "initial"));
         assert!(commits.iter().any(|commit| commit.subject == "update readme"));
+        assert!(commits.iter().all(|commit| commit.path.as_deref() == Some("README.md")));
         assert!(file_log(&git_bin(), &repo, "missing.txt").unwrap().is_empty());
+    }
+
+    #[test]
+    fn file_history_follows_renames_and_shows_old_diffs() {
+        let repo = init_repo();
+        fs::create_dir_all(repo.join("old")).unwrap();
+        fs::write(repo.join("old/.oxfmtrc.json"), "one\n").unwrap();
+        git(&repo, &["add", "old/.oxfmtrc.json"]);
+        git(&repo, &["commit", "-m", "add oxfmt"]);
+        fs::write(repo.join("old/.oxfmtrc.json"), "two\n").unwrap();
+        git(&repo, &["add", "old/.oxfmtrc.json"]);
+        git(&repo, &["commit", "-m", "update oxfmt"]);
+        git(&repo, &["mv", "old/.oxfmtrc.json", ".oxfmtrc.json"]);
+        git(&repo, &["commit", "-m", "move oxfmt"]);
+        fs::copy(repo.join(".oxfmtrc.json"), repo.join("extra.oxfmtrc.json")).unwrap();
+        git(&repo, &["add", "extra.oxfmtrc.json"]);
+        git(&repo, &["commit", "-m", "copy oxfmt"]);
+
+        let copied = file_log(&git_bin(), &repo, "extra.oxfmtrc.json")
+            .unwrap()
+            .into_iter()
+            .find(|commit| commit.subject == "copy oxfmt")
+            .expect("copy commit");
+        assert_eq!(copied.path.as_deref(), Some("extra.oxfmtrc.json"));
+        assert_eq!(copied.old_path.as_deref(), Some(".oxfmtrc.json"));
+        assert_eq!(copied.status.as_deref(), Some("Copied"));
+
+        let commits = file_log(&git_bin(), &repo, ".oxfmtrc.json").unwrap();
+        let added = commits
+            .iter()
+            .find(|commit| commit.subject == "add oxfmt")
+            .expect("add commit");
+        let updated = commits
+            .iter()
+            .find(|commit| commit.subject == "update oxfmt")
+            .expect("update commit");
+        let moved = commits
+            .iter()
+            .find(|commit| commit.subject == "move oxfmt")
+            .expect("move commit");
+        assert_eq!(added.path.as_deref(), Some("old/.oxfmtrc.json"));
+        assert_eq!(added.status.as_deref(), Some("Added"));
+        assert_eq!(updated.path.as_deref(), Some("old/.oxfmtrc.json"));
+        assert_eq!(updated.status.as_deref(), Some("Modified"));
+        assert_eq!(moved.path.as_deref(), Some(".oxfmtrc.json"));
+        assert_eq!(moved.old_path.as_deref(), Some("old/.oxfmtrc.json"));
+        assert_eq!(moved.status.as_deref(), Some("Renamed"));
+
+        let added_diff = commit_file_diff(&git_bin(), &repo, &added.hash, ".oxfmtrc.json").unwrap();
+        assert!(
+            added_diff.contains("+one"),
+            "expected add diff, got {added_diff}"
+        );
+        let updated_diff =
+            commit_file_diff(&git_bin(), &repo, &updated.hash, ".oxfmtrc.json").unwrap();
+        assert!(
+            updated_diff.contains("-one") && updated_diff.contains("+two"),
+            "expected update diff, got {updated_diff}"
+        );
+        assert_ne!(added_diff.trim(), "No changes.");
+        assert_ne!(updated_diff.trim(), "No changes.");
     }
 
     #[test]

@@ -96,6 +96,9 @@ export interface CommitNode {
   author: string;
   date: string;
   refs: string;
+  path?: string;
+  oldPath?: string;
+  status?: string;
 }
 
 export interface WorkingTreeFile {

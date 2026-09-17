@@ -13,6 +13,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "File tree search treats spaces as wildcards.",
       "Gitignored files and folders appear muted. Ignored directories are listed without expanding their contents.",
       "Click a file to see its commit history. Click a commit to open that file’s diff on the left.",
+      "File history diffs follow a file through renames, so commits from before a move still show their changes. A small colored marker sits below the first commit when the file was added, and between commits when it was moved, renamed, or copied.",
     ],
   },
   {

@@ -1000,7 +1000,7 @@ async function selectHistoryFile(path: string) {
 
 async function selectHistoryCommit(commit: CommitNode) {
   const match = current.value;
-  const file = selectedHistoryFile.value;
+  const file = commit.path || selectedHistoryFile.value;
   if (!match || !file) {
     return;
   }
@@ -1484,7 +1484,7 @@ watch(
           <button class="ghost tiny" type="button" @click="closeDiff">← Back</button>
           <PathLabel
             class="diff-path"
-            :path="selectedFile?.path ?? selectedCommitFile?.path ?? selectedHistoryFile"
+            :path="selectedFile?.path ?? selectedCommitFile?.path ?? selectedHistoryCommit?.path ?? selectedHistoryFile"
           />
           <span class="muted tiny">{{
             selectedFile
@@ -1496,7 +1496,9 @@ watch(
               : selectedCommitFile
                 ? `${selectedCommitFile.status} · ${selectedCommit?.hash.slice(0, 7)}`
                 : selectedHistoryCommit
-                  ? `${selectedHistoryCommit.hash.slice(0, 7)}`
+                  ? selectedHistoryCommit.status
+                    ? `${selectedHistoryCommit.status} · ${selectedHistoryCommit.hash.slice(0, 7)}`
+                    : `${selectedHistoryCommit.hash.slice(0, 7)}`
                   : ""
           }}</span>
           <template v-if="selectedFile && isConflicted(selectedFile)">

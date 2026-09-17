@@ -9,6 +9,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     version: "1.0.4",
     date: "September 16, 2026",
     notes: [
+      "Git settings edit your global git config: name, email, default branch, pull.rebase, checkout.defaultRemote, and the config file itself.",
       "The repository terminal pane can be resized vertically. The height is saved in settings.",
       "Reset buttons restore the default files pane width and terminal height in General settings.",
       "File list paths stay left-aligned; only the directory portion truncates when space is tight.",

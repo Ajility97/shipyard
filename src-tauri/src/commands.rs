@@ -6,8 +6,8 @@ use tauri::{AppHandle, State};
 use crate::git;
 use crate::models::{
     sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
-    DeleteMergedResult, RefreshActiveHours, RepoActionResult, RepoEntry, RepoGroup, RepoStatus,
-    StashEntry, WorkingTreeFile,
+    DeleteMergedResult, GitConfig, RefreshActiveHours, RepoActionResult, RepoEntry, RepoGroup,
+    RepoStatus, StashEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -1144,6 +1144,56 @@ pub fn read_text_file(path: String) -> Result<String, String> {
         return Err("Choose a file to import.".into());
     }
     std::fs::read_to_string(&path).map_err(|err| format!("Could not read the file: {err}"))
+}
+
+#[tauri::command]
+pub fn git_config(state: State<AppState>) -> Result<GitConfig, String> {
+    let git = require_git(&state)?;
+    git::read_git_config(&git)
+}
+
+#[tauri::command]
+pub fn update_git_config_value(
+    state: State<AppState>,
+    key: String,
+    value: String,
+) -> Result<GitConfig, String> {
+    let git = require_git(&state)?;
+    git::update_git_config_value(&git, &key, &value)
+}
+
+#[tauri::command]
+pub fn save_git_config_file(state: State<AppState>, contents: String) -> Result<GitConfig, String> {
+    let git = require_git(&state)?;
+    git::write_git_config(&git, &contents)
+}
+
+#[tauri::command]
+pub fn reveal_git_config_file() -> Result<(), String> {
+    let path = git::git_config_path();
+    if path.is_file() {
+        let status = std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .status()
+            .map_err(|err| format!("Could not reveal the git config file: {err}"))?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err("Could not reveal the git config file.".into());
+    }
+    let parent = path.parent().filter(|dir| dir.is_dir()).ok_or_else(|| {
+        "Git config file does not exist yet. Save a value to create it.".to_string()
+    })?;
+    let status = std::process::Command::new("open")
+        .arg(parent)
+        .status()
+        .map_err(|err| format!("Could not open the git config folder: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Could not open the git config folder.".into())
+    }
 }
 
 #[tauri::command]

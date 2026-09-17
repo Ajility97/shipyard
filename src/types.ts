@@ -120,6 +120,16 @@ export interface StashEntry {
   date: string;
 }
 
+export interface GitConfig {
+  path: string;
+  contents: string;
+  userName: string;
+  userEmail: string;
+  defaultBranch: string;
+  pullRebase: string;
+  defaultRemote: string;
+}
+
 export interface CommandLogEntry {
   id: string;
   at: number;

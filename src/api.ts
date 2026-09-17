@@ -7,6 +7,7 @@ import type {
   CommitNode,
   DeleteMergedResult,
   DiffMode,
+  GitConfig,
   RefreshActiveHours,
   RepoActionResult,
   RepoEntry,
@@ -288,6 +289,22 @@ export function writeTextFile(path: string, contents: string) {
 
 export function readTextFile(path: string) {
   return invoke<string>("read_text_file", { path });
+}
+
+export function gitConfig() {
+  return invoke<GitConfig>("git_config");
+}
+
+export function updateGitConfigValue(key: string, value: string) {
+  return invoke<GitConfig>("update_git_config_value", { key, value });
+}
+
+export function saveGitConfigFile(contents: string) {
+  return invoke<GitConfig>("save_git_config_file", { contents });
+}
+
+export function revealGitConfigFile() {
+  return invoke<void>("reveal_git_config_file");
 }
 
 export function settingsFilePath() {

@@ -635,8 +635,56 @@ button.toast.error:hover:not(:disabled) {
   padding: 1.25rem 0;
 }
 
-.settings-content.fill .settings-json-pane .settings-inner {
+.settings-content.fill .settings-json-pane .settings-inner,
+.settings-content.fill .settings-git-pane .settings-inner {
   height: 100%;
+}
+
+.settings-git-pane {
+  height: 100%;
+  overflow: auto;
+  padding: 1.25rem 0;
+}
+
+.settings-git-file {
+  flex: 1 1 20rem;
+  min-height: 20rem;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0.85rem;
+}
+
+.settings-git-file-header,
+.settings-git-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.75rem;
+}
+
+.settings-git-file-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-git-card-header {
+  justify-content: flex-end;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-git-fields > .muted {
+  margin: 0.15rem 0 0.7rem;
+}
+
+.settings-git-file .settings-editor {
+  min-height: 12rem;
+}
+
+.settings-git-file .settings-editor + .muted {
+  margin: 0.55rem 0 0;
 }
 
 .settings-page {
@@ -842,6 +890,19 @@ button.toast.error:hover:not(:disabled) {
   color: var(--text);
   border-radius: 6px;
   padding: 0.3rem 0.45rem;
+}
+
+.settings-row > .settings-text {
+  justify-self: stretch;
+  width: 100%;
+}
+
+.settings-text input[type="text"] {
+  width: 100%;
+}
+
+.settings-git-fields .settings-row {
+  grid-template-columns: minmax(14rem, 1fr) minmax(22rem, 32rem);
 }
 
 .settings-slider {

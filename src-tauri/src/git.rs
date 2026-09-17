@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use crate::command_log;
 use crate::models::{
-    BranchOverview, CommitFile, CommitNode, DeleteMergedResult, LocalBranch, StashEntry,
+    BranchOverview, CommitFile, CommitNode, DeleteMergedResult, GitConfig, LocalBranch, StashEntry,
     WorkingTreeFile,
 };
 
@@ -69,11 +69,26 @@ fn run_git_quiet(git: &Path, repo: &Path, args: &[&str]) -> Result<GitOutput, St
 }
 
 fn run_git_inner(git: &Path, repo: &Path, args: &[&str], log: bool) -> Result<GitOutput, String> {
+    run_git_command(git, repo, args, &[], log)
+}
+
+fn run_git_command(
+    git: &Path,
+    cwd: &Path,
+    args: &[&str],
+    extra_env: &[(&str, &Path)],
+    log: bool,
+) -> Result<GitOutput, String> {
     let started = Instant::now();
-    let result = Command::new(git)
+    let mut command = Command::new(git);
+    command
         .args(args)
-        .current_dir(repo)
-        .env("GIT_TERMINAL_PROMPT", "0")
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0");
+    for (key, value) in extra_env {
+        command.env(key, value);
+    }
+    let result = command
         .output()
         .map_err(|err| format!("Failed to run git: {err}"));
 
@@ -81,7 +96,7 @@ fn run_git_inner(git: &Path, repo: &Path, args: &[&str], log: bool) -> Result<Gi
         match &result {
             Ok(output) => {
                 command_log::record(
-                    repo,
+                    cwd,
                     git,
                     args,
                     output.status.success(),
@@ -91,7 +106,7 @@ fn run_git_inner(git: &Path, repo: &Path, args: &[&str], log: bool) -> Result<Gi
                 );
             }
             Err(err) => {
-                command_log::record(repo, git, args, false, started.elapsed(), "", err);
+                command_log::record(cwd, git, args, false, started.elapsed(), "", err);
             }
         }
     }
@@ -134,6 +149,225 @@ pub fn validate_ref(name: &str) -> Result<(), String> {
         return Err(format!("Invalid branch name: {name}"));
     }
     Ok(())
+}
+
+const GIT_CONFIG_MAX_BYTES: usize = 1_000_000;
+
+fn config_cwd() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir())
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+fn path_to_string(path: &Path) -> Result<String, String> {
+    path.to_str()
+        .map(str::to_string)
+        .ok_or_else(|| "Git config path is not valid UTF-8".into())
+}
+
+pub fn git_config_path() -> PathBuf {
+    global_write_path(None)
+}
+
+fn global_write_path(file: Option<&Path>) -> PathBuf {
+    if let Some(file) = file {
+        return file.to_path_buf();
+    }
+    if let Ok(path) = std::env::var("GIT_CONFIG_GLOBAL") {
+        let path = path.trim();
+        if !path.is_empty() {
+            return PathBuf::from(path);
+        }
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    if let Some(path) = home.as_ref().map(|dir| dir.join(".gitconfig")) {
+        if path.is_file() {
+            return path;
+        }
+    }
+    let xdg = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|dir| dir.join(".config")));
+    if let Some(path) = xdg.map(|dir| dir.join("git").join("config")) {
+        if path.is_file() {
+            return path;
+        }
+    }
+    home.map(|dir| dir.join(".gitconfig"))
+        .unwrap_or_else(|| PathBuf::from(".gitconfig"))
+}
+
+fn run_git_config(git: &Path, args: &[&str], file: Option<&Path>) -> Result<GitOutput, String> {
+    let cwd = config_cwd();
+    let extra = file.map(|path| vec![("GIT_CONFIG_GLOBAL", path), ("GIT_CONFIG_NOSYSTEM", Path::new("1"))]);
+    run_git_command(git, &cwd, args, extra.as_deref().unwrap_or(&[]), true)
+}
+
+fn get_global_value(git: &Path, key: &str, file: Option<&Path>) -> Result<String, String> {
+    let output = run_git_config(git, &["config", "--global", "--get", key], file)?;
+    if !output.success {
+        return Ok(String::new());
+    }
+    Ok(output.stdout.trim().to_string())
+}
+
+fn normalize_pull_rebase(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "yes" | "on" | "1" => "true".into(),
+        "false" | "no" | "off" | "0" => "false".into(),
+        _ => String::new(),
+    }
+}
+
+fn sanitize_config_value(key: &str, value: &str) -> Result<String, String> {
+    if value.contains('\n') || value.contains('\r') || value.contains('\0') {
+        return Err("Git config values cannot contain line breaks.".into());
+    }
+    if value.len() > 1024 {
+        return Err("That git config value is too long.".into());
+    }
+    match key {
+        "user.name" | "user.email" => Ok(value.trim().to_string()),
+        "init.defaultBranch" => {
+            let value = value.trim();
+            if value.is_empty() {
+                return Ok(String::new());
+            }
+            validate_ref(value)?;
+            Ok(value.to_string())
+        }
+        "checkout.defaultRemote" => {
+            let value = value.trim();
+            if value.is_empty() {
+                return Ok(String::new());
+            }
+            if value.len() > 255
+                || value.starts_with('/')
+                || value.ends_with('/')
+                || value.starts_with('.')
+                || value.contains("..")
+                || value.contains('\\')
+                || !value
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '+'))
+            {
+                return Err(format!("Invalid remote name: {value}"));
+            }
+            Ok(value.to_string())
+        }
+        "pull.rebase" => match value.trim().to_ascii_lowercase().as_str() {
+            "" => Ok(String::new()),
+            "true" | "yes" | "on" | "1" => Ok("true".into()),
+            "false" | "no" | "off" | "0" => Ok("false".into()),
+            other => Err(format!("Unsupported pull.rebase value: {other}")),
+        },
+        _ => Err(format!("Cannot edit {key} from this form.")),
+    }
+}
+
+fn set_global_value(git: &Path, key: &str, value: &str, file: Option<&Path>) -> Result<(), String> {
+    if value.is_empty() {
+        let _ = run_git_config(git, &["config", "--global", "--unset-all", key], file)?;
+        return Ok(());
+    }
+    let output = run_git_config(
+        git,
+        &["config", "--global", "--replace-all", key, value],
+        file,
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not update git config.",
+        ));
+    }
+    Ok(())
+}
+
+fn read_config_contents(path: &Path) -> Result<String, String> {
+    if !path.is_file() {
+        return Ok(String::new());
+    }
+    fs::read_to_string(path).map_err(|err| format!("Could not read git config: {err}"))
+}
+
+fn read_git_config_at(git: &Path, file: Option<&Path>) -> Result<GitConfig, String> {
+    let path = global_write_path(file);
+    Ok(GitConfig {
+        path: path_to_string(&path)?,
+        contents: read_config_contents(&path)?,
+        user_name: get_global_value(git, "user.name", file)?,
+        user_email: get_global_value(git, "user.email", file)?,
+        default_branch: get_global_value(git, "init.defaultBranch", file)?,
+        pull_rebase: normalize_pull_rebase(&get_global_value(git, "pull.rebase", file)?),
+        default_remote: get_global_value(git, "checkout.defaultRemote", file)?,
+    })
+}
+
+pub fn read_git_config(git: &Path) -> Result<GitConfig, String> {
+    read_git_config_at(git, None)
+}
+
+fn update_git_config_value_at(
+    git: &Path,
+    key: &str,
+    value: &str,
+    file: Option<&Path>,
+) -> Result<GitConfig, String> {
+    let value = sanitize_config_value(key, value)?;
+    set_global_value(git, key, &value, file)?;
+    read_git_config_at(git, file)
+}
+
+pub fn update_git_config_value(git: &Path, key: &str, value: &str) -> Result<GitConfig, String> {
+    update_git_config_value_at(git, key, value, None)
+}
+
+fn write_git_config_at(git: &Path, contents: &str, file: Option<&Path>) -> Result<GitConfig, String> {
+    if contents.len() > GIT_CONFIG_MAX_BYTES {
+        return Err("Git config file is too large.".into());
+    }
+    if contents.contains('\0') {
+        return Err("Git config cannot contain null bytes.".into());
+    }
+    let path = global_write_path(file);
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("Could not create the git config folder: {err}"))?;
+        }
+    }
+    let previous = if path.is_file() {
+        Some(read_config_contents(&path)?)
+    } else {
+        None
+    };
+    let mut body = contents.to_string();
+    if !body.is_empty() && !body.ends_with('\n') {
+        body.push('\n');
+    }
+    fs::write(&path, &body).map_err(|err| format!("Could not write git config: {err}"))?;
+    let check = run_git_config(git, &["config", "--global", "--list"], file)?;
+    if !check.success {
+        match previous {
+            Some(old) => {
+                let _ = fs::write(&path, old);
+            }
+            None => {
+                let _ = fs::remove_file(&path);
+            }
+        }
+        return Err(or_fallback(
+            &combined_message(&check),
+            "That git config file is not valid.",
+        ));
+    }
+    read_git_config_at(git, file)
+}
+
+pub fn write_git_config(git: &Path, contents: &str) -> Result<GitConfig, String> {
+    write_git_config_at(git, contents, None)
 }
 
 pub fn repo_root(git: &Path, path: &Path) -> Result<String, String> {
@@ -2275,5 +2509,91 @@ mod tests {
         assert_eq!(current_branch(&git_bin(), &work).unwrap(), "feature");
         let contents = fs::read_to_string(work.join("README.md")).unwrap();
         assert!(contents.contains("upstream develop"));
+    }
+
+    fn isolated_gitconfig() -> PathBuf {
+        temp_dir().join("gitconfig")
+    }
+
+    #[test]
+    fn reads_empty_git_config_when_file_is_missing() {
+        let file = isolated_gitconfig();
+        let config = read_git_config_at(&git_bin(), Some(&file)).unwrap();
+        assert_eq!(config.path, file.to_str().unwrap());
+        assert!(config.contents.is_empty());
+        assert!(config.user_name.is_empty());
+        assert!(config.user_email.is_empty());
+        assert!(config.default_branch.is_empty());
+        assert!(config.pull_rebase.is_empty());
+        assert!(config.default_remote.is_empty());
+    }
+
+    #[test]
+    fn sets_and_unsets_git_identity() {
+        let file = isolated_gitconfig();
+        let git = git_bin();
+        let config = update_git_config_value_at(&git, "user.name", "Ada Lovelace", Some(&file)).unwrap();
+        assert_eq!(config.user_name, "Ada Lovelace");
+        let config =
+            update_git_config_value_at(&git, "user.email", "ada@shipyard.local", Some(&file)).unwrap();
+        assert_eq!(config.user_email, "ada@shipyard.local");
+        assert!(config.contents.contains("Ada Lovelace"));
+        let config = update_git_config_value_at(&git, "user.name", "  ", Some(&file)).unwrap();
+        assert!(config.user_name.is_empty());
+        assert_eq!(config.user_email, "ada@shipyard.local");
+    }
+
+    #[test]
+    fn sets_default_branch_and_pull_rebase() {
+        let file = isolated_gitconfig();
+        let git = git_bin();
+        let config =
+            update_git_config_value_at(&git, "init.defaultBranch", "develop", Some(&file)).unwrap();
+        assert_eq!(config.default_branch, "develop");
+        let config = update_git_config_value_at(&git, "pull.rebase", "true", Some(&file)).unwrap();
+        assert_eq!(config.pull_rebase, "true");
+        let config = update_git_config_value_at(&git, "pull.rebase", "FALSE", Some(&file)).unwrap();
+        assert_eq!(config.pull_rebase, "false");
+        let config = update_git_config_value_at(&git, "pull.rebase", "", Some(&file)).unwrap();
+        assert!(config.pull_rebase.is_empty());
+        let config =
+            update_git_config_value_at(&git, "checkout.defaultRemote", "origin", Some(&file)).unwrap();
+        assert_eq!(config.default_remote, "origin");
+        let config =
+            update_git_config_value_at(&git, "checkout.defaultRemote", "", Some(&file)).unwrap();
+        assert!(config.default_remote.is_empty());
+    }
+
+    #[test]
+    fn rejects_unknown_or_invalid_git_config_values() {
+        let file = isolated_gitconfig();
+        let git = git_bin();
+        assert!(update_git_config_value_at(&git, "core.editor", "vim", Some(&file)).is_err());
+        assert!(update_git_config_value_at(&git, "user.name", "line\nbreak", Some(&file)).is_err());
+        assert!(update_git_config_value_at(&git, "init.defaultBranch", "..nope", Some(&file)).is_err());
+        assert!(update_git_config_value_at(&git, "pull.rebase", "interactive", Some(&file)).is_err());
+        assert!(update_git_config_value_at(&git, "checkout.defaultRemote", "..nope", Some(&file)).is_err());
+        assert!(!file.exists());
+    }
+
+    #[test]
+    fn writes_git_config_file_and_restores_invalid_edits() {
+        let file = isolated_gitconfig();
+        let git = git_bin();
+        let config = write_git_config_at(
+            &git,
+            "[user]\n\tname = From File\n\temail = file@shipyard.local\n",
+            Some(&file),
+        )
+        .unwrap();
+        assert_eq!(config.user_name, "From File");
+        assert_eq!(config.user_email, "file@shipyard.local");
+        assert!(config.contents.contains("From File"));
+
+        let err = write_git_config_at(&git, "[user\n\tname = broken\n", Some(&file)).unwrap_err();
+        assert!(err.contains("valid") || err.contains("fatal") || err.contains("error"));
+        let restored = read_git_config_at(&git, Some(&file)).unwrap();
+        assert_eq!(restored.user_name, "From File");
+        assert!(restored.contents.contains("From File"));
     }
 }

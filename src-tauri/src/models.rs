@@ -353,3 +353,15 @@ pub struct StashEntry {
     pub message: String,
     pub date: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitConfig {
+    pub path: String,
+    pub contents: String,
+    pub user_name: String,
+    pub user_email: String,
+    pub default_branch: String,
+    pub pull_rebase: String,
+    pub default_remote: String,
+}

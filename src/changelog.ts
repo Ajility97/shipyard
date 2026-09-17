@@ -6,6 +6,14 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.0.4",
+    date: "September 16, 2026",
+    notes: [
+      "The repository terminal pane can be resized vertically. The height is saved in settings.",
+      "Reset buttons restore the default files pane width and terminal height in General settings.",
+    ],
+  },
+  {
     version: "1.0.3",
     date: "September 16, 2026",
     notes: [

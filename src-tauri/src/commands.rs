@@ -264,6 +264,19 @@ pub fn update_files_pane_width(
 }
 
 #[tauri::command]
+pub fn update_terminal_pane_height(
+    app: AppHandle,
+    state: State<AppState>,
+    height: u32,
+) -> Result<u32, String> {
+    let height = height.clamp(160, 720);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.terminal_pane_height = height;
+    persist_data(&app, &data)?;
+    Ok(height)
+}
+
+#[tauri::command]
 pub fn update_diff_mode(
     app: AppHandle,
     state: State<AppState>,
@@ -316,6 +329,7 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
         data.refresh_interval_seconds.clamp(30, 86_400)
     };
     data.files_pane_width = data.files_pane_width.clamp(220, 800);
+    data.terminal_pane_height = data.terminal_pane_height.clamp(160, 720);
     data.diff_mode = sanitize_diff_mode(&data.diff_mode)?;
     data.refresh_active_hours = sanitize_refresh_active_hours(data.refresh_active_hours);
     if let Some(window) = &mut data.window {

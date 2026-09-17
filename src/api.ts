@@ -107,6 +107,10 @@ export function updateFilesPaneWidth(width: number) {
   return invoke<number>("update_files_pane_width", { width });
 }
 
+export function updateTerminalPaneHeight(height: number) {
+  return invoke<number>("update_terminal_pane_height", { height });
+}
+
 export function updateDiffMode(mode: DiffMode) {
   return invoke<DiffMode>("update_diff_mode", { mode });
 }

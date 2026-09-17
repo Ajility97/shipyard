@@ -36,6 +36,7 @@ const {
   filesPaneWidth,
   setFilesPaneWidth,
   saveFilesPaneWidth,
+  terminalPaneHeight,
   diffMode,
   saveDiffMode,
   refreshStatus,
@@ -120,7 +121,7 @@ function stopResize(event?: PointerEvent) {
   window.removeEventListener("pointercancel", stopResize);
   resizing.value = false;
   resizePointerId = null;
-  document.body.classList.remove("is-resizing");
+  document.body.classList.remove("is-resizing", "is-resizing-x");
   void saveFilesPaneWidth(filesPaneWidth.value);
 }
 
@@ -130,7 +131,7 @@ function startResize(event: PointerEvent) {
   resizeStartWidth = filesPaneWidth.value;
   resizePointerId = event.pointerId;
   resizing.value = true;
-  document.body.classList.add("is-resizing");
+  document.body.classList.add("is-resizing", "is-resizing-x");
   window.addEventListener("pointermove", onResizeMove);
   window.addEventListener("pointerup", stopResize);
   window.addEventListener("pointercancel", stopResize);
@@ -1034,7 +1035,10 @@ watch(
     v-if="current"
     class="repo-view"
     :class="{ 'files-collapsed': filesCollapsed, resizing }"
-    :style="{ '--files-pane-width': `${filesPaneWidth}px` }"
+    :style="{
+      '--files-pane-width': `${filesPaneWidth}px`,
+      '--terminal-pane-height': `${terminalPaneHeight}px`,
+    }"
   >
     <section v-show="!showingDiff" class="graph-pane">
       <RepoToolbar

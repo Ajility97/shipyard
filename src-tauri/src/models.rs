@@ -8,6 +8,10 @@ fn default_files_pane_width() -> u32 {
     320
 }
 
+fn default_terminal_pane_height() -> u32 {
+    280
+}
+
 fn default_diff_mode() -> String {
     "split".into()
 }
@@ -127,6 +131,8 @@ pub struct AppData {
     pub refresh_interval_seconds: u64,
     #[serde(default = "default_files_pane_width")]
     pub files_pane_width: u32,
+    #[serde(default = "default_terminal_pane_height")]
+    pub terminal_pane_height: u32,
     #[serde(default = "default_diff_mode")]
     pub diff_mode: String,
     #[serde(default)]
@@ -142,6 +148,7 @@ impl Default for AppData {
             repos: Vec::new(),
             refresh_interval_seconds: default_refresh_interval(),
             files_pane_width: default_files_pane_width(),
+            terminal_pane_height: default_terminal_pane_height(),
             diff_mode: default_diff_mode(),
             refresh_active_hours: RefreshActiveHours::default(),
             window: None,
@@ -175,6 +182,7 @@ mod tests {
         let data = AppData {
             refresh_interval_seconds: 300,
             files_pane_width: 320,
+            terminal_pane_height: 280,
             diff_mode: "split".into(),
             refresh_active_hours: RefreshActiveHours::default(),
             window: None,
@@ -212,6 +220,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.refresh_active_hours, RefreshActiveHours::default());
+        assert_eq!(parsed.terminal_pane_height, 280);
     }
 
     #[test]

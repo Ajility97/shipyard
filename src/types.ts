@@ -46,6 +46,7 @@ export interface AppData {
   repos?: RepoEntry[];
   refreshIntervalSeconds?: number;
   filesPaneWidth?: number;
+  terminalPaneHeight?: number;
   diffMode?: DiffMode;
   refreshActiveHours?: RefreshActiveHours;
   window?: WindowState;

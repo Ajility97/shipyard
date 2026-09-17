@@ -30,10 +30,13 @@ const loaded = ref(false);
 const refreshIntervalSeconds = ref(300);
 const refreshActiveHours = ref<RefreshActiveHours>({ ...DEFAULT_REFRESH_ACTIVE_HOURS });
 const filesPaneWidth = ref(320);
+const terminalPaneHeight = ref(280);
 const diffMode = ref<DiffMode>("split");
 const windowState = ref<WindowState | null>(null);
 const FILES_PANE_MIN = 220;
 const FILES_PANE_MAX = 800;
+const TERMINAL_PANE_MIN = 160;
+const TERMINAL_PANE_MAX = 720;
 const refreshingAll = ref(false);
 const lastRefreshAt = ref<Date | null>(null);
 const nextRefreshAt = ref<number | null>(null);
@@ -86,6 +89,7 @@ export function useApp() {
     refreshIntervalSeconds.value = data.refreshIntervalSeconds ?? 300;
     refreshActiveHours.value = normalizeRefreshActiveHours(data.refreshActiveHours);
     filesPaneWidth.value = clampFilesPaneWidth(data.filesPaneWidth ?? 320);
+    terminalPaneHeight.value = clampTerminalPaneHeight(data.terminalPaneHeight ?? 280);
     diffMode.value = data.diffMode === "inline" ? "inline" : "split";
     windowState.value = data.window ?? null;
   }
@@ -467,6 +471,18 @@ export function useApp() {
 
   async function saveFilesPaneWidth(width: number) {
     filesPaneWidth.value = await api.updateFilesPaneWidth(clampFilesPaneWidth(width));
+  }
+
+  function clampTerminalPaneHeight(height: number) {
+    return Math.round(Math.min(TERMINAL_PANE_MAX, Math.max(TERMINAL_PANE_MIN, height)));
+  }
+
+  function setTerminalPaneHeight(height: number) {
+    terminalPaneHeight.value = clampTerminalPaneHeight(height);
+  }
+
+  async function saveTerminalPaneHeight(height: number) {
+    terminalPaneHeight.value = await api.updateTerminalPaneHeight(clampTerminalPaneHeight(height));
   }
 
   async function saveDiffMode(mode: DiffMode) {
@@ -1159,6 +1175,9 @@ export function useApp() {
     filesPaneWidth,
     setFilesPaneWidth,
     saveFilesPaneWidth,
+    terminalPaneHeight,
+    setTerminalPaneHeight,
+    saveTerminalPaneHeight,
     diffMode,
     saveDiffMode,
     windowState,

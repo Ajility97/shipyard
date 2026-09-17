@@ -53,6 +53,7 @@ pub fn run() {
             commands::update_group_settings,
             commands::update_app_settings,
             commands::update_files_pane_width,
+            commands::update_terminal_pane_height,
             commands::update_diff_mode,
             commands::update_refresh_active_hours,
             window_state::get_window_state,

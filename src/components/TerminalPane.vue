@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../api";
+import { useApp } from "../composables/useApp";
 
 const TERMINAL_FONT = "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
 
@@ -16,8 +17,14 @@ const emit = defineEmits<{
   close: [];
 }>();
 
+const { terminalPaneHeight, setTerminalPaneHeight, saveTerminalPaneHeight } = useApp();
+
 const host = ref<HTMLDivElement | null>(null);
 const message = ref("");
+const resizing = ref(false);
+let resizeStartY = 0;
+let resizeStartHeight = 280;
+let resizePointerId: number | null = null;
 
 let term: Terminal | null = null;
 let fit: FitAddon | null = null;
@@ -91,6 +98,38 @@ function syncSize() {
   void api.resizeTerminal(sessionId, term.cols, term.rows).catch(() => {
     /* closed while resizing */
   });
+}
+
+function onResizeMove(event: PointerEvent) {
+  setTerminalPaneHeight(resizeStartHeight + (resizeStartY - event.clientY));
+}
+
+function stopResize(event?: PointerEvent) {
+  if (resizePointerId === null) {
+    return;
+  }
+  if (event && event.pointerId !== resizePointerId) {
+    return;
+  }
+  window.removeEventListener("pointermove", onResizeMove);
+  window.removeEventListener("pointerup", stopResize);
+  window.removeEventListener("pointercancel", stopResize);
+  resizing.value = false;
+  resizePointerId = null;
+  document.body.classList.remove("is-resizing", "is-resizing-y");
+  void saveTerminalPaneHeight(terminalPaneHeight.value);
+}
+
+function startResize(event: PointerEvent) {
+  event.preventDefault();
+  resizeStartY = event.clientY;
+  resizeStartHeight = terminalPaneHeight.value;
+  resizePointerId = event.pointerId;
+  resizing.value = true;
+  document.body.classList.add("is-resizing", "is-resizing-y");
+  window.addEventListener("pointermove", onResizeMove);
+  window.addEventListener("pointerup", stopResize);
+  window.addEventListener("pointercancel", stopResize);
 }
 
 onMounted(async () => {
@@ -174,6 +213,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopResize();
   resizeObserver?.disconnect();
   resizeObserver = null;
   void closeSession();
@@ -193,7 +233,17 @@ watch(
 </script>
 
 <template>
-  <section class="repo-terminal">
+  <section
+    class="repo-terminal"
+    :class="{ resizing }"
+    :style="{ '--terminal-pane-height': `${terminalPaneHeight}px` }"
+  >
+    <button
+      class="pane-resize-y"
+      type="button"
+      aria-label="Resize terminal"
+      @pointerdown="startResize"
+    />
     <div class="repo-terminal-bar">
       <span class="repo-terminal-path" :title="cwd">{{ cwd }}</span>
       <button class="ghost tiny" type="button" title="Close terminal" @click="emit('close')">

@@ -850,9 +850,18 @@ button.toast.error:hover:not(:disabled) {
   gap: 0.65rem;
 }
 
-.settings-slider input[type="range"] {
+.settings-slider input[type="range"],
+.settings-slider-input {
   flex: 1;
   min-width: 0;
+}
+
+.settings-slider-input {
+  display: flex;
+}
+
+.settings-slider input[type="range"] {
+  width: 100%;
   accent-color: var(--accent);
 }
 
@@ -2253,14 +2262,19 @@ body.reordering-repos .repo-row,
 
 .graph-body.with-terminal > .branch-pane,
 .graph-body.with-terminal > .graph-scroll {
-  flex: 1 1 50%;
+  flex: 1 1 0;
+  min-height: 6rem;
 }
 
 .repo-terminal {
+  position: relative;
   display: flex;
-  flex: 1 1 50%;
+  flex: 0 0 var(--terminal-pane-height, 280px);
   flex-direction: column;
-  min-height: 8rem;
+  height: var(--terminal-pane-height, 280px);
+  max-height: calc(100% - 6rem);
+  min-height: 10rem;
+  overflow: hidden;
   border-top: 1px solid var(--border);
   background: #0d1016;
 }
@@ -2345,29 +2359,52 @@ body.reordering-repos .repo-row,
   overflow: hidden;
 }
 
-.pane-resize {
+.pane-resize,
+.pane-resize-y {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -3px;
   z-index: 7;
-  width: 8px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.pane-resize {
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 8px;
   cursor: col-resize;
 }
 
+.pane-resize-y {
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: row-resize;
+}
+
 .pane-resize:hover,
-.repo-view.resizing .pane-resize {
+.repo-view.resizing .pane-resize,
+.pane-resize-y:hover,
+.repo-terminal.resizing .pane-resize-y {
   background: var(--accent);
 }
 
 body.is-resizing,
 body.is-resizing * {
-  cursor: col-resize !important;
   user-select: none !important;
+}
+
+body.is-resizing-x,
+body.is-resizing-x * {
+  cursor: col-resize !important;
+}
+
+body.is-resizing-y,
+body.is-resizing-y * {
+  cursor: row-resize !important;
 }
 
 .file-pane {

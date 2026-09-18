@@ -12,6 +12,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "Refresh is now Fetch on repository and group actions, with Auto-fetch and Last fetch matching that wording. The button uses a cloud-down icon and sits before Pull. Open repositories have Fetch on the toolbar too.",
       "Open repositories watch the working tree and git metadata, so staged, unstaged, and File History lists update when files change in another app.",
       "File History no longer keeps a renamed or deleted file under its old name.",
+      "Tags view on the repo toolbar lists local tags. New tag creates a lightweight or annotated tag on HEAD or a commit you specify; Delete removes it.",
     ],
   },
   {

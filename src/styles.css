@@ -2893,10 +2893,58 @@ body.is-resizing-y * {
   white-space: nowrap;
 }
 
-.stash-row-date {
+.stash-row-date,
+.tag-row-hash {
   flex-shrink: 0;
   color: var(--muted);
   font-size: 12px;
+}
+
+.tag-row-hash {
+  font-family: var(--font-code);
+}
+
+.tag-row-message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.tag-row-icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--warn);
+}
+
+.tag-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 0.55rem 0.75rem 0.45rem;
+}
+
+.tag-pane-header p {
+  margin: 0;
+  min-width: 0;
+}
+
+.tag-pane-header button {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.branch-pill.annotated {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 18%, var(--chip));
 }
 
 .branch-footer {

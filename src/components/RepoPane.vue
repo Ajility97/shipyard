@@ -14,6 +14,7 @@ import Modal from "./Modal.vue";
 import PathLabel from "./PathLabel.vue";
 import RepoToolbar from "./RepoToolbar.vue";
 import StashList from "./StashList.vue";
+import TagList from "./TagList.vue";
 import TerminalPane from "./TerminalPane.vue";
 import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
@@ -27,6 +28,7 @@ import type {
   RepoFile,
   RepoFilesChanged,
   StashEntry,
+  TagEntry,
   WorkingTreeFile,
 } from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
@@ -70,6 +72,8 @@ const branchesView = ref(false);
 const graphStale = ref(false);
 const stashes = ref<StashEntry[]>([]);
 const stashView = ref(false);
+const tags = ref<TagEntry[]>([]);
+const tagView = ref(false);
 const terminalOpen = ref(false);
 const overview = ref<BranchOverview | null>(null);
 let overviewGeneration = 0;
@@ -117,6 +121,11 @@ const commitTitleInput = ref<HTMLInputElement | null>(null);
 const stashing = ref(false);
 const stashMessage = ref("");
 const stashMessageInput = ref<HTMLInputElement | null>(null);
+const creatingTag = ref(false);
+const newTagName = ref("");
+const newTagMessage = ref("");
+const newTagTarget = ref("");
+const newTagInput = ref<HTMLInputElement | null>(null);
 const pullingOptions = ref(false);
 const pullSource = ref<"current" | "develop" | "master" | "main" | "specify">("current");
 const specifyBranch = ref("");
@@ -124,6 +133,7 @@ const specifyBranch = ref("");
 const COMMIT_TITLE_MAX = 72;
 
 const canCreateBranch = computed(() => Boolean(newBranchName.value.trim()));
+const canCreateTag = computed(() => Boolean(newTagName.value.trim()));
 const canRenameBranch = computed(() => {
   const next = renameBranchName.value.trim();
   return Boolean(next) && next !== (renamingBranch.value?.name ?? "");
@@ -369,6 +379,7 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
     files.value = [];
     branches.value = [];
     stashes.value = [];
+    tags.value = [];
     overview.value = null;
     selectedFile.value = null;
     closeCommitDetail();
@@ -384,11 +395,12 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
   }
   message.value = "";
   try {
-    const [nextCommits, nextFiles, nextBranches, nextStashes, nextOverview] = await Promise.all([
+    const [nextCommits, nextFiles, nextBranches, nextStashes, nextTags, nextOverview] = await Promise.all([
       wantGraph ? api.logGraph(match.repo.path) : Promise.resolve(commits.value),
       api.workingTree(match.repo.path),
       api.listLocalBranches(match.repo.path).catch(() => [] as string[]),
       api.stashList(match.repo.path).catch(() => [] as StashEntry[]),
+      api.tagList(match.repo.path).catch(() => [] as TagEntry[]),
       wantOverview
         ? api.branchOverview(match.repo.path, preferredMergeTarget(), false).catch(() => null)
         : Promise.resolve(overview.value),
@@ -410,6 +422,7 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
     }
     branches.value = nextBranches;
     stashes.value = nextStashes;
+    tags.value = nextTags;
     if (wantOverview) {
       const needsClassify = nextOverview?.branches.some((branch) => branch.pending) ?? false;
       overview.value = nextOverview ? mergeOverview(overview.value, nextOverview) : nextOverview;
@@ -1057,6 +1070,7 @@ async function toggleBranchesView() {
     return;
   }
   stashView.value = false;
+  tagView.value = false;
   await nextTick();
   try {
     await loadOverview();
@@ -1069,6 +1083,19 @@ function toggleStashView() {
   stashView.value = !stashView.value;
   if (stashView.value) {
     branchesView.value = false;
+    tagView.value = false;
+    return;
+  }
+  if (graphStale.value) {
+    void loadRepo({ overview: false, silent: true });
+  }
+}
+
+function toggleTagView() {
+  tagView.value = !tagView.value;
+  if (tagView.value) {
+    branchesView.value = false;
+    stashView.value = false;
     return;
   }
   if (graphStale.value) {
@@ -1271,6 +1298,54 @@ async function dropStash(stash: StashEntry) {
     return;
   }
   return runRepoAction("Dropping stash…", () => api.stashDrop(match.repo.path, stash.index));
+}
+
+async function openCreateTag() {
+  if (actionBusy.value) {
+    return;
+  }
+  newTagName.value = "";
+  newTagMessage.value = "";
+  newTagTarget.value = selectedCommit.value?.hash.slice(0, 12) ?? "";
+  creatingTag.value = true;
+  await nextTick();
+  newTagInput.value?.focus();
+}
+
+function closeCreateTag() {
+  creatingTag.value = false;
+  newTagName.value = "";
+  newTagMessage.value = "";
+  newTagTarget.value = "";
+}
+
+function createTag() {
+  const match = current.value;
+  const name = newTagName.value.trim();
+  if (!match || !name) {
+    return;
+  }
+  const message = newTagMessage.value;
+  const target = newTagTarget.value.trim();
+  closeCreateTag();
+  return runRepoAction("Creating tag…", () => api.createTag(match.repo.path, name, message, target));
+}
+
+async function deleteTag(tag: TagEntry) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const ok = await confirm(`Permanently delete tag ${tag.name}? This cannot be undone.`, {
+    title: "Delete tag",
+    kind: "warning",
+    okLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!ok) {
+    return;
+  }
+  return runRepoAction("Deleting tag…", () => api.deleteTag(match.repo.path, tag.name));
 }
 
 async function refreshBranches() {
@@ -1508,6 +1583,7 @@ watch(
   () => {
     branchesView.value = false;
     stashView.value = false;
+    tagView.value = false;
     historyOpen.value = false;
     repoFiles.value = [];
     repoFilesError.value = "";
@@ -1572,6 +1648,8 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
         :busy-branch="actionBranch"
         :branches-view="branchesView"
+        :tag-view="tagView"
+        :tag-count="tags.length"
         :stash-view="stashView"
         :stash-count="stashes.length"
         :files-open="!filesCollapsed && !historyOpen"
@@ -1588,6 +1666,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @checkout="checkoutBranch"
         @create="openCreateBranch"
         @branches="toggleBranchesView"
+        @tags="toggleTagView"
         @stash="toggleStashView"
         @files="toggleChangesPane"
         @history="toggleHistoryPane"
@@ -1631,6 +1710,13 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
           @rename="openRenameBranch"
           @delete="deleteBranch"
           @delete-merged="deleteMerged"
+        />
+        <TagList
+          v-else-if="tagView"
+          :tags="tags"
+          :busy="actionBusy"
+          @create="openCreateTag"
+          @delete="deleteTag"
         />
         <StashList
           v-else-if="stashView"
@@ -1894,6 +1980,42 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
       <button class="ghost" type="button" @click="closeStash">Cancel</button>
       <button class="primary" type="button" :disabled="!files.length" @click="stashChanges">
         Stash
+      </button>
+    </template>
+  </Modal>
+  <Modal v-if="creatingTag" title="New tag" @close="closeCreateTag">
+    <label class="modal-label">
+      <span class="muted tiny">Tag name</span>
+      <input
+        ref="newTagInput"
+        v-model="newTagName"
+        type="text"
+        placeholder="v1.0.0"
+        @keydown.enter.prevent="createTag"
+      />
+    </label>
+    <label class="modal-label">
+      <span class="muted tiny">Message</span>
+      <input
+        v-model="newTagMessage"
+        type="text"
+        placeholder="Optional. Makes an annotated tag"
+      />
+    </label>
+    <label class="modal-label">
+      <span class="muted tiny">Commit</span>
+      <input
+        v-model="newTagTarget"
+        type="text"
+        placeholder="Current commit (HEAD)"
+        @keydown.enter.prevent="createTag"
+      />
+    </label>
+    <p class="muted tiny">Leave commit blank to tag HEAD. A message makes an annotated tag.</p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeCreateTag">Cancel</button>
+      <button class="primary" type="button" :disabled="!canCreateTag" @click="createTag">
+        Create tag
       </button>
     </template>
   </Modal>

@@ -423,6 +423,16 @@ pub struct StashEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TagEntry {
+    pub name: String,
+    pub hash: String,
+    pub date: String,
+    pub message: String,
+    pub annotated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitConfig {
     pub path: String,
     pub contents: String,

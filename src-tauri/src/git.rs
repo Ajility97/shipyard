@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use crate::command_log;
 use crate::models::{
     BranchOverview, CommitFile, CommitNode, DeleteMergedResult, GitConfig, LastCommit, LocalBranch,
-    RepoFile, StashEntry, WorkingTreeFile,
+    RepoFile, StashEntry, TagEntry, WorkingTreeFile,
 };
 
 pub struct GitOutput {
@@ -131,8 +131,16 @@ pub fn combined_message(output: &GitOutput) -> String {
 }
 
 pub fn validate_ref(name: &str) -> Result<(), String> {
+    validate_named_ref(name, "branch")
+}
+
+fn validate_tag(name: &str) -> Result<(), String> {
+    validate_named_ref(name, "tag")
+}
+
+fn validate_named_ref(name: &str, kind: &str) -> Result<(), String> {
     if name.is_empty() || name.len() > 255 {
-        return Err("Invalid branch name".into());
+        return Err(format!("Invalid {kind} name"));
     }
     if name.starts_with('/')
         || name.ends_with('/')
@@ -140,13 +148,13 @@ pub fn validate_ref(name: &str) -> Result<(), String> {
         || name.contains("..")
         || name.contains('\\')
     {
-        return Err("Invalid branch name".into());
+        return Err(format!("Invalid {kind} name"));
     }
     if !name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/' | '+'))
     {
-        return Err(format!("Invalid branch name: {name}"));
+        return Err(format!("Invalid {kind} name: {name}"));
     }
     Ok(())
 }
@@ -2046,6 +2054,115 @@ pub fn stash_push(git: &Path, repo: &Path, message: &str) -> Result<String, Stri
     Ok(or_fallback(&combined, "Stashed changes"))
 }
 
+fn parse_tag_line(line: &str) -> Option<TagEntry> {
+    let mut parts = line.split('\0');
+    let name = parts.next()?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let object = parts.next().unwrap_or("").trim();
+    let peeled = parts.next().unwrap_or("").trim();
+    let date = parts.next().unwrap_or("").trim();
+    let message = parts.next().unwrap_or("").trim();
+    let annotated = !peeled.is_empty();
+    let hash = if annotated { peeled } else { object };
+    Some(TagEntry {
+        name: name.to_string(),
+        hash: hash.to_string(),
+        date: date.to_string(),
+        message: message.to_string(),
+        annotated,
+    })
+}
+
+pub fn tag_list(git: &Path, repo: &Path) -> Result<Vec<TagEntry>, String> {
+    let output = run_git(
+        git,
+        repo,
+        &[
+            "for-each-ref",
+            "--sort=-creatordate",
+            "--format=%(refname:short)%00%(objectname:short)%00%(*objectname:short)%00%(creatordate:iso-strict)%00%(subject)",
+            "refs/tags",
+        ],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not read the tag list.",
+        ));
+    }
+    Ok(output
+        .stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(parse_tag_line)
+        .collect())
+}
+
+fn tag_target_ok(target: &str) -> Result<(), String> {
+    if target.is_empty() {
+        return Ok(());
+    }
+    if target.len() > 255 || target.contains('\0') || target.chars().any(|c| c.is_control()) {
+        return Err("Invalid tag target.".into());
+    }
+    Ok(())
+}
+
+pub fn create_tag(
+    git: &Path,
+    repo: &Path,
+    name: &str,
+    message: &str,
+    target: &str,
+) -> Result<String, String> {
+    validate_tag(name)?;
+    if message.contains('\0') {
+        return Err("Invalid tag message.".into());
+    }
+    let target = target.trim();
+    tag_target_ok(target)?;
+    if ref_exists(git, repo, &format!("refs/tags/{name}")) {
+        return Err(format!("Tag {name} already exists."));
+    }
+    let message = message.trim();
+    let output = match (message.is_empty(), target.is_empty()) {
+        (true, true) => run_git(git, repo, &["tag", name])?,
+        (true, false) => run_git(git, repo, &["tag", name, target])?,
+        (false, true) => run_git(git, repo, &["tag", "-a", name, "-m", message])?,
+        (false, false) => run_git(git, repo, &["tag", "-a", name, "-m", message, target])?,
+    };
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to create tag {name}"),
+        ));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Created tag {name}"),
+    ))
+}
+
+pub fn delete_tag(git: &Path, repo: &Path, name: &str) -> Result<String, String> {
+    validate_tag(name)?;
+    if !ref_exists(git, repo, &format!("refs/tags/{name}")) {
+        return Err(format!("Tag {name} does not exist."));
+    }
+    let output = run_git(git, repo, &["tag", "-d", name])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to delete tag {name}"),
+        ));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Deleted tag {name}"),
+    ))
+}
+
 fn file_exists_at(git: &Path, repo: &Path, rev: &str, file: &str) -> bool {
     let spec = format!("{rev}:{file}");
     run_git_quiet(git, repo, &["cat-file", "-e", &spec])
@@ -3261,6 +3378,51 @@ mod tests {
         assert!(fs::read_to_string(repo.join("README.md"))
             .unwrap()
             .contains("stashed-b"));
+    }
+
+    #[test]
+    fn lists_creates_and_deletes_tags() {
+        let repo = init_repo();
+        assert!(tag_list(&git_bin(), &repo).unwrap().is_empty());
+        assert!(create_tag(&git_bin(), &repo, "", "", "").is_err());
+        assert!(create_tag(&git_bin(), &repo, "bad name", "", "").is_err());
+        assert!(delete_tag(&git_bin(), &repo, "missing").is_err());
+
+        create_tag(&git_bin(), &repo, "v1.0.0", "", "").unwrap();
+        let tags = tag_list(&git_bin(), &repo).unwrap();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].name, "v1.0.0");
+        assert!(!tags[0].annotated);
+        assert!(!tags[0].hash.is_empty());
+        assert!(create_tag(&git_bin(), &repo, "v1.0.0", "", "").is_err());
+
+        create_tag(&git_bin(), &repo, "v1.1.0", "First annotated", "").unwrap();
+        let tags = tag_list(&git_bin(), &repo).unwrap();
+        assert_eq!(tags.len(), 2);
+        let annotated = tags.iter().find(|tag| tag.name == "v1.1.0").unwrap();
+        assert!(annotated.annotated);
+        assert!(annotated.message.contains("First annotated"));
+        assert!(!annotated.hash.is_empty());
+
+        fs::write(repo.join("README.md"), "later\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "later commit"]);
+        let commits = log_graph(&git_bin(), &repo).unwrap();
+        let older = commits[1].hash.clone();
+        create_tag(&git_bin(), &repo, "v0.9.0", "", &older).unwrap();
+        let tags = tag_list(&git_bin(), &repo).unwrap();
+        let older_tag = tags.iter().find(|tag| tag.name == "v0.9.0").unwrap();
+        assert!(older.starts_with(&older_tag.hash) || older_tag.hash == older);
+
+        delete_tag(&git_bin(), &repo, "v1.0.0").unwrap();
+        let names: Vec<_> = tag_list(&git_bin(), &repo)
+            .unwrap()
+            .into_iter()
+            .map(|tag| tag.name)
+            .collect();
+        assert!(!names.iter().any(|name| name == "v1.0.0"));
+        assert!(names.iter().any(|name| name == "v1.1.0"));
+        assert!(names.iter().any(|name| name == "v0.9.0"));
     }
 
     #[test]

@@ -7,7 +7,7 @@ use crate::git;
 use crate::models::{
     sanitize_editor, sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
     DeleteMergedResult, GitConfig, LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry,
-    RepoFile, RepoGroup, RepoStatus, StashEntry, WorkingTreeFile,
+    RepoFile, RepoGroup, RepoStatus, StashEntry, TagEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -1147,6 +1147,46 @@ pub async fn stash_drop(
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || git::stash_drop(&git, Path::new(&path), index))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub fn tag_list(state: State<AppState>, path: String) -> Result<Vec<TagEntry>, String> {
+    let git = require_git(&state)?;
+    git::tag_list(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn create_tag(
+    state: State<'_, AppState>,
+    path: String,
+    name: String,
+    message: String,
+    target: Option<String>,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::create_tag(
+            &git,
+            Path::new(&path),
+            &name,
+            &message,
+            target.as_deref().unwrap_or(""),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn delete_tag(
+    state: State<'_, AppState>,
+    path: String,
+    name: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::delete_tag(&git, Path::new(&path), &name))
         .await
         .map_err(|err| err.to_string())?
 }

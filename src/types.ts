@@ -152,6 +152,14 @@ export interface StashEntry {
   date: string;
 }
 
+export interface TagEntry {
+  name: string;
+  hash: string;
+  date: string;
+  message: string;
+  annotated: boolean;
+}
+
 export interface GitConfig {
   path: string;
   contents: string;

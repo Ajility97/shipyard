@@ -15,6 +15,7 @@ import type {
   RepoGroup,
   RepoStatus,
   StashEntry,
+  TagEntry,
   WindowState,
   RepoFile,
   WorkingTreeFile,
@@ -323,6 +324,23 @@ export function stashPop(path: string, index: number) {
 
 export function stashDrop(path: string, index: number) {
   return invoke<string>("stash_drop", { path, index });
+}
+
+export function tagList(path: string) {
+  return invoke<TagEntry[]>("tag_list", { path });
+}
+
+export function createTag(path: string, name: string, message = "", target = "") {
+  return invoke<string>("create_tag", {
+    path,
+    name,
+    message,
+    target: target.trim() || null,
+  });
+}
+
+export function deleteTag(path: string, name: string) {
+  return invoke<string>("delete_tag", { path, name });
 }
 
 export function writeTextFile(path: string, contents: string) {

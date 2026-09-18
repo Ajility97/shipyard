@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import * as api from "../api";
 import { contrastingText, DEFAULT_HEADER_COLOR } from "../color";
 import { rangeIds } from "../selection";
 import { useApp } from "../composables/useApp";
@@ -27,7 +29,7 @@ const emit = defineEmits<{
   reorderStart: [event: PointerEvent, repoId: string];
 }>();
 
-const { statuses, isRepoRefreshing, updateStandaloneRepo } = useApp();
+const { statuses, isRepoRefreshing, updateStandaloneRepo, showToast } = useApp();
 const { activeId, hasTab, openRepo, openRepos } = useTabs();
 const { isOpen: menuOpen, toggle: toggleMenu, close: closeMenu } = useOverflowMenu(
   () => `repo:${props.repo.id}`,
@@ -77,6 +79,25 @@ function handleClick(event: MouseEvent) {
 function onRemove() {
   closeMenu();
   emit("remove", props.repo.id);
+}
+
+async function onOpenRemote() {
+  closeMenu();
+  try {
+    const url = await api.repoRemoteUrl(props.repo.path);
+    await openUrl(url);
+  } catch (err) {
+    showToast(String(err), "error");
+  }
+}
+
+async function onOpenInFinder() {
+  closeMenu();
+  try {
+    await api.openRepoInFinder(props.repo.path);
+  } catch (err) {
+    showToast(String(err), "error");
+  }
 }
 
 async function startEdit() {
@@ -246,6 +267,22 @@ async function saveEdit() {
         </svg>
       </button>
       <div v-if="menuOpen" class="overflow-menu-dropdown" role="menu">
+        <button
+          class="overflow-menu-item"
+          type="button"
+          role="menuitem"
+          @click.stop="onOpenRemote"
+        >
+          Open remote
+        </button>
+        <button
+          class="overflow-menu-item"
+          type="button"
+          role="menuitem"
+          @click.stop="onOpenInFinder"
+        >
+          Open in Finder
+        </button>
         <button
           v-if="flush"
           class="overflow-menu-item"

@@ -795,6 +795,152 @@ pub fn open_in_editor(repo: &Path, file: &str, editor: &str) -> Result<(), Strin
     }
 }
 
+pub fn open_repo_in_finder(path: &Path) -> Result<(), String> {
+    if !path.is_dir() {
+        if path.exists() {
+            return Err("That path is not a folder.".into());
+        }
+        return Err("That repository folder is missing.".into());
+    }
+    let status = Command::new("open")
+        .arg(path)
+        .status()
+        .map_err(|err| format!("Could not open the repository in Finder: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Could not open the repository in Finder.".into())
+    }
+}
+
+pub fn repo_remote_browse_url(git: &Path, repo: &Path) -> Result<String, String> {
+    let output = run_git_quiet(git, repo, &["remote", "get-url", "origin"])?;
+    if !output.success {
+        return Err("This repository has no origin remote.".into());
+    }
+    let remote = output.stdout.trim();
+    if remote.is_empty() {
+        return Err("This repository has no origin remote.".into());
+    }
+    remote_browse_url(remote)
+}
+
+pub fn remote_browse_url(remote: &str) -> Result<String, String> {
+    let remote = remote.trim();
+    if remote.is_empty() {
+        return Err("This repository has no origin remote.".into());
+    }
+    if is_local_remote(remote) {
+        return Err("This remote is a local path, not a web URL.".into());
+    }
+    if let Some(url) = browse_url_from_http(remote)
+        .or_else(|| browse_url_from_ssh_or_git(remote))
+        .or_else(|| browse_url_from_scp(remote))
+    {
+        return Ok(url);
+    }
+    Err("Could not turn the origin remote into a web URL.".into())
+}
+
+fn is_local_remote(remote: &str) -> bool {
+    let lower = remote.to_ascii_lowercase();
+    if lower.starts_with("file://") {
+        return true;
+    }
+    if remote.starts_with('/') || remote.starts_with('~') || remote.starts_with('.') {
+        return true;
+    }
+    let bytes = remote.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+}
+
+fn strip_scheme_ignore_ascii_case<'a>(value: &'a str, scheme: &str) -> Option<&'a str> {
+    if value.len() >= scheme.len() && value[..scheme.len()].eq_ignore_ascii_case(scheme) {
+        Some(&value[scheme.len()..])
+    } else {
+        None
+    }
+}
+
+fn strip_git_suffix(value: &str) -> &str {
+    let value = value.trim_end_matches('/');
+    value
+        .strip_suffix(".git")
+        .or_else(|| value.strip_suffix(".GIT"))
+        .unwrap_or(value)
+        .trim_end_matches('/')
+}
+
+fn browse_url_from_http(remote: &str) -> Option<String> {
+    let (scheme, rest) = if let Some(rest) = strip_scheme_ignore_ascii_case(remote, "https://") {
+        ("https", rest)
+    } else if let Some(rest) = strip_scheme_ignore_ascii_case(remote, "http://") {
+        ("http", rest)
+    } else {
+        return None;
+    };
+    let rest = strip_url_userinfo(rest);
+    if rest.is_empty() || rest.starts_with('/') {
+        return None;
+    }
+    Some(format!("{scheme}://{}", strip_git_suffix(&rest)))
+}
+
+fn strip_url_userinfo(rest: &str) -> String {
+    let Some(slash) = rest.find('/') else {
+        return rest
+            .rsplit_once('@')
+            .map(|(_, host)| host.to_string())
+            .unwrap_or_else(|| rest.to_string());
+    };
+    let head = &rest[..slash];
+    let tail = &rest[slash..];
+    if let Some((_, host)) = head.rsplit_once('@') {
+        format!("{host}{tail}")
+    } else {
+        rest.to_string()
+    }
+}
+
+fn browse_url_from_ssh_or_git(remote: &str) -> Option<String> {
+    let rest = strip_scheme_ignore_ascii_case(remote, "ssh://")
+        .or_else(|| strip_scheme_ignore_ascii_case(remote, "git://"))?;
+    let rest = rest
+        .rsplit_once('@')
+        .map(|(_, host_and_path)| host_and_path)
+        .unwrap_or(rest);
+    let slash = rest.find('/')?;
+    let hostport = &rest[..slash];
+    let path = &rest[slash + 1..];
+    let host = hostport.split(':').next().unwrap_or_default();
+    if host.is_empty() || path.is_empty() {
+        return None;
+    }
+    Some(format!("https://{host}/{}", strip_git_suffix(path)))
+}
+
+fn browse_url_from_scp(remote: &str) -> Option<String> {
+    if remote.contains("://") {
+        return None;
+    }
+    let (user_host, path) = remote.split_once(':')?;
+    let path = path.trim_start_matches('/');
+    if path.is_empty() {
+        return None;
+    }
+    let host = user_host
+        .rsplit_once('@')
+        .map(|(_, host)| host)
+        .unwrap_or(user_host);
+    if host.is_empty() || host.contains('/') {
+        return None;
+    }
+    Some(format!("https://{host}/{}", strip_git_suffix(path)))
+}
+
 pub fn ref_exists(git: &Path, repo: &Path, git_ref: &str) -> bool {
     run_git(git, repo, &["show-ref", "--verify", "--quiet", git_ref])
         .map(|output| output.success)
@@ -3357,6 +3503,77 @@ mod tests {
             Some("Visual Studio Code")
         );
         assert_eq!(editor_app_name("BBEdit").as_deref(), Some("BBEdit"));
+    }
+
+    #[test]
+    fn remote_browse_url_rewrites_https_ssh_and_scp() {
+        assert_eq!(
+            remote_browse_url("https://github.com/owner/repo.git").unwrap(),
+            "https://github.com/owner/repo"
+        );
+        assert_eq!(
+            remote_browse_url("https://user:token@github.com/owner/repo.git/").unwrap(),
+            "https://github.com/owner/repo"
+        );
+        assert_eq!(
+            remote_browse_url("git@github.com:owner/repo.git").unwrap(),
+            "https://github.com/owner/repo"
+        );
+        assert_eq!(
+            remote_browse_url("org-123@github.com:owner/repo.git").unwrap(),
+            "https://github.com/owner/repo"
+        );
+        assert_eq!(
+            remote_browse_url("ssh://git@github.com/owner/repo.git").unwrap(),
+            "https://github.com/owner/repo"
+        );
+        assert_eq!(
+            remote_browse_url("ssh://git@github.com:22/owner/repo.git").unwrap(),
+            "https://github.com/owner/repo"
+        );
+        assert_eq!(
+            remote_browse_url("git@gitlab.com:group/sub/repo.git").unwrap(),
+            "https://gitlab.com/group/sub/repo"
+        );
+        assert_eq!(
+            remote_browse_url("git@bitbucket.org:owner/repo.git").unwrap(),
+            "https://bitbucket.org/owner/repo"
+        );
+        assert_eq!(
+            remote_browse_url("git://github.com/owner/repo.git").unwrap(),
+            "https://github.com/owner/repo"
+        );
+    }
+
+    #[test]
+    fn remote_browse_url_rejects_local_and_empty_remotes() {
+        assert!(remote_browse_url("").is_err());
+        assert!(remote_browse_url("   ").is_err());
+        assert!(remote_browse_url("file:///Users/me/repo").is_err());
+        assert!(remote_browse_url("/Users/me/repo").is_err());
+        assert!(remote_browse_url("C:\\Users\\me\\repo").is_err());
+        assert!(remote_browse_url("not a remote").is_err());
+    }
+
+    #[test]
+    fn repo_remote_browse_url_reads_origin() {
+        let repo = init_repo();
+        let err = repo_remote_browse_url(&git_bin(), &repo).unwrap_err();
+        assert!(err.contains("origin"));
+        git(
+            &repo,
+            &["remote", "add", "origin", "git@github.com:owner/repo.git"],
+        );
+        assert_eq!(
+            repo_remote_browse_url(&git_bin(), &repo).unwrap(),
+            "https://github.com/owner/repo"
+        );
+    }
+
+    #[test]
+    fn open_repo_in_finder_rejects_missing_path() {
+        let err = open_repo_in_finder(Path::new("/definitely/missing/shipyard-test")).unwrap_err();
+        assert!(err.contains("missing"));
     }
 
     fn conflicted_merge_repo() -> PathBuf {

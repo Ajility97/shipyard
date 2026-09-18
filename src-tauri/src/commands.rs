@@ -924,6 +924,17 @@ pub fn open_in_editor(state: State<AppState>, path: String, file: String) -> Res
 }
 
 #[tauri::command]
+pub fn repo_remote_url(state: State<AppState>, path: String) -> Result<String, String> {
+    let git = require_git(&state)?;
+    git::repo_remote_browse_url(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn open_repo_in_finder(path: String) -> Result<(), String> {
+    git::open_repo_in_finder(Path::new(&path))
+}
+
+#[tauri::command]
 pub fn stage_file(state: State<AppState>, path: String, file: String) -> Result<(), String> {
     let git = require_git(&state)?;
     git::stage_file(&git, Path::new(&path), &file)

@@ -215,6 +215,14 @@ export function openInEditor(path: string, file: string) {
   return invoke<void>("open_in_editor", { path, file });
 }
 
+export function repoRemoteUrl(path: string) {
+  return invoke<string>("repo_remote_url", { path });
+}
+
+export function openRepoInFinder(path: string) {
+  return invoke<void>("open_repo_in_finder", { path });
+}
+
 export function stageFile(path: string, file: string) {
   return invoke<void>("stage_file", { path, file });
 }

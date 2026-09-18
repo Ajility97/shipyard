@@ -10,6 +10,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     date: "September 18, 2026",
     notes: [
       "Refresh is now Fetch on repository and group actions, with Auto-fetch and Last fetch matching that wording. The button uses a cloud-down icon and sits before Pull. Open repositories have Fetch on the toolbar too.",
+      "Repository rows can open the origin remote in a browser or open the folder in Finder.",
     ],
   },
   {

@@ -205,8 +205,8 @@ export function useApp() {
   function refreshDoneMessage(count: number, groupName?: string) {
     const repos = count === 1 ? "1 repository" : `${count} repositories`;
     return groupName
-      ? `Refreshed ${groupName} (${repos}).`
-      : `Refresh complete. Updated ${repos}.`;
+      ? `Fetched ${groupName} (${repos}).`
+      : `Fetch complete. Updated ${repos}.`;
   }
 
   type RefreshJob = { groupId: string; repoId: string };
@@ -339,7 +339,7 @@ export function useApp() {
       return;
     }
     refreshingGroups.value = { ...refreshingGroups.value, [groupId]: true };
-    busy.value = { ...busy.value, [groupId]: "Refreshing…" };
+    busy.value = { ...busy.value, [groupId]: "Fetching…" };
     error.value = "";
     const notify = !refreshingAll.value;
     if (!refreshingAll.value) {
@@ -538,9 +538,9 @@ export function useApp() {
       return "";
     }
     if (!refreshTotal.value) {
-      return "Refreshing…";
+      return "Fetching…";
     }
-    return `Refreshing ${refreshDone.value}/${refreshTotal.value}`;
+    return `Fetching ${refreshDone.value}/${refreshTotal.value}`;
   });
 
   const pullProgressLabel = computed(() => {
@@ -575,7 +575,7 @@ export function useApp() {
     const remaining = Math.max(0, Math.ceil((nextRefreshAt.value - nowTick.value) / 1000));
     const minutes = Math.floor(remaining / 60);
     const seconds = remaining % 60;
-    return `Next refresh in ${minutes}:${String(seconds).padStart(2, "0")}`;
+    return `Next fetch in ${minutes}:${String(seconds).padStart(2, "0")}`;
   });
 
   async function createGroup(name: string) {
@@ -767,7 +767,7 @@ export function useApp() {
     error.value = "";
     try {
       applyStatus(await api.refreshRepo(STANDALONE_GROUP_ID, repoId, true));
-      showToast(`Refreshed ${repoDisplayName(repoId, repo.path)}.`);
+      showToast(`Fetched ${repoDisplayName(repoId, repo.path)}.`);
     } catch (err) {
       const text = String(err);
       error.value = text;

@@ -180,7 +180,7 @@ async function saveEdit() {
       </button>
     </span>
     <span v-if="!editing" class="branch">
-      <span v-if="isRepoRefreshing(repo.id)" class="spinner" aria-label="Refreshing repository" />
+      <span v-if="isRepoRefreshing(repo.id)" class="spinner" aria-label="Fetching repository" />
       <span class="branch-name">
         <BranchIcon />
         {{ statuses[repo.id]?.branch ?? "…" }}

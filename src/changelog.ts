@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.0.8",
+    date: "September 18, 2026",
+    notes: [
+      "Refresh is now Fetch on repository and group actions, with Auto-fetch and Last fetch matching that wording. The button uses a cloud-down icon and sits before Pull. Open repositories have Fetch on the toolbar too.",
+    ],
+  },
+  {
     version: "1.0.7",
     date: "September 17, 2026",
     notes: [

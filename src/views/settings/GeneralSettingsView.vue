@@ -104,11 +104,11 @@ async function resetTerminalHeight() {
       <section class="settings-card">
         <div class="settings-row">
           <div class="settings-row-copy">
-            <h3>Auto-refresh</h3>
+            <h3>Auto-fetch</h3>
             <p class="muted tiny">How often Shipyard fetches remote status for every repository.</p>
           </div>
           <label class="settings-control">
-            <span class="visually-hidden">Auto-refresh interval</span>
+            <span class="visually-hidden">Auto-fetch interval</span>
             <select :value="refreshIntervalSeconds" @change="onRefreshInterval">
               <option :value="0">Off</option>
               <option :value="60">1 minute</option>

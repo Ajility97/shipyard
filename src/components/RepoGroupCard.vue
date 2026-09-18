@@ -437,7 +437,7 @@ const refreshLabel = computed(() => {
   if (canCancelRefresh.value && refreshCancelled.value) {
     return "Cancelling…";
   }
-  return canCancelRefresh.value ? "Cancel" : "Refresh";
+  return canCancelRefresh.value ? "Cancel" : "Fetch";
 });
 
 function openPull() {
@@ -595,6 +595,36 @@ function onHeaderClick(event: MouseEvent) {
       <div class="group-actions">
         <template v-if="group.repos.length">
           <div
+            v-if="refreshingAll || groupRefreshing || (!pullingAll && !pulling && !checkingOut)"
+            class="header-action"
+          >
+            <span v-if="refreshingAll || groupRefreshing" class="action-progress">
+              Fetching
+              <span class="spinner" aria-hidden="true" />
+              {{ refreshProgress[group.id] || `0/${group.repos.length}` }}
+            </span>
+            <button
+              v-if="!refreshingAll && !pulling && !checkingOut"
+              class="tiny"
+              type="button"
+              :class="canCancelRefresh ? 'danger' : 'ghost'"
+              :disabled="refreshCancelled || (!!actionLabel && !groupRefreshing)"
+              @click="groupRefreshing ? cancelRefresh() : refreshGroup(group.id)"
+            >
+              <svg
+                v-if="!groupRefreshing"
+                class="button-icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 9.75v6.75m0 0-3-3m3 3 3-3m-8.25 6a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z"
+                />
+              </svg>
+              {{ refreshLabel }}
+            </button>
+          </div>
+          <div
             v-if="!refreshingAll && !groupRefreshing && !checkingOut"
             class="header-action"
           >
@@ -663,36 +693,6 @@ function onHeaderClick(event: MouseEvent) {
                 />
               </svg>
               {{ checkoutLabel }}
-            </button>
-          </div>
-          <div
-            v-if="refreshingAll || groupRefreshing || (!pullingAll && !pulling && !checkingOut)"
-            class="header-action"
-          >
-            <span v-if="refreshingAll || groupRefreshing" class="action-progress">
-              Refreshing
-              <span class="spinner" aria-hidden="true" />
-              {{ refreshProgress[group.id] || `0/${group.repos.length}` }}
-            </span>
-            <button
-              v-if="!refreshingAll && !pulling && !checkingOut"
-              class="tiny"
-              type="button"
-              :class="canCancelRefresh ? 'danger' : 'ghost'"
-              :disabled="refreshCancelled || (!!actionLabel && !groupRefreshing)"
-              @click="groupRefreshing ? cancelRefresh() : refreshGroup(group.id)"
-            >
-              <svg
-                v-if="!groupRefreshing"
-                class="button-icon"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-              >
-                <path
-                  d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
-                />
-              </svg>
-              {{ refreshLabel }}
             </button>
           </div>
         </template>

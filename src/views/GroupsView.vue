@@ -59,7 +59,7 @@ const lastRefreshLabel = computed(() => {
 });
 
 const refreshAllProgress = computed(
-  () => refreshProgressLabel.value.replace(/^Refreshing\s+/, "") || "…",
+  () => refreshProgressLabel.value.replace(/^Fetching\s+/, "") || "…",
 );
 
 const pullAllProgress = computed(
@@ -370,7 +370,7 @@ async function removeStandalone(repoId: string) {
         </div>
         <div class="refresh-area">
           <label class="refresh-setting">
-            <span class="muted tiny">Auto-refresh</span>
+            <span class="muted tiny">Auto-fetch</span>
             <select v-model.number="interval">
               <option :value="0">Off</option>
               <option :value="60">1 minute</option>
@@ -381,7 +381,7 @@ async function removeStandalone(repoId: string) {
           </label>
           <div class="refresh-times">
             <span v-if="countdownLabel" class="refresh-meta countdown">{{ countdownLabel }}</span>
-            <span class="refresh-last">Last refresh {{ lastRefreshLabel || "—" }}</span>
+            <span class="refresh-last">Last fetch {{ lastRefreshLabel || "—" }}</span>
           </div>
         </div>
       </div>
@@ -433,6 +433,30 @@ async function removeStandalone(repoId: string) {
               Sort A–Z
             </button>
             <div class="header-action">
+              <span v-if="refreshingAll" class="action-progress">
+                <span class="spinner" aria-hidden="true" />
+                {{ refreshAllProgress }}
+              </span>
+              <button
+                type="button"
+                :class="{ danger: refreshingAll }"
+                :disabled="!hasRepos || refreshCancelled || pullingAll"
+                @click="refreshingAll ? cancelRefresh() : refreshAll()"
+              >
+                <svg
+                  v-if="!refreshingAll"
+                  class="button-icon"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 9.75v6.75m0 0-3-3m3 3 3-3m-8.25 6a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z"
+                  />
+                </svg>
+                {{ refreshCancelled ? "Cancelling…" : refreshingAll ? "Cancel" : "Fetch" }}
+              </button>
+            </div>
+            <div class="header-action">
               <span v-if="pullingAll" class="action-progress">
                 <span class="spinner" aria-hidden="true" />
                 {{ pullAllProgress }}
@@ -455,30 +479,6 @@ async function removeStandalone(repoId: string) {
                   />
                 </svg>
                 {{ pullAllCancelled ? "Cancelling…" : pullingAll ? "Cancel" : "Pull" }}
-              </button>
-            </div>
-            <div class="header-action">
-              <span v-if="refreshingAll" class="action-progress">
-                <span class="spinner" aria-hidden="true" />
-                {{ refreshAllProgress }}
-              </span>
-              <button
-                type="button"
-                :class="{ danger: refreshingAll }"
-                :disabled="!hasRepos || refreshCancelled || pullingAll"
-                @click="refreshingAll ? cancelRefresh() : refreshAll()"
-              >
-                <svg
-                  v-if="!refreshingAll"
-                  class="button-icon"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
-                  />
-                </svg>
-                {{ refreshCancelled ? "Cancelling…" : refreshingAll ? "Cancel" : "Refresh" }}
               </button>
             </div>
           </div>

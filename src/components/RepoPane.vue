@@ -58,6 +58,7 @@ const {
   patchRepoStatus,
   showToast,
   presentActionResults,
+  repoDisplayName,
 } = useApp();
 
 const commits = ref<CommitNode[]>([]);
@@ -626,6 +627,18 @@ async function runPull(branch?: string) {
     actionLabel.value = "";
     actionBranch.value = "";
   }
+}
+
+function fetchRepo() {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const name = repoDisplayName(match.repo.id, match.repo.path);
+  return runRepoAction("Fetching…", async () => {
+    await api.refreshRepo(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id, true);
+    return `Fetched ${name}.`;
+  });
 }
 
 function pullRepo() {
@@ -1427,6 +1440,7 @@ watch(
         :staged-count="stagedCount"
         :conflicted-count="conflictedCount"
         :terminal-open="terminalOpen"
+        @fetch="fetchRepo"
         @pull="pullRepo"
         @pull-options="openPullOptions"
         @push="pushRepo"

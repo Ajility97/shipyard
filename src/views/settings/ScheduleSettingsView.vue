@@ -51,7 +51,7 @@ function onHoursTime(which: "start" | "end", event: Event) {
       <div class="settings-header">
         <div>
           <div class="brand">Schedule</div>
-          <p class="muted tiny">When auto-refresh is allowed to fetch remotes.</p>
+          <p class="muted tiny">When auto-fetch is allowed to contact remotes.</p>
         </div>
       </div>
 
@@ -60,7 +60,7 @@ function onHoursTime(which: "start" | "end", event: Event) {
           <div class="settings-row-copy">
             <h3>Active hours</h3>
             <p class="muted tiny">
-              Pause automatic fetches outside this window. Manual refresh still works.
+              Pause automatic fetches outside this window. Manual fetch still works.
             </p>
           </div>
           <button

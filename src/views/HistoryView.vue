@@ -122,7 +122,7 @@ async function clearLogs() {
         <div>
           <div class="brand">History</div>
           <p class="muted tiny">
-            Every git command Shipyard runs is recorded here, including refresh, pull, push, and
+            Every git command Shipyard runs is recorded here, including fetch, pull, push, and
             commit.
           </p>
         </div>
@@ -171,7 +171,7 @@ async function clearLogs() {
       </div>
       <div ref="terminal" class="history-terminal" @scroll="onScroll">
         <p v-if="!entries.length" class="muted tiny history-empty">
-          No commands yet. Refresh a group or open a repo to see each git invocation.
+          No commands yet. Fetch a group or open a repo to see each git invocation.
         </p>
         <p v-else-if="!visibleEntries.length" class="muted tiny history-empty">
           Only status checks are in this log. Turn off Hide status to see them.

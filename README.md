@@ -13,21 +13,88 @@
   <a href="https://buymeacoffee.com/fylzero1"><img src="docs/buy-me-a-coffee.svg" alt="Buy me a coffee" height="56"></a>
 </p>
 
-## Prerequisites
+## First-time setup
 
-- [Node.js](https://nodejs.org/) 20+
-- [Rust](https://www.rust-lang.org/tools/install) via `rustup` (`cargo` must be on your PATH; if a new terminal cannot find it, run `source "$HOME/.cargo/env"`)
-- [Xcode Command Line Tools](https://developer.apple.com/xcode/resources/): `xcode-select --install`
-- Git on your PATH (Homebrew and `/usr/bin/git` are also discovered automatically)
+Shipyard is a [Tauri](https://v2.tauri.app/) app: a Vue frontend plus a Rust native shell. You need **Node**, **Rust**, **Xcode Command Line Tools**, and **Git** before `npm run tauri dev` will work.
 
-## Develop
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/fylzero/shipyard.git
+cd shipyard
+```
+
+### 2. Xcode Command Line Tools
+
+These provide the C/C++ compiler Rust uses on macOS.
+
+```bash
+xcode-select --install
+```
+
+If that says they are already installed, you are fine. Confirm with:
+
+```bash
+xcode-select -p
+```
+
+You should see `/Library/Developer/CommandLineTools` or an Xcode path.
+
+### 3. Node.js 20+
+
+Install from [nodejs.org](https://nodejs.org/) or Homebrew:
+
+```bash
+brew install node
+node -v   # v20 or newer
+npm -v
+```
+
+### 4. Rust (this is the usual missing piece)
+
+Tauri compiles the native app with `cargo`. If Rust is missing you will get:
+
+```text
+failed to run 'cargo metadata' ... No such file or directory (os error 2)
+```
+
+Install the official toolchain with [rustup](https://www.rust-lang.org/tools/install):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Accept the defaults, then **open a new terminal**. rustup puts `cargo` on your PATH via `~/.zshrc`. Confirm:
+
+```bash
+cargo --version
+rustc --version
+```
+
+You do not need to `source` anything for `npm run tauri dev`. That script already prepends `$HOME/.cargo/bin` to `PATH`.
+
+### 5. Git
+
+```bash
+git --version
+```
+
+Homebrew Git and `/usr/bin/git` are both fine. Shipyard shells out to whatever `git` is on your PATH.
+
+### 6. Install JS dependencies and start the app
 
 ```bash
 npm install
 npm run tauri dev
 ```
 
-This starts Vite on `http://localhost:1420` and opens the native Shipyard window.
+That command:
+
+1. Starts Vite on `http://localhost:1420` for the Vue UI
+2. Compiles the Rust/Tauri shell
+3. Opens the native Shipyard window
+
+The **first** `tauri dev` (or `tauri build`) downloads crates and compiles from scratch. That often takes several minutes. Later runs are much faster.
 
 ## Export a native Mac app
 
@@ -44,3 +111,16 @@ When the build finishes:
 
 To run it locally, open the `.app` (or drag it to `/Applications`). macOS Gatekeeper may warn that an unsigned local build is unidentified: right-click the app, choose **Open**, then confirm.
 
+## Troubleshooting
+
+**`failed to run 'cargo metadata' ... No such file or directory (os error 2)`**  
+Rust is not installed. Run step 4, open a new terminal, and confirm `command -v cargo` prints `/Users/<you>/.cargo/bin/cargo`. If rustup did not update `~/.zshrc`, add `. "$HOME/.cargo/env"` there once.
+
+**`xcrun: error: invalid active developer path`**  
+Xcode Command Line Tools are missing or stale. Run `xcode-select --install` (or `sudo xcode-select --reset` after installing Xcode).
+
+**Vite starts but no native window**  
+Leave the first Rust compile running. If it fails, the error is in the same terminal as `npm run tauri dev`.
+
+**Frontend only (browser, no native APIs)**  
+`npm run dev` serves the Vue app at `http://localhost:1420`. Git, dialogs, and other Tauri APIs need `npm run tauri dev`.

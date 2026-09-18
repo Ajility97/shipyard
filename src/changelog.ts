@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.0.7",
+    date: "September 17, 2026",
+    notes: [
+      "When a branch is ahead of its remote, Undo unpushed on the repo toolbar soft-resets those local commits and keeps the changes staged.",
+    ],
+  },
+  {
     version: "1.0.6",
     date: "September 17, 2026",
     notes: [

@@ -31,6 +31,7 @@ const emit = defineEmits<{
   pull: [];
   pullOptions: [];
   push: [];
+  undoUnpushed: [];
   checkout: [branch: string];
   create: [];
   branches: [];
@@ -55,6 +56,16 @@ const pullTitle = computed(() =>
 const pushTitle = computed(() =>
   currentBranch.value ? `Push to ${currentBranch.value}` : "Push current branch",
 );
+
+const unpushedCount = computed(() => statuses.value[props.repoId]?.ahead ?? 0);
+const canUndoUnpushed = computed(
+  () => unpushedCount.value > 0 && !statuses.value[props.repoId]?.operation,
+);
+const undoUnpushedTitle = computed(() => {
+  const count = unpushedCount.value;
+  const label = count === 1 ? "1 unpushed commit" : `${count} unpushed commits`;
+  return `Undo ${label}. Changes stay staged.`;
+});
 
 const progressLabel = computed(() => props.busyLabel.replace(/…$/, "").trim());
 const progressBranch = computed(() => props.busyBranch?.trim() || "");
@@ -155,6 +166,20 @@ async function toggleBranches() {
             />
           </svg>
           Push
+        </button>
+        <button
+          v-if="canUndoUnpushed"
+          class="ghost tiny"
+          type="button"
+          :disabled="busy"
+          :title="undoUnpushedTitle"
+          @click="emit('undoUnpushed')"
+        >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 15L3 9m0 0l6-6M3 9h10.5a6 6 0 010 12H12" />
+          </svg>
+          Undo unpushed
+          <span class="file-count-badge">{{ unpushedCount }}</span>
         </button>
         <span v-if="busyLabel" class="action-progress">
           {{ progressLabel }}

@@ -1066,6 +1066,17 @@ pub async fn repo_push(state: State<'_, AppState>, path: String) -> Result<Strin
 }
 
 #[tauri::command]
+pub async fn reset_unpushed_commits(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::reset_unpushed_commits(&git, Path::new(&path)))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub fn file_diff(
     state: State<AppState>,
     path: String,

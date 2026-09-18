@@ -662,6 +662,29 @@ function pushRepo() {
   return runRepoAction("Pushing…", () => api.repoPush(match.repo.path), match.status?.branch ?? "");
 }
 
+async function undoUnpushedCommits() {
+  const match = current.value;
+  const ahead = match?.status?.ahead ?? 0;
+  if (!match || ahead < 1 || actionBusy.value) {
+    return;
+  }
+  const countLabel = ahead === 1 ? "1 unpushed commit" : `${ahead} unpushed commits`;
+  const ok = await confirm(
+    `Undo ${countLabel} on this branch? The branch moves back to match the remote, and the changes stay staged. Nothing is removed from the remote.`,
+    {
+      title: "Undo unpushed commits",
+      kind: "warning",
+      okLabel: "Undo commits",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  openChangesPane();
+  return runRepoAction("Undoing commits…", () => api.resetUnpushedCommits(match.repo.path));
+}
+
 async function checkoutBranch(branch: string) {
   const match = current.value;
   if (!match || actionBusy.value) {
@@ -1407,6 +1430,7 @@ watch(
         @pull="pullRepo"
         @pull-options="openPullOptions"
         @push="pushRepo"
+        @undo-unpushed="undoUnpushedCommits"
         @checkout="checkoutBranch"
         @create="openCreateBranch"
         @branches="toggleBranchesView"

@@ -1430,6 +1430,63 @@ pub fn push(git: &Path, repo: &Path) -> Result<String, String> {
     ))
 }
 
+/// Soft-reset HEAD to the published tip so unpushed commits become staged changes.
+pub fn reset_unpushed_commits(git: &Path, repo: &Path) -> Result<String, String> {
+    if current_operation(repo).is_some() {
+        return Err(
+            "Cannot undo unpushed commits while a merge or rebase is in progress. Abort it instead."
+                .into(),
+        );
+    }
+
+    let target = published_tip(git, repo)?;
+    let (ahead, _) = ahead_behind_for_ref(git, repo, &target);
+    if ahead == 0 {
+        return Err("No unpushed commits to undo.".into());
+    }
+
+    let output = run_git(git, repo, &["reset", "--soft", &target])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to undo unpushed commits.",
+        ));
+    }
+
+    let label = if ahead == 1 {
+        "1 unpushed commit".to_string()
+    } else {
+        format!("{ahead} unpushed commits")
+    };
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Undid {label}. Changes are still staged."),
+    ))
+}
+
+fn published_tip(git: &Path, repo: &Path) -> Result<String, String> {
+    if let Ok(output) = run_git_quiet(git, repo, &["rev-parse", "--abbrev-ref", "@{upstream}"]) {
+        if output.success {
+            let name = output.stdout.trim();
+            if !name.is_empty() {
+                return Ok(name.to_string());
+            }
+        }
+    }
+
+    let branch = current_branch(git, repo)?;
+    if branch == "HEAD" || branch.starts_with("detached ") {
+        return Err("Cannot undo unpushed commits while HEAD is detached.".into());
+    }
+
+    let remote = format!("origin/{branch}");
+    if ref_exists(git, repo, &format!("refs/remotes/{remote}")) {
+        return Ok(remote);
+    }
+
+    Err("This branch has no remote to reset to.".into())
+}
+
 pub fn checkout_with_fallbacks(
     git: &Path,
     repo: &Path,
@@ -2672,6 +2729,50 @@ mod tests {
         let last = last_commit(&git_bin(), &work).unwrap();
         assert_eq!(last.title, "local commit");
         assert!(!last.published);
+    }
+
+    #[test]
+    fn soft_resets_unpushed_commits_to_upstream() {
+        let upstream = init_repo();
+        let work = temp_dir();
+        git(&work, &["clone", upstream.to_str().unwrap(), "."]);
+        git(&work, &["config", "user.name", "Shipyard Test"]);
+        git(&work, &["config", "user.email", "test@shipyard.local"]);
+
+        fs::write(work.join("one.txt"), "first\n").unwrap();
+        git(&work, &["add", "one.txt"]);
+        git(&work, &["commit", "-m", "first local"]);
+        fs::write(work.join("two.txt"), "second\n").unwrap();
+        git(&work, &["add", "two.txt"]);
+        git(&work, &["commit", "-m", "second local"]);
+        fs::write(work.join("README.md"), "dirty\n").unwrap();
+
+        let ahead = live_status(&git_bin(), &work).unwrap();
+        assert_eq!(ahead.ahead, 2);
+
+        let message = reset_unpushed_commits(&git_bin(), &work).unwrap();
+        assert!(message.contains("2 unpushed commits"));
+
+        let status = live_status(&git_bin(), &work).unwrap();
+        assert_eq!(status.ahead, 0);
+        assert_eq!(current_branch(&git_bin(), &work).unwrap(), "develop");
+        assert_eq!(last_commit(&git_bin(), &work).unwrap().title, "initial");
+
+        let files = working_tree(&git_bin(), &work).unwrap();
+        assert!(files.iter().any(|file| file.path == "one.txt" && file.staged));
+        assert!(files.iter().any(|file| file.path == "two.txt" && file.staged));
+        assert!(files.iter().any(|file| file.path == "README.md" && !file.staged));
+        assert_eq!(fs::read_to_string(work.join("one.txt")).unwrap(), "first\n");
+        assert_eq!(fs::read_to_string(work.join("README.md")).unwrap(), "dirty\n");
+
+        assert!(reset_unpushed_commits(&git_bin(), &work).is_err());
+        assert!(reset_unpushed_commits(&git_bin(), &upstream).is_err());
+    }
+
+    #[test]
+    fn refuses_to_reset_unpushed_commits_during_merge() {
+        let repo = conflicted_merge_repo();
+        assert!(reset_unpushed_commits(&git_bin(), &repo).is_err());
     }
 
     #[test]

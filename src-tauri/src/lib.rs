@@ -99,6 +99,7 @@ pub fn run() {
             commands::rename_local_branch,
             commands::repo_pull,
             commands::repo_push,
+            commands::reset_unpushed_commits,
             commands::file_diff,
             commands::commit_files,
             commands::commit_file_diff,

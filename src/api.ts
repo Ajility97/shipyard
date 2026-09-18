@@ -281,6 +281,10 @@ export function repoPush(path: string) {
   return invoke<string>("repo_push", { path });
 }
 
+export function resetUnpushedCommits(path: string) {
+  return invoke<string>("reset_unpushed_commits", { path });
+}
+
 export function fileDiff(path: string, file: string, staged = false) {
   return invoke<string>("file_diff", { path, file, staged });
 }

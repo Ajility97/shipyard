@@ -2334,6 +2334,9 @@ pub fn repo_files(git: &Path, repo: &Path) -> Result<Vec<RepoFile>, String> {
         repo,
         &["ls-files", "--cached", "--ignored", "--exclude-standard", "-z"],
     )?;
+    let deleted: HashSet<String> = ls_files_z(git, repo, &["ls-files", "--deleted", "-z"])?
+        .into_iter()
+        .collect();
     let other_ignored = ls_files_z(
         git,
         repo,
@@ -2351,6 +2354,9 @@ pub fn repo_files(git: &Path, repo: &Path) -> Result<Vec<RepoFile>, String> {
     let mut by_path = HashMap::new();
 
     for path in visible {
+        if deleted.contains(&path) {
+            continue;
+        }
         let ignored = tracked_ignored.contains(&path);
         by_path.insert(
             path.clone(),
@@ -2651,6 +2657,18 @@ mod tests {
         assert!(files.iter().any(|file| file.path == "build" && file.ignored && file.directory));
         assert!(files.iter().any(|file| file.path == "tracked.ignore" && file.ignored));
         assert!(!files.iter().any(|file| file.path == "build/out.js"));
+    }
+
+    #[test]
+    fn repo_files_drops_renamed_tracked_paths() {
+        let repo = init_repo();
+        fs::write(repo.join("icon.jpg"), "old\n").unwrap();
+        git(&repo, &["add", "icon.jpg"]);
+        git(&repo, &["commit", "-m", "add icon"]);
+        fs::rename(repo.join("icon.jpg"), repo.join("icon.jpg123")).unwrap();
+        let files = repo_files(&git_bin(), &repo).unwrap();
+        assert!(files.iter().any(|file| file.path == "icon.jpg123" && !file.ignored));
+        assert!(!files.iter().any(|file| file.path == "icon.jpg"));
     }
 
     #[test]

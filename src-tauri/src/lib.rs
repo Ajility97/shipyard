@@ -5,12 +5,14 @@ mod menu;
 mod models;
 mod persist;
 mod pty;
+mod watcher;
 mod window_state;
 
 use commands::AppState;
 use pty::TerminalState;
 use std::sync::Mutex;
 use tauri::Manager;
+use watcher::RepoWatcherState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,6 +37,7 @@ pub fn run() {
                 git: git::resolve_git_binary(),
             });
             app.manage(TerminalState::default());
+            app.manage(RepoWatcherState::default());
             if let (Some(window), Some(bounds)) = (app.get_webview_window("main"), bounds) {
                 window_state::apply(&window, &bounds);
             }
@@ -80,6 +83,8 @@ pub fn run() {
             commands::file_log,
             commands::working_tree,
             commands::repo_files,
+            watcher::watch_repo,
+            watcher::unwatch_repo,
             commands::discard_all_changes,
             commands::last_commit,
             commands::commit,

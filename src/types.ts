@@ -114,6 +114,11 @@ export interface RepoFile {
   directory: boolean;
 }
 
+export interface RepoFilesChanged {
+  path: string;
+  git: boolean;
+}
+
 export interface CommitFile {
   path: string;
   oldPath: string | null;

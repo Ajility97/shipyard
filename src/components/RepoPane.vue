@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import BranchList from "./BranchList.vue";
 import ChangesToggle from "./ChangesToggle.vue";
@@ -24,6 +25,7 @@ import type {
   LastCommit,
   LocalBranch,
   RepoFile,
+  RepoFilesChanged,
   StashEntry,
   WorkingTreeFile,
 } from "../types";
@@ -160,6 +162,11 @@ const resizing = ref(false);
 let resizeStartX = 0;
 let resizeStartWidth = 320;
 let resizePointerId: number | null = null;
+let loadGeneration = 0;
+let watchToken = 0;
+let watchClosed = false;
+let stopWatch: UnlistenFn | undefined;
+let watchedPath = "";
 
 function onResizeMove(event: PointerEvent) {
   setFilesPaneWidth(resizeStartWidth + (resizeStartX - event.clientX));
@@ -194,8 +201,105 @@ function startResize(event: PointerEvent) {
 }
 
 onUnmounted(() => {
+  watchClosed = true;
   stopResize();
+  stopWatch?.();
+  void stopWatching(watchedPath);
 });
+
+function watchKey(path: string) {
+  return path.replace(/\/+$/, "");
+}
+
+async function stopWatching(path: string) {
+  if (!path) {
+    return;
+  }
+  try {
+    await api.unwatchRepo(path);
+  } catch {
+    /* already gone */
+  }
+}
+
+async function startWatching(path: string) {
+  const next = watchKey(path);
+  if (watchedPath === next) {
+    return;
+  }
+  const token = ++watchToken;
+  const previous = watchedPath;
+  watchedPath = next;
+  await stopWatching(previous);
+  if (token !== watchToken) {
+    return;
+  }
+  if (!next) {
+    return;
+  }
+  try {
+    await api.watchRepo(next);
+    if (token !== watchToken) {
+      await stopWatching(next);
+    }
+  } catch {
+    if (token === watchToken) {
+      watchedPath = "";
+    }
+  }
+}
+
+async function refreshHistoryFile() {
+  const match = current.value;
+  const path = selectedHistoryFile.value;
+  if (!match || !path) {
+    return;
+  }
+  const generation = ++historyCommitsGeneration;
+  try {
+    const next = await api.fileLog(match.repo.path, path);
+    if (generation !== historyCommitsGeneration) {
+      return;
+    }
+    historyCommits.value = next;
+  } catch {
+    /* keep the list already on screen */
+  }
+}
+
+async function refreshSelectedFileDiff(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match || selectedCommitFile.value || selectedHistoryCommit.value) {
+    return;
+  }
+  try {
+    const next = await api.fileDiff(match.repo.path, file.path, file.staged);
+    if (!sameFile(file, selectedFile.value)) {
+      return;
+    }
+    diff.value = next;
+  } catch (err) {
+    if (sameFile(file, selectedFile.value)) {
+      diff.value = String(err);
+    }
+  }
+}
+
+async function onRepoFilesChanged(payload: RepoFilesChanged) {
+  const match = current.value;
+  if (!match || watchKey(match.repo.path) !== watchKey(payload.path) || actionBusy.value) {
+    return;
+  }
+  await loadRepo({
+    silent: true,
+    graph: payload.git,
+    overview: payload.git && branchesView.value,
+  });
+  void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+  if (payload.git && selectedHistoryFile.value) {
+    void refreshHistoryFile();
+  }
+}
 
 function mergeOverview(previous: BranchOverview | null, next: BranchOverview): BranchOverview {
   if (!previous || previous.mergeTarget !== next.mergeTarget) {
@@ -258,6 +362,7 @@ async function loadOverview() {
 
 async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?: boolean }) {
   const match = current.value;
+  const generation = ++loadGeneration;
   if (!match) {
     overviewGeneration += 1;
     commits.value = [];
@@ -273,7 +378,7 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
 
   const wantOverview = options?.overview ?? branchesView.value;
   const wantGraph = options?.graph ?? true;
-  const generation = wantOverview ? ++overviewGeneration : overviewGeneration;
+  const overviewGen = wantOverview ? ++overviewGeneration : overviewGeneration;
   if (!options?.silent) {
     loading.value = true;
   }
@@ -288,6 +393,9 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
         ? api.branchOverview(match.repo.path, preferredMergeTarget(), false).catch(() => null)
         : Promise.resolve(overview.value),
     ]);
+    if (generation !== loadGeneration) {
+      return;
+    }
     if (wantGraph) {
       commits.value = nextCommits;
       graphStale.value = false;
@@ -298,22 +406,28 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
       void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
     }
     if (historyOpen.value) {
-      void loadRepoFiles();
+      void loadRepoFiles({ silent: options?.silent });
     }
     branches.value = nextBranches;
     stashes.value = nextStashes;
     if (wantOverview) {
       const needsClassify = nextOverview?.branches.some((branch) => branch.pending) ?? false;
       overview.value = nextOverview ? mergeOverview(overview.value, nextOverview) : nextOverview;
-      if (needsClassify && generation === overviewGeneration) {
-        void classifyOverview(match.repo.path, preferredMergeTarget(), generation);
+      if (needsClassify && overviewGen === overviewGeneration) {
+        void classifyOverview(match.repo.path, preferredMergeTarget(), overviewGen);
       }
     }
-    if (selectedFile.value && !nextFiles.some((file) => sameFile(file, selectedFile.value))) {
+    const nextSelected = selectedFile.value
+      ? nextFiles.find((file) => sameFile(file, selectedFile.value))
+      : undefined;
+    if (selectedFile.value && !nextSelected) {
       selectedFile.value = null;
-      if (!selectedCommitFile.value) {
+      if (!selectedCommitFile.value && !selectedHistoryCommit.value) {
         diff.value = "";
       }
+    } else if (nextSelected) {
+      selectedFile.value = nextSelected;
+      void refreshSelectedFileDiff(nextSelected);
     }
     if (selectedCommit.value) {
       const nextCommit = nextCommits.find((commit) => commit.hash === selectedCommit.value?.hash);
@@ -325,9 +439,13 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
       }
     }
   } catch (err) {
-    message.value = String(err);
+    if (generation === loadGeneration && !options?.silent) {
+      message.value = String(err);
+    }
   } finally {
-    loading.value = false;
+    if (generation === loadGeneration) {
+      loading.value = false;
+    }
   }
 }
 
@@ -1054,7 +1172,7 @@ async function selectHistoryCommit(commit: CommitNode) {
   }
 }
 
-async function loadRepoFiles() {
+async function loadRepoFiles(options?: { silent?: boolean }) {
   const match = current.value;
   if (!match) {
     repoFiles.value = [];
@@ -1062,7 +1180,9 @@ async function loadRepoFiles() {
     return;
   }
   const generation = ++repoFilesGeneration;
-  repoFilesLoading.value = true;
+  if (!options?.silent) {
+    repoFilesLoading.value = true;
+  }
   repoFilesError.value = "";
   try {
     const next = await api.repoFiles(match.repo.path);
@@ -1074,8 +1194,10 @@ async function loadRepoFiles() {
     if (generation !== repoFilesGeneration) {
       return;
     }
-    repoFiles.value = [];
-    repoFilesError.value = String(err);
+    if (!options?.silent) {
+      repoFiles.value = [];
+      repoFilesError.value = String(err);
+    }
   } finally {
     if (generation === repoFilesGeneration) {
       repoFilesLoading.value = false;
@@ -1408,6 +1530,24 @@ watch(
   },
   { immediate: true },
 );
+
+watch(
+  () => current.value?.repo.path ?? "",
+  (path) => {
+    void startWatching(path);
+  },
+  { immediate: true },
+);
+
+void listen<RepoFilesChanged>("repo-files-changed", (event) => {
+  void onRepoFilesChanged(event.payload);
+}).then((unlisten) => {
+  if (watchClosed) {
+    unlisten();
+    return;
+  }
+  stopWatch = unlisten;
+});
 </script>
 
 <template>

@@ -191,6 +191,14 @@ export function repoFiles(path: string) {
   return invoke<RepoFile[]>("repo_files", { path });
 }
 
+export function watchRepo(path: string) {
+  return invoke<void>("watch_repo", { path });
+}
+
+export function unwatchRepo(path: string) {
+  return invoke<void>("unwatch_repo", { path });
+}
+
 export function discardAllChanges(path: string) {
   return invoke<void>("discard_all_changes", { path });
 }

@@ -91,6 +91,8 @@ pub fn run() {
             commands::abort_operation,
             commands::continue_operation,
             commands::open_in_editor,
+            commands::repo_remote_url,
+            commands::open_repo_in_finder,
             commands::stage_file,
             commands::stage_all,
             commands::unstage_file,

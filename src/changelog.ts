@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.1.0",
+    date: "September 19, 2026",
+    notes: [
+      "1.0.1 through 1.0.8 were feature releases, not patches. From here on we follow semantic versioning: patch for fixes, minor for features, major for breaking changes.",
+    ],
+  },
+  {
     version: "1.0.8",
     date: "September 18, 2026",
     notes: [

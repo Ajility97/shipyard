@@ -125,6 +125,20 @@ export interface CommitFile {
   status: string;
 }
 
+export interface BlameLine {
+  line: number;
+  hash: string;
+  author: string;
+  email: string;
+  timestamp: number;
+  summary: string;
+}
+
+export interface FileBlame {
+  current: BlameLine[];
+  previous: BlameLine[];
+}
+
 export interface LocalBranch {
   name: string;
   current: boolean;

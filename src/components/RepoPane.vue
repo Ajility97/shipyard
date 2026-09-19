@@ -99,6 +99,26 @@ const diff = ref("");
 const showingDiff = computed(
   () => Boolean(selectedFile.value || selectedCommitFile.value || selectedHistoryCommit.value),
 );
+const blameFile = computed(
+  () =>
+    selectedFile.value?.path ??
+    selectedCommitFile.value?.path ??
+    selectedHistoryCommit.value?.path ??
+    selectedHistoryFile.value,
+);
+const blameOldPath = computed(
+  () => selectedCommitFile.value?.oldPath ?? selectedHistoryCommit.value?.oldPath ?? "",
+);
+const blameRev = computed(() => {
+  if (selectedFile.value) {
+    return "";
+  }
+  if (selectedHistoryCommit.value) {
+    return selectedHistoryCommit.value.hash;
+  }
+  return selectedCommit.value?.hash ?? "";
+});
+const blameStaged = computed(() => selectedFile.value?.staged ?? false);
 const loading = ref(false);
 const actionBusy = ref(false);
 const actionLabel = ref("");
@@ -1816,7 +1836,15 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         </div>
       </div>
       <div class="diff-scroll">
-        <DiffViewer :raw="diff" :mode="diffMode" />
+        <DiffViewer
+          :raw="diff"
+          :mode="diffMode"
+          :repo-path="current.repo.path"
+          :file="blameFile"
+          :rev="blameRev"
+          :staged="blameStaged"
+          :old-path="blameOldPath"
+        />
       </div>
     </section>
     <aside v-if="!filesCollapsed" class="changes-pane">

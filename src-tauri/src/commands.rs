@@ -6,8 +6,8 @@ use tauri::{AppHandle, State};
 use crate::git;
 use crate::models::{
     sanitize_editor, sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
-    DeleteMergedResult, GitConfig, LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry,
-    RepoFile, RepoGroup, RepoStatus, StashEntry, TagEntry, WorkingTreeFile,
+    DeleteMergedResult, FileBlame, GitConfig, LastCommit, RefreshActiveHours, RepoActionResult,
+    RepoEntry, RepoFile, RepoGroup, RepoStatus, StashEntry, TagEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -1211,6 +1211,30 @@ pub fn commit_file_diff(
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     git::commit_file_diff(&git, Path::new(&path), &hash, &file)
+}
+
+#[tauri::command]
+pub async fn file_blame(
+    state: State<'_, AppState>,
+    path: String,
+    file: String,
+    rev: Option<String>,
+    staged: bool,
+    old_path: Option<String>,
+) -> Result<FileBlame, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::file_blame(
+            &git,
+            Path::new(&path),
+            &file,
+            rev.as_deref(),
+            staged,
+            old_path.as_deref(),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> RepoStatus {

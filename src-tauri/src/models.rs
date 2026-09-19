@@ -386,6 +386,24 @@ pub struct CommitFile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BlameLine {
+    pub line: u32,
+    pub hash: String,
+    pub author: String,
+    pub email: String,
+    pub timestamp: u64,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FileBlame {
+    pub current: Vec<BlameLine>,
+    pub previous: Vec<BlameLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LocalBranch {
     pub name: String,
     pub current: bool,

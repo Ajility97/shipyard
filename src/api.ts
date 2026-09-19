@@ -7,6 +7,7 @@ import type {
   CommitNode,
   DeleteMergedResult,
   DiffMode,
+  FileBlame,
   GitConfig,
   LastCommit,
   RefreshActiveHours,
@@ -312,6 +313,22 @@ export function commitFiles(path: string, hash: string) {
 
 export function commitFileDiff(path: string, hash: string, file: string) {
   return invoke<string>("commit_file_diff", { path, hash, file });
+}
+
+export function fileBlame(
+  path: string,
+  file: string,
+  rev?: string,
+  staged = false,
+  oldPath?: string,
+) {
+  return invoke<FileBlame>("file_blame", {
+    path,
+    file,
+    rev: rev?.trim() || null,
+    staged,
+    oldPath: oldPath?.trim() || null,
+  });
 }
 
 export function stashList(path: string) {

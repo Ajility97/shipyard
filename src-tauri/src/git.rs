@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -8,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use crate::command_log;
 use crate::models::{
-    BranchOverview, CommitFile, CommitNode, DeleteMergedResult, GitConfig, LastCommit, LocalBranch,
-    RepoFile, StashEntry, TagEntry, WorkingTreeFile,
+    BlameLine, BranchOverview, CommitFile, CommitNode, DeleteMergedResult, FileBlame, GitConfig,
+    LastCommit, LocalBranch, RepoFile, StashEntry, TagEntry, WorkingTreeFile,
 };
 
 pub struct GitOutput {
@@ -66,6 +67,33 @@ pub fn run_git(git: &Path, repo: &Path, args: &[&str]) -> Result<GitOutput, Stri
 
 fn run_git_quiet(git: &Path, repo: &Path, args: &[&str]) -> Result<GitOutput, String> {
     run_git_inner(git, repo, args, false)
+}
+
+fn run_git_stdin(git: &Path, cwd: &Path, args: &[&str], input: &str) -> Result<GitOutput, String> {
+    let mut command = Command::new(git);
+    command
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|err| format!("Failed to run git: {err}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(input.as_bytes())
+            .map_err(|err| format!("Failed to run git: {err}"))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|err| format!("Failed to run git: {err}"))?;
+    Ok(GitOutput {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        success: output.status.success(),
+    })
 }
 
 fn run_git_inner(git: &Path, repo: &Path, args: &[&str], log: bool) -> Result<GitOutput, String> {
@@ -2418,6 +2446,258 @@ pub fn commit_file_diff(git: &Path, repo: &Path, hash: &str, file: &str) -> Resu
     Ok(output.stdout)
 }
 
+#[derive(Clone, Default)]
+struct BlameMeta {
+    author: String,
+    email: String,
+    timestamp: u64,
+    summary: String,
+}
+
+fn uncommitted_blame(contents: &str) -> Vec<BlameLine> {
+    if contents.is_empty() {
+        return Vec::new();
+    }
+    contents
+        .lines()
+        .enumerate()
+        .map(|(index, _)| BlameLine {
+            line: (index + 1) as u32,
+            hash: "0".repeat(40),
+            author: "Not Committed Yet".into(),
+            email: String::new(),
+            timestamp: 0,
+            summary: "Uncommitted changes".into(),
+        })
+        .collect()
+}
+
+fn is_uncommitted_line(line: &BlameLine) -> bool {
+    line.hash.chars().all(|c| c == '0')
+        || line.author == "Not Committed Yet"
+        || line.author == "External file (--contents)"
+}
+
+fn normalize_blame_line(mut line: BlameLine) -> BlameLine {
+    if is_uncommitted_line(&line) {
+        if line.author == "External file (--contents)" || line.author.is_empty() {
+            line.author = "Not Committed Yet".into();
+        }
+        if line.summary.is_empty() || line.summary == "External file (--contents)" {
+            line.summary = "Not Committed Yet".into();
+        }
+    }
+    line
+}
+
+fn config_value(git: &Path, repo: &Path, key: &str) -> String {
+    run_git_quiet(git, repo, &["config", "--get", key])
+        .ok()
+        .filter(|output| output.success)
+        .map(|output| output.stdout.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_default()
+}
+
+fn current_author(git: &Path, repo: &Path) -> (String, String) {
+    (
+        config_value(git, repo, "user.name"),
+        config_value(git, repo, "user.email"),
+    )
+}
+
+fn attribute_uncommitted(lines: Vec<BlameLine>, name: &str, email: &str) -> Vec<BlameLine> {
+    lines
+        .into_iter()
+        .map(|mut line| {
+            if !is_uncommitted_line(&line) {
+                return line;
+            }
+            if !name.is_empty() {
+                line.author = name.to_string();
+            } else if line.author == "Not Committed Yet" || line.author.is_empty() {
+                line.author = "You".into();
+            }
+            if !email.is_empty() {
+                line.email = email.to_string();
+            }
+            line.summary = "Not Committed Yet".into();
+            line
+        })
+        .collect()
+}
+
+fn with_current_author(git: &Path, repo: &Path, blame: FileBlame) -> FileBlame {
+    let (name, email) = current_author(git, repo);
+    FileBlame {
+        current: attribute_uncommitted(blame.current, &name, &email),
+        previous: attribute_uncommitted(blame.previous, &name, &email),
+    }
+}
+
+fn parse_blame_porcelain(stdout: &str) -> Vec<BlameLine> {
+    let mut lines = Vec::new();
+    let mut commits: HashMap<String, BlameMeta> = HashMap::new();
+    let mut current_hash = String::new();
+    let mut current_final = 0u32;
+    let mut pending = BlameMeta::default();
+
+    for raw in stdout.lines() {
+        if raw.starts_with('\t') {
+            commits
+                .entry(current_hash.clone())
+                .or_insert_with(|| pending.clone());
+            let meta = commits.get(&current_hash).cloned().unwrap_or_default();
+            lines.push(normalize_blame_line(BlameLine {
+                line: current_final,
+                hash: current_hash.clone(),
+                author: meta.author,
+                email: meta.email,
+                timestamp: meta.timestamp,
+                summary: meta.summary,
+            }));
+            continue;
+        }
+
+        if raw.len() >= 41
+            && raw.as_bytes()[40] == b' '
+            && raw.as_bytes()[..40]
+                .iter()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            let mut parts = raw.split_whitespace();
+            current_hash = parts.next().unwrap_or_default().to_string();
+            let _orig = parts.next();
+            current_final = parts.next().and_then(|value| value.parse().ok()).unwrap_or(0);
+            pending = commits.get(&current_hash).cloned().unwrap_or_default();
+            continue;
+        }
+
+        if let Some(value) = raw.strip_prefix("author ") {
+            pending.author = value.to_string();
+        } else if let Some(value) = raw.strip_prefix("author-mail ") {
+            pending.email = value
+                .trim()
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_string();
+        } else if let Some(value) = raw.strip_prefix("author-time ") {
+            pending.timestamp = value.parse().unwrap_or(0);
+        } else if let Some(value) = raw.strip_prefix("summary ") {
+            pending.summary = value.to_string();
+        }
+    }
+
+    lines
+}
+
+fn blame_rev(git: &Path, repo: &Path, rev: &str, file: &str) -> Vec<BlameLine> {
+    let output = run_git_quiet(git, repo, &["blame", "--porcelain", rev, "--", file]);
+    match output {
+        Ok(output) if output.success => parse_blame_porcelain(&output.stdout),
+        _ => Vec::new(),
+    }
+}
+
+fn blame_contents(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    contents: &str,
+    rev: Option<&str>,
+) -> Vec<BlameLine> {
+    let mut args = vec!["blame", "--porcelain", "--contents", "-"];
+    if let Some(rev) = rev {
+        args.push(rev);
+    }
+    args.extend(["--", file]);
+    match run_git_stdin(git, repo, &args, contents) {
+        Ok(output) if output.success => parse_blame_porcelain(&output.stdout),
+        _ if rev.is_some() => blame_contents(git, repo, file, contents, None),
+        _ => uncommitted_blame(contents),
+    }
+}
+
+fn blame_worktree(git: &Path, repo: &Path, file: &str) -> Vec<BlameLine> {
+    let output = run_git_quiet(git, repo, &["blame", "--porcelain", "--", file]);
+    match output {
+        Ok(output) if output.success => parse_blame_porcelain(&output.stdout),
+        _ => match fs::read_to_string(repo.join(file)) {
+            Ok(contents) => uncommitted_blame(&contents),
+            Err(_) => Vec::new(),
+        },
+    }
+}
+
+fn blame_index(git: &Path, repo: &Path, file: &str) -> Vec<BlameLine> {
+    let spec = format!(":{file}");
+    let output = match run_git_quiet(git, repo, &["show", &spec]) {
+        Ok(output) if output.success => output,
+        _ => return Vec::new(),
+    };
+    blame_contents(git, repo, file, &output.stdout, Some("HEAD"))
+}
+
+fn blame_head(git: &Path, repo: &Path, file: &str) -> Vec<BlameLine> {
+    if file_exists_at(git, repo, "HEAD", file) {
+        blame_rev(git, repo, "HEAD", file)
+    } else {
+        Vec::new()
+    }
+}
+
+fn blame_commit(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    rev: &str,
+    old_path: Option<&str>,
+) -> Result<FileBlame, String> {
+    let hash = require_commit(git, repo, rev)?;
+    let current_path = resolve_commit_file_path(git, repo, &hash, file)?;
+    let current = blame_rev(git, repo, &hash, &current_path);
+    let previous = match first_parent(git, repo, &hash)? {
+        Some(parent) => {
+            let prev_file = match old_path.filter(|path| !path.is_empty()) {
+                Some(old) if file_exists_at(git, repo, &parent, old) => old.to_string(),
+                _ => resolve_commit_file_path(git, repo, &parent, file)?,
+            };
+            blame_rev(git, repo, &parent, &prev_file)
+        }
+        None => Vec::new(),
+    };
+    Ok(FileBlame { current, previous })
+}
+
+pub fn file_blame(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    rev: Option<&str>,
+    staged: bool,
+    old_path: Option<&str>,
+) -> Result<FileBlame, String> {
+    require_file_path(file)?;
+    if let Some(old) = old_path.filter(|path| !path.is_empty()) {
+        require_file_path(old)?;
+    }
+
+    let blame = if let Some(rev) = rev.filter(|rev| !rev.is_empty()) {
+        blame_commit(git, repo, file, rev, old_path)?
+    } else if staged {
+        FileBlame {
+            current: blame_index(git, repo, file),
+            previous: blame_head(git, repo, file),
+        }
+    } else {
+        FileBlame {
+            current: blame_worktree(git, repo, file),
+            previous: blame_index(git, repo, file),
+        }
+    };
+    Ok(with_current_author(git, repo, blame))
+}
+
 fn ls_files_z(git: &Path, repo: &Path, args: &[&str]) -> Result<Vec<String>, String> {
     let output = run_git(git, repo, args)?;
     if !output.success {
@@ -2860,6 +3140,85 @@ mod tests {
         );
         assert_ne!(added_diff.trim(), "No changes.");
         assert_ne!(updated_diff.trim(), "No changes.");
+    }
+
+    #[test]
+    fn parse_blame_porcelain_reuses_commit_metadata() {
+        let stdout = "\
+c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff 1 1 2
+author Shipyard Test
+author-mail <test@shipyard.local>
+author-time 1710000000
+author-tz +0000
+summary initial
+filename README.md
+\thello
+c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff 2 2
+\tworld
+0000000000000000000000000000000000000000 3 3 1
+author Not Committed Yet
+author-mail <not.committed@yet>
+author-time 0
+author-tz +0000
+summary Uncommitted changes
+filename README.md
+\tdraft
+";
+        let lines = parse_blame_porcelain(stdout);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].line, 1);
+        assert_eq!(lines[0].author, "Shipyard Test");
+        assert_eq!(lines[0].email, "test@shipyard.local");
+        assert_eq!(lines[0].timestamp, 1_710_000_000);
+        assert_eq!(lines[0].summary, "initial");
+        assert_eq!(lines[1].line, 2);
+        assert_eq!(lines[1].author, "Shipyard Test");
+        assert_eq!(lines[1].summary, "initial");
+        assert_eq!(lines[2].line, 3);
+        assert_eq!(lines[2].author, "Not Committed Yet");
+        assert!(lines[2].hash.chars().all(|c| c == '0'));
+    }
+
+    #[test]
+    fn blames_working_tree_and_commit_history() {
+        let repo = init_repo();
+        fs::write(repo.join("README.md"), "hello\nagain\n").unwrap();
+        let worktree = file_blame(&git_bin(), &repo, "README.md", None, false, None).unwrap();
+        assert_eq!(worktree.current.len(), 2);
+        assert_eq!(worktree.current[0].author, "Shipyard Test");
+        assert_eq!(worktree.current[0].summary, "initial");
+        assert_eq!(worktree.current[1].author, "Shipyard Test");
+        assert_eq!(worktree.current[1].email, "test@shipyard.local");
+        assert_eq!(worktree.current[1].summary, "Not Committed Yet");
+        assert_eq!(worktree.previous.len(), 1);
+        assert_eq!(worktree.previous[0].summary, "initial");
+
+        git(&repo, &["add", "README.md"]);
+        let staged = file_blame(&git_bin(), &repo, "README.md", None, true, None).unwrap();
+        assert_eq!(staged.current.len(), 2);
+        assert_eq!(staged.current[1].author, "Shipyard Test");
+        assert_eq!(staged.current[1].summary, "Not Committed Yet");
+        assert_eq!(staged.previous.len(), 1);
+        assert_eq!(staged.previous[0].summary, "initial");
+
+        git(&repo, &["commit", "-m", "update readme"]);
+        let commits = file_log(&git_bin(), &repo, "README.md").unwrap();
+        let first = commits
+            .iter()
+            .find(|commit| commit.subject == "initial")
+            .expect("initial commit");
+        let historical = file_blame(
+            &git_bin(),
+            &repo,
+            "README.md",
+            Some(&first.hash),
+            false,
+            None,
+        )
+        .unwrap();
+        assert_eq!(historical.current.len(), 1);
+        assert_eq!(historical.current[0].summary, "initial");
+        assert!(historical.previous.is_empty());
     }
 
     #[test]

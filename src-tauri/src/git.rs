@@ -1206,6 +1206,7 @@ struct BranchRefIndex {
     local: Vec<String>,
     current: String,
     shorts: HashSet<String>,
+    oids: HashMap<String, String>,
 }
 
 fn branch_ref_index(git: &Path, repo: &Path) -> Result<BranchRefIndex, String> {
@@ -1214,7 +1215,7 @@ fn branch_ref_index(git: &Path, repo: &Path) -> Result<BranchRefIndex, String> {
         repo,
         &[
             "for-each-ref",
-            "--format=%(refname)%00%(refname:short)%00%(HEAD)",
+            "--format=%(refname)%00%(refname:short)%00%(HEAD)%00%(objectname)",
             "refs/heads",
             "refs/remotes/origin",
         ],
@@ -1229,15 +1230,20 @@ fn branch_ref_index(git: &Path, repo: &Path) -> Result<BranchRefIndex, String> {
     let mut local = Vec::new();
     let mut current = String::new();
     let mut shorts = HashSet::new();
+    let mut oids = HashMap::new();
     for line in output.stdout.lines() {
         let mut parts = line.split('\0');
         let refname = parts.next().unwrap_or("");
         let short = parts.next().unwrap_or("").trim();
         let head = parts.next().unwrap_or("");
+        let oid = parts.next().unwrap_or("").trim();
         if short.is_empty() {
             continue;
         }
         shorts.insert(short.to_string());
+        if !oid.is_empty() {
+            oids.insert(short.to_string(), oid.to_string());
+        }
         if refname.starts_with("refs/heads/") {
             local.push(short.to_string());
             if head == "*" {
@@ -1252,6 +1258,7 @@ fn branch_ref_index(git: &Path, repo: &Path) -> Result<BranchRefIndex, String> {
         local,
         current,
         shorts,
+        oids,
     })
 }
 
@@ -1468,6 +1475,9 @@ pub fn branch_overview_with(
         .as_deref()
         .map(|target| ancestor_merged_names(git, repo, target))
         .unwrap_or_default();
+    let target_oid = merge_target
+        .as_deref()
+        .and_then(|target| index.oids.get(target).cloned());
 
     let leftover: Vec<String> = index
         .local
@@ -1493,10 +1503,18 @@ pub fn branch_overview_with(
         .map(|name| {
             let protected_branch = is_protected_branch(&name) || name == target_short;
             let ancestor = ancestor_merged.contains(&name);
+            let same_tip = target_oid
+                .as_deref()
+                .and_then(|target| index.oids.get(&name).map(|oid| oid.as_str() == target))
+                .unwrap_or(false);
             let needs_cherry = !ancestor && !protected_branch && target_ref.is_some();
             let cherry = cherries.get(&name).copied();
             let pending = needs_cherry && (!classify || cherry.is_none());
-            let merged = ancestor || cherry == Some(CherryContainment::Full);
+            /*
+             * Same tip as the integration branch is a new pointer, not leftover
+             * work. Delete merged uses this same leftover list.
+             */
+            let merged = (ancestor && !same_tip) || cherry == Some(CherryContainment::Full);
             let partial = !merged && cherry == Some(CherryContainment::Partial);
             LocalBranch {
                 current: name == index.current,
@@ -4223,7 +4241,7 @@ filename README.md
         git(&repo, &["add", "feature.txt"]);
         git(&repo, &["commit", "-m", "feature work"]);
         git(&repo, &["checkout", "develop"]);
-        git(&repo, &["merge", "feature"]);
+        git(&repo, &["merge", "--no-ff", "-m", "merge feature", "feature"]);
 
         let overview = branch_overview_with(&git_bin(), &repo, Some("develop"), true).unwrap();
         assert_eq!(overview.merge_target.as_deref(), Some("develop"));
@@ -4265,6 +4283,33 @@ filename README.md
         assert!(names.contains(&"develop".into()));
         assert!(!names.contains(&"feature".into()));
         assert!(delete_local_branch(&git_bin(), &repo, "develop", true).is_err());
+    }
+
+    #[test]
+    fn does_not_mark_new_branch_at_merge_target_as_merged() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "fresh"]);
+
+        let overview = branch_overview_with(&git_bin(), &repo, Some("develop"), true).unwrap();
+        let fresh = overview
+            .branches
+            .iter()
+            .find(|branch| branch.name == "fresh")
+            .unwrap();
+        assert!(fresh.current);
+        assert!(!fresh.merged);
+        assert!(!fresh.partial);
+        assert!(!fresh.pending);
+
+        git(&repo, &["checkout", "develop"]);
+        let leftover =
+            delete_merged_branches(&git_bin(), &repo, Some("develop"), false, None).unwrap();
+        assert!(leftover.deleted.is_empty());
+        assert!(leftover.refused.is_empty());
+        assert!(leftover.message.contains("No merged"));
+        assert!(local_branches(&git_bin(), &repo)
+            .unwrap()
+            .contains(&"fresh".into()));
     }
 
     #[test]
@@ -4421,7 +4466,7 @@ filename README.md
         git(&repo, &["add", "feature.txt"]);
         git(&repo, &["commit", "-m", "feature work"]);
         git(&repo, &["checkout", "develop"]);
-        git(&repo, &["merge", "feature"]);
+        git(&repo, &["merge", "--no-ff", "-m", "merge feature", "feature"]);
         git(&repo, &["checkout", "other"]);
 
         let refused =
@@ -4450,7 +4495,7 @@ filename README.md
             git(&repo, &["add", &format!("{name}.txt")]);
             git(&repo, &["commit", "-m", name]);
             git(&repo, &["checkout", "develop"]);
-            git(&repo, &["merge", name]);
+            git(&repo, &["merge", "--no-ff", "-m", &format!("merge {name}"), name]);
         }
 
         let deleted =

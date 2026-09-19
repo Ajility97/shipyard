@@ -53,7 +53,7 @@ function canSelect(branch: LocalBranch) {
 }
 
 function isLeftover(branch: LocalBranch) {
-  return branch.merged && !branch.protected && !branch.pending;
+  return branch.merged && !branch.current && !branch.protected && !branch.pending;
 }
 
 function isPartial(branch: LocalBranch) {
@@ -134,8 +134,9 @@ onUnmounted(() => {
       </p>
       <p v-else-if="overview.mergeTarget" class="muted tiny branch-list-hint">
         Merged marks leftover local work already contained in
-        <strong>{{ overview.mergeTarget }}</strong>. Partial means some commits are in that
-        branch and some are still unique. Pull first if you want the latest remote picture.
+        <strong>{{ overview.mergeTarget }}</strong>. A new branch that still points there is
+        not leftover. Partial means some commits are in that branch and some are still unique.
+        Pull first if you want the latest remote picture.
       </p>
       <p v-else class="muted tiny branch-list-hint">
         Couldn’t find origin/develop, develop, main, or master to compare against.

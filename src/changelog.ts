@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.1.1",
+    date: "September 19, 2026",
+    notes: [
+      "Branches view no longer marks a brand-new local branch as Merged just because it still points at origin/main. Delete merged uses that same leftover list.",
+    ],
+  },
+  {
     version: "1.1.0",
     date: "September 19, 2026",
     notes: [

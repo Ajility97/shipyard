@@ -136,6 +136,8 @@ pub fn run() {
             commands::settings_file_path,
             commands::reveal_settings_file,
             commands::command_history,
+            commands::command_history_paused,
+            commands::set_command_history_paused,
             commands::clear_command_history,
             pty::open_terminal,
             pty::write_terminal,

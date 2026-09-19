@@ -436,6 +436,14 @@ export function commandHistory() {
   return invoke<CommandLogEntry[]>("command_history");
 }
 
+export function commandHistoryPaused() {
+  return invoke<boolean>("command_history_paused");
+}
+
+export function setCommandHistoryPaused(paused: boolean) {
+  return invoke<void>("set_command_history_paused", { paused });
+}
+
 export function clearCommandHistory() {
   return invoke<void>("clear_command_history");
 }

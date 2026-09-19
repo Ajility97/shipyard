@@ -33,6 +33,7 @@ struct Logger {
     path: PathBuf,
     entries: Vec<CommandLogEntry>,
     app: Option<AppHandle>,
+    paused: bool,
 }
 
 static LOGGER: Mutex<Option<Logger>> = Mutex::new(None);
@@ -40,7 +41,12 @@ static LOGGER: Mutex<Option<Logger>> = Mutex::new(None);
 pub fn init(path: PathBuf, app: Option<AppHandle>) {
     let entries = load_entries(&path);
     if let Ok(mut slot) = LOGGER.lock() {
-        *slot = Some(Logger { path, entries, app });
+        *slot = Some(Logger {
+            path,
+            entries,
+            app,
+            paused: false,
+        });
     }
 }
 
@@ -50,6 +56,24 @@ pub fn list() -> Vec<CommandLogEntry> {
         .ok()
         .and_then(|slot| slot.as_ref().map(|logger| logger.entries.clone()))
         .unwrap_or_default()
+}
+
+pub fn paused() -> bool {
+    LOGGER
+        .lock()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|logger| logger.paused))
+        .unwrap_or(false)
+}
+
+pub fn set_paused(paused: bool) -> Result<(), String> {
+    let mut slot = LOGGER
+        .lock()
+        .map_err(|_| "Could not lock the command history.".to_string())?;
+    if let Some(logger) = slot.as_mut() {
+        logger.paused = paused;
+    }
+    Ok(())
 }
 
 pub fn clear() -> Result<(), String> {
@@ -76,6 +100,15 @@ pub fn record(
     stdout: &str,
     stderr: &str,
 ) {
+    let Ok(mut slot) = LOGGER.lock() else {
+        return;
+    };
+    let Some(logger) = slot.as_mut() else {
+        return;
+    };
+    if logger.paused {
+        return;
+    }
     let entry = CommandLogEntry {
         id: Uuid::new_v4().to_string(),
         at: now_ms(),
@@ -87,13 +120,6 @@ pub fn record(
         duration_ms: u64::try_from(duration.as_millis()).unwrap_or(u64::MAX),
         stdout: truncate_output(stdout),
         stderr: truncate_output(stderr),
-    };
-
-    let Ok(mut slot) = LOGGER.lock() else {
-        return;
-    };
-    let Some(logger) = slot.as_mut() else {
-        return;
     };
     logger.entries.push(entry.clone());
     if logger.entries.len() > MAX_ENTRIES {
@@ -223,6 +249,7 @@ mod tests {
     fn persists_and_clears_command_history() {
         let path = temp_log();
         init(path.clone(), None);
+        set_paused(false).unwrap();
         record(
             Path::new("/tmp/repo-a"),
             Path::new("/usr/bin/git"),
@@ -256,5 +283,36 @@ mod tests {
 
         clear().unwrap();
         assert!(!list().iter().any(|entry| entry.cwd == "/tmp/repo-a"));
+    }
+
+    #[test]
+    fn pause_skips_new_command_history() {
+        let path = temp_log();
+        init(path, None);
+        set_paused(true).unwrap();
+        assert!(paused());
+        record(
+            Path::new("/tmp/repo-paused"),
+            Path::new("/usr/bin/git"),
+            &["status"],
+            true,
+            Duration::from_millis(4),
+            "",
+            "",
+        );
+        assert!(!list().iter().any(|entry| entry.cwd == "/tmp/repo-paused"));
+
+        set_paused(false).unwrap();
+        assert!(!paused());
+        record(
+            Path::new("/tmp/repo-paused"),
+            Path::new("/usr/bin/git"),
+            &["pull"],
+            true,
+            Duration::from_millis(8),
+            "",
+            "",
+        );
+        assert!(list().iter().any(|entry| entry.cwd == "/tmp/repo-paused"));
     }
 }

@@ -1469,6 +1469,16 @@ pub fn command_history() -> Vec<crate::command_log::CommandLogEntry> {
 }
 
 #[tauri::command]
+pub fn command_history_paused() -> bool {
+    crate::command_log::paused()
+}
+
+#[tauri::command]
+pub fn set_command_history_paused(paused: bool) -> Result<(), String> {
+    crate::command_log::set_paused(paused)
+}
+
+#[tauri::command]
 pub fn clear_command_history() -> Result<(), String> {
     crate::command_log::clear()
 }

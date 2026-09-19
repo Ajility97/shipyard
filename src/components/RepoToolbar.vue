@@ -131,6 +131,14 @@ async function toggleBranches() {
         </div>
       </div>
       <span class="repo-path" :title="path">{{ path }}</span>
+      <span v-if="busyLabel" class="action-progress repo-toolbar-progress">
+        {{ progressLabel }}
+        <span v-if="progressBranch" class="action-branch-badge" :title="progressBranch">
+          <BranchIcon />
+          <span class="action-branch-name">{{ progressBranch }}</span>
+        </span>
+        <span class="spinner" aria-hidden="true" />
+      </span>
     </div>
     <div class="repo-toolbar-bar repo-toolbar-actions">
       <div class="repo-toolbar-work">
@@ -199,14 +207,6 @@ async function toggleBranches() {
           Undo unpushed
           <span class="file-count-badge">{{ unpushedCount }}</span>
         </button>
-        <span v-if="busyLabel" class="action-progress">
-          {{ progressLabel }}
-          <span v-if="progressBranch" class="action-branch-badge" :title="progressBranch">
-            <BranchIcon />
-            <span class="action-branch-name">{{ progressBranch }}</span>
-          </span>
-          <span class="spinner" aria-hidden="true" />
-        </span>
       </div>
       <div class="repo-toolbar-views">
         <button

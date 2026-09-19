@@ -12,6 +12,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "1.0.1 through 1.0.8 were feature releases, not patches. From here on we follow semantic versioning: patch for fixes, minor for features, major for breaking changes.",
       "General settings pick the font and size for file diffs and the repository terminal, including a custom family name.",
       "History can pause recording so new git commands stay off the log until you resume.",
+      "Open-repo fetch, pull, and other progress sits on the name row so the toolbar buttons stay put.",
     ],
   },
   {

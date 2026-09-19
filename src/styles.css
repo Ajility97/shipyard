@@ -2923,6 +2923,12 @@ body.is-resizing-y * {
   font-size: 12px;
 }
 
+.repo-toolbar-progress {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
 .branch-pane {
   display: flex;
   flex-direction: column;

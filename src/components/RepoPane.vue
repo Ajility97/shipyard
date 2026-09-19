@@ -160,15 +160,18 @@ const canRenameBranch = computed(() => {
 });
 const commitTitleLength = computed(() => [...commitTitle.value].length);
 const commitTitleLeft = computed(() => Math.max(0, COMMIT_TITLE_MAX - commitTitleLength.value));
-const canCommit = computed(
-  () => Boolean(commitTitle.value.trim()) && commitTitleLength.value <= COMMIT_TITLE_MAX,
-);
 const conflictedFiles = computed(() => files.value.filter(isConflicted));
 const unstagedCount = computed(
   () => files.value.filter((file) => !file.staged && !isConflicted(file)).length,
 );
 const stagedCount = computed(
   () => files.value.filter((file) => file.staged && !isConflicted(file)).length,
+);
+const canCommit = computed(
+  () =>
+    Boolean(commitTitle.value.trim()) &&
+    commitTitleLength.value <= COMMIT_TITLE_MAX &&
+    stagedCount.value > 0,
 );
 const conflictedCount = computed(() => conflictedFiles.value.length);
 const operation = computed(() => current.value?.status?.operation ?? "");
@@ -958,13 +961,57 @@ function clipCommitTitle(value: string) {
   return [...value].slice(0, COMMIT_TITLE_MAX).join("");
 }
 
-function resetCommitForm() {
+type CommitDraft = { title: string; description: string };
+const commitDrafts = new Map<string, CommitDraft>();
+const hasCommitDraft = ref(false);
+
+function repoDraftKey() {
+  return current.value?.repo.path ?? "";
+}
+
+function isMeaningfulDraft(draft: CommitDraft | undefined) {
+  return Boolean(draft && (draft.title.trim() || draft.description.trim()));
+}
+
+function refreshHasCommitDraft() {
+  hasCommitDraft.value = isMeaningfulDraft(commitDrafts.get(repoDraftKey()));
+}
+
+function persistCommitDraft() {
+  const key = repoDraftKey();
+  if (!key) {
+    return;
+  }
+  const title = amending.value ? draftTitle.value : commitTitle.value;
+  const description = amending.value ? draftDescription.value : commitDescription.value;
+  const draft = { title, description };
+  if (isMeaningfulDraft(draft)) {
+    commitDrafts.set(key, draft);
+  } else {
+    commitDrafts.delete(key);
+  }
+  refreshHasCommitDraft();
+}
+
+function loadCommitDraft() {
+  const draft = commitDrafts.get(repoDraftKey());
+  commitTitle.value = draft?.title ?? "";
+  commitDescription.value = draft?.description ?? "";
+  refreshHasCommitDraft();
+}
+
+function clearCommitDraft() {
+  const key = repoDraftKey();
+  if (key) {
+    commitDrafts.delete(key);
+  }
   amending.value = false;
   lastCommit.value = null;
   draftTitle.value = "";
   draftDescription.value = "";
   commitTitle.value = "";
   commitDescription.value = "";
+  refreshHasCommitDraft();
 }
 
 function applyLastCommitMessage() {
@@ -977,25 +1024,30 @@ function applyLastCommitMessage() {
 }
 
 async function openCommit() {
-  if (actionBusy.value || !files.value.some((file) => file.staged)) {
+  if (actionBusy.value || !files.value.length) {
     return;
   }
-  resetCommitForm();
+  if (operation.value && operation.value !== "merge") {
+    return;
+  }
+  amending.value = false;
+  lastCommit.value = null;
+  loadCommitDraft();
   committing.value = true;
   const match = current.value;
   if (match) {
     lastCommit.value = await api.lastCommit(match.repo.path).catch(() => null);
-    if (amending.value) {
-      applyLastCommitMessage();
-    }
   }
   await nextTick();
   commitTitleInput.value?.focus();
 }
 
 function closeCommit() {
+  persistCommitDraft();
+  amending.value = false;
+  lastCommit.value = null;
   committing.value = false;
-  resetCommitForm();
+  loadCommitDraft();
 }
 
 function onAmendChange(event: Event) {
@@ -1015,7 +1067,7 @@ function onAmendChange(event: Event) {
 async function commitChanges() {
   const match = current.value;
   const title = commitTitle.value.trim();
-  if (!match || !title) {
+  if (!match || !title || stagedCount.value === 0) {
     return;
   }
   const description = commitDescription.value;
@@ -1035,9 +1087,11 @@ async function commitChanges() {
     }
   }
   closeCommit();
-  return runRepoAction(amend ? "Amending…" : "Committing…", () =>
-    api.commit(match.repo.path, title, description, amend),
-  );
+  return runRepoAction(amend ? "Amending…" : "Committing…", async () => {
+    const result = await api.commit(match.repo.path, title, description, amend);
+    clearCommitDraft();
+    return result;
+  });
 }
 
 async function openStash() {
@@ -1631,8 +1685,18 @@ watch(
   () => current.value?.repo.path ?? "",
   (path) => {
     void startWatching(path);
+    refreshHasCommitDraft();
   },
   { immediate: true },
+);
+
+watch(
+  () => files.value.length,
+  (count, previous) => {
+    if (count === 0 && (previous ?? 0) > 0 && !committing.value) {
+      clearCommitDraft();
+    }
+  },
 );
 
 void listen<RepoFilesChanged>("repo-files-changed", (event) => {
@@ -1891,6 +1955,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         :selected-path="selectedFile?.path ?? ''"
         :selected-staged="selectedFile?.staged ?? false"
         :operation="operation"
+        :has-draft="hasCommitDraft"
         @select="selectFile"
         @stage="stageFile"
         @unstage="unstageFile"
@@ -1985,8 +2050,9 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
     <p v-if="amending && lastCommit?.published" class="muted tiny">
       This commit is already on the remote. Amending rewrites it, and you will need to force-push.
     </p>
+    <p v-if="!stagedCount" class="muted tiny">Stage a file to commit.</p>
     <template #actions>
-      <button class="ghost" type="button" @click="closeCommit">Cancel</button>
+      <button class="ghost" type="button" @click="closeCommit">Close</button>
       <button class="ghost commit" type="button" :disabled="!canCommit" @click="commitChanges">
         {{ amending ? "Amend" : "Commit" }}
       </button>

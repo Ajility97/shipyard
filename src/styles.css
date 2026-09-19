@@ -132,6 +132,14 @@ button.commit:hover:not(:disabled) {
   color: var(--good);
 }
 
+button.commit.has-draft::after {
+  content: "";
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .app-shell {
   display: flex;
   flex-direction: column;

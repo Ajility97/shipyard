@@ -15,6 +15,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "File History no longer keeps a renamed or deleted file under its old name.",
       "Tags view on the repo toolbar lists local tags. New tag creates a lightweight or annotated tag on HEAD or a commit you specify; Delete removes it.",
       "Hover a diff line in Changes or File History to highlight it and see git blame for that line.",
+      "Commit opens when the working tree has changes, even if nothing is staged. Close keeps the title and description for that repository until you commit; a mark on the button shows when a draft is waiting.",
     ],
   },
   {

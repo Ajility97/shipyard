@@ -11,6 +11,7 @@ const props = defineProps<{
   selectedPath: string;
   selectedStaged: boolean;
   operation?: string;
+  hasDraft?: boolean;
 }>();
 
 const { editor } = useApp();
@@ -37,7 +38,7 @@ const staged = computed(() =>
 );
 const resolving = computed(() => Boolean(props.operation || conflicted.value.length));
 const canCommit = computed(
-  () => staged.value.length > 0 && (!props.operation || props.operation === "merge"),
+  () => props.files.length > 0 && (!props.operation || props.operation === "merge"),
 );
 
 function isSelected(file: WorkingTreeFile) {
@@ -202,7 +203,9 @@ function isSelected(file: WorkingTreeFile) {
       <button
         class="ghost tiny commit"
         type="button"
+        :class="{ 'has-draft': hasDraft }"
         :disabled="!canCommit"
+        :title="hasDraft ? 'Draft commit message saved' : undefined"
         @click="emit('commit')"
       >
         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">

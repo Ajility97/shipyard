@@ -2307,6 +2307,7 @@ body.reordering-repos .repo-row,
 }
 
 .file-context-menu,
+.commit-context-menu,
 .context-menu-sub {
   z-index: 70;
   min-width: 13.5rem;
@@ -2318,7 +2319,8 @@ body.reordering-repos .repo-row,
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 
-.file-context-menu {
+.file-context-menu,
+.commit-context-menu {
   position: fixed;
   user-select: none;
 }
@@ -3496,10 +3498,15 @@ svg.file-tree-twist.open {
   height: 28px;
   padding: 0 0.85rem 0 0.35rem;
   cursor: pointer;
+  user-select: none;
 }
 
-.commit-graph-row:hover:not(.active) {
+.commit-graph-row:hover:not(.active):not(.selected) {
   background: var(--bg-hover);
+}
+
+.commit-graph-row.selected {
+  background: color-mix(in srgb, var(--bg-active) 70%, transparent);
 }
 
 .commit-graph-row.active {

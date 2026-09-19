@@ -311,8 +311,28 @@ export function checkoutLocalBranch(path: string, branch: string) {
   return invoke<string>("checkout_local_branch", { path, branch });
 }
 
-export function createAndCheckoutBranch(path: string, branch: string) {
-  return invoke<string>("create_and_checkout_branch", { path, branch });
+export function createAndCheckoutBranch(path: string, branch: string, start = "") {
+  return invoke<string>("create_and_checkout_branch", {
+    path,
+    branch,
+    start: start.trim() || null,
+  });
+}
+
+export function checkoutCommit(path: string, hash: string) {
+  return invoke<string>("checkout_commit", { path, hash });
+}
+
+export function cherryPickCommits(path: string, hashes: string[]) {
+  return invoke<string>("cherry_pick_commits", { path, hashes });
+}
+
+export function revertCommits(path: string, hashes: string[]) {
+  return invoke<string>("revert_commits", { path, hashes });
+}
+
+export function commitRemoteUrl(path: string, hash: string) {
+  return invoke<string>("commit_remote_url", { path, hash });
 }
 
 export function renameLocalBranch(path: string, branch: string, newName: string) {

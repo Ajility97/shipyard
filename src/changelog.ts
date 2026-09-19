@@ -13,6 +13,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "General settings pick the font and size for file diffs and the repository terminal, including a custom family name.",
       "History can pause recording so new git commands stay off the log until you resume.",
       "Open-repo fetch, pull, and other progress sits on the name row so the toolbar buttons stay put.",
+      "Right-click a commit in the graph to check it out, create a branch or tag there, cherry-pick, revert, or copy its SHA or remote link. Command-click or Shift-click selects several commits for cherry-pick or revert.",
     ],
   },
   {

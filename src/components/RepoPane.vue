@@ -8,6 +8,7 @@ import CommitFiles from "./CommitFiles.vue";
 import FileHistoryList from "./FileHistoryList.vue";
 import FileHistoryToggle from "./FileHistoryToggle.vue";
 import FileTree from "./FileTree.vue";
+import CommitContextMenu from "./CommitContextMenu.vue";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
@@ -129,7 +130,14 @@ const actionBranch = ref("");
 const message = ref("");
 const creatingBranch = ref(false);
 const newBranchName = ref("");
+const newBranchStart = ref("");
 const newBranchInput = ref<HTMLInputElement | null>(null);
+const commitMenu = ref<{
+  commit: CommitNode;
+  hashes: string[];
+  x: number;
+  y: number;
+} | null>(null);
 const renamingBranch = ref<LocalBranch | null>(null);
 const renameBranchName = ref("");
 const renameBranchInput = ref<HTMLInputElement | null>(null);
@@ -156,6 +164,18 @@ const specifyBranch = ref("");
 const COMMIT_TITLE_MAX = 72;
 
 const canCreateBranch = computed(() => Boolean(newBranchName.value.trim()));
+const commitMenuHasMerge = computed(() => {
+  const menu = commitMenu.value;
+  if (!menu) {
+    return false;
+  }
+  const selected = new Set(menu.hashes);
+  return commits.value.some((commit) => selected.has(commit.hash) && commit.parents.length > 1);
+});
+const newBranchStartShort = computed(() => {
+  const start = newBranchStart.value.trim();
+  return start ? start.slice(0, 7) : "";
+});
 const canCreateTag = computed(() => Boolean(newTagName.value.trim()));
 const canRenameBranch = computed(() => {
   const next = renameBranchName.value.trim();
@@ -904,11 +924,12 @@ function checkoutListedBranch(branch: LocalBranch) {
   return checkoutBranch(branch.name);
 }
 
-async function openCreateBranch() {
+async function openCreateBranch(start = "") {
   if (actionBusy.value) {
     return;
   }
   newBranchName.value = "";
+  newBranchStart.value = start;
   creatingBranch.value = true;
   await nextTick();
   newBranchInput.value?.focus();
@@ -917,6 +938,7 @@ async function openCreateBranch() {
 function closeCreateBranch() {
   creatingBranch.value = false;
   newBranchName.value = "";
+  newBranchStart.value = "";
 }
 
 function createBranch() {
@@ -925,10 +947,11 @@ function createBranch() {
   if (!match || !branch) {
     return;
   }
+  const start = newBranchStart.value.trim();
   closeCreateBranch();
   return runRepoAction(
     "Creating branch…",
-    () => api.createAndCheckoutBranch(match.repo.path, branch),
+    () => api.createAndCheckoutBranch(match.repo.path, branch, start),
     branch,
   );
 }
@@ -1377,16 +1400,112 @@ async function dropStash(stash: StashEntry) {
   return runRepoAction("Dropping stash…", () => api.stashDrop(match.repo.path, stash.index));
 }
 
-async function openCreateTag() {
+async function openCreateTag(target = "") {
   if (actionBusy.value) {
     return;
   }
   newTagName.value = "";
   newTagMessage.value = "";
-  newTagTarget.value = selectedCommit.value?.hash.slice(0, 12) ?? "";
+    newTagTarget.value = target || selectedCommit.value?.hash.slice(0, 12) || "";
   creatingTag.value = true;
   await nextTick();
   newTagInput.value?.focus();
+}
+
+function openCommitMenu(commit: CommitNode, hashes: string[], x: number, y: number) {
+  commitMenu.value = { commit, hashes, x, y };
+}
+
+function closeCommitMenu() {
+  commitMenu.value = null;
+}
+
+function menuHashes(oldestFirst: boolean) {
+  const hashes = commitMenu.value?.hashes ?? [];
+  const index = new Map(commits.value.map((commit, i) => [commit.hash, i]));
+  return [...hashes].sort((left, right) => {
+    const a = index.get(left) ?? 0;
+    const b = index.get(right) ?? 0;
+    return oldestFirst ? b - a : a - b;
+  });
+}
+
+function checkoutMenuCommit() {
+  const match = current.value;
+  const commit = commitMenu.value?.commit;
+  closeCommitMenu();
+  if (!match || !commit) {
+    return;
+  }
+  return runRepoAction("Checking out…", () => api.checkoutCommit(match.repo.path, commit.hash));
+}
+
+function createBranchFromMenu() {
+  const hash = commitMenu.value?.commit.hash ?? "";
+  closeCommitMenu();
+  if (!hash) {
+    return;
+  }
+  return openCreateBranch(hash);
+}
+
+function cherryPickMenuCommits() {
+  const match = current.value;
+  const hashes = menuHashes(true);
+  closeCommitMenu();
+  if (!match || !hashes.length) {
+    return;
+  }
+  return runRepoAction("Cherry-picking…", () => api.cherryPickCommits(match.repo.path, hashes));
+}
+
+function revertMenuCommits() {
+  const match = current.value;
+  const hashes = menuHashes(false);
+  closeCommitMenu();
+  if (!match || !hashes.length) {
+    return;
+  }
+  return runRepoAction("Reverting…", () => api.revertCommits(match.repo.path, hashes));
+}
+
+async function copyMenuShas() {
+  const hashes = commitMenu.value?.hashes ?? [];
+  closeCommitMenu();
+  if (!hashes.length) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(hashes.join("\n"));
+    showToast(hashes.length === 1 ? "Copied commit SHA" : `Copied ${hashes.length} commit SHAs`);
+  } catch (err) {
+    showToast(String(err), "error");
+  }
+}
+
+async function copyMenuLink() {
+  const match = current.value;
+  const hash = commitMenu.value?.commit.hash ?? "";
+  closeCommitMenu();
+  if (!match || !hash) {
+    return;
+  }
+  try {
+    const url = await api.commitRemoteUrl(match.repo.path, hash);
+    await navigator.clipboard.writeText(url);
+    showToast("Copied commit link");
+  } catch (err) {
+    showToast(String(err), "error");
+  }
+}
+
+function createTagFromMenu() {
+  const hash = commitMenu.value?.commit.hash ?? "";
+  closeCommitMenu();
+  if (!hash) {
+    return;
+  }
+  return openCreateTag(hash);
 }
 
 function closeCreateTag() {
@@ -1878,6 +1997,7 @@ watch(
     overview.value = null;
     closeCommitDetail();
     closeDiff();
+    closeCommitMenu();
   },
 );
 
@@ -2026,6 +2146,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
             :commits="commits"
             :selected-hash="selectedCommit?.hash ?? ''"
             @select="selectCommit"
+            @menu="openCommitMenu"
           />
         </div>
         <TerminalPane
@@ -2338,6 +2459,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @keydown.enter="createBranch"
       />
     </label>
+    <p v-if="newBranchStartShort" class="muted tiny">Starts at {{ newBranchStartShort }}.</p>
     <template #actions>
       <button class="ghost" type="button" @click="closeCreateBranch">Cancel</button>
       <button class="primary" type="button" :disabled="!canCreateBranch" @click="createBranch">
@@ -2363,5 +2485,23 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
       </button>
     </template>
   </Modal>
+  <CommitContextMenu
+    v-if="commitMenu"
+    :commit="commitMenu.commit"
+    :hashes="commitMenu.hashes"
+    :x="commitMenu.x"
+    :y="commitMenu.y"
+    :busy="actionBusy"
+    :operation="operation"
+    :has-merge="commitMenuHasMerge"
+    @checkout="checkoutMenuCommit"
+    @create-branch="createBranchFromMenu"
+    @cherry-pick="cherryPickMenuCommits"
+    @revert="revertMenuCommits"
+    @copy-sha="copyMenuShas"
+    @copy-link="copyMenuLink"
+    @create-tag="createTagFromMenu"
+    @close="closeCommitMenu"
+  />
   </div>
 </template>

@@ -1557,12 +1557,23 @@ pub fn checkout_local_branch(git: &Path, repo: &Path, branch: &str) -> Result<St
     ))
 }
 
-pub fn create_and_checkout_branch(git: &Path, repo: &Path, branch: &str) -> Result<String, String> {
+pub fn create_and_checkout_branch(
+    git: &Path,
+    repo: &Path,
+    branch: &str,
+    start: &str,
+) -> Result<String, String> {
     validate_ref(branch)?;
     if ref_exists(git, repo, &format!("refs/heads/{branch}")) {
         return Err(format!("Branch {branch} already exists."));
     }
-    let output = run_git(git, repo, &["checkout", "-b", branch])?;
+    let start = start.trim();
+    let output = if start.is_empty() {
+        run_git(git, repo, &["checkout", "-b", branch])?
+    } else {
+        let hash = require_commit(git, repo, start)?;
+        run_git(git, repo, &["checkout", "-b", branch, &hash])?
+    };
     if !output.success {
         return Err(or_fallback(
             &combined_message(&output),
@@ -1573,6 +1584,142 @@ pub fn create_and_checkout_branch(git: &Path, repo: &Path, branch: &str) -> Resu
         &combined_message(&output),
         &format!("Created and checked out {branch}"),
     ))
+}
+
+fn require_no_operation(repo: &Path) -> Result<(), String> {
+    if let Some(operation) = current_operation(repo) {
+        return Err(format!("Finish or abort the {operation} first."));
+    }
+    Ok(())
+}
+
+fn is_merge_commit(git: &Path, repo: &Path, hash: &str) -> bool {
+    let spec = format!("{hash}^2");
+    run_git_quiet(git, repo, &["rev-parse", "--verify", "--quiet", &spec])
+        .map(|output| output.success && !output.stdout.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn head_commit(git: &Path, repo: &Path) -> Result<String, String> {
+    let output = run_git_quiet(git, repo, &["rev-parse", "--verify", "HEAD"])?;
+    let hash = output.stdout.trim();
+    if !output.success || hash.is_empty() {
+        return Err("Could not read HEAD.".into());
+    }
+    Ok(hash.to_string())
+}
+
+pub fn checkout_commit(git: &Path, repo: &Path, hash: &str) -> Result<String, String> {
+    require_no_operation(repo)?;
+    let hash = require_commit(git, repo, hash)?;
+    if head_commit(git, repo)? == hash {
+        return Ok("Already on this commit.".into());
+    }
+    let output = run_git(git, repo, &["checkout", "--detach", &hash])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to check out that commit.",
+        ));
+    }
+    let short = hash.get(..7).unwrap_or(&hash);
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Checked out {short} (detached HEAD)"),
+    ))
+}
+
+fn resolve_commit_list(git: &Path, repo: &Path, hashes: &[String]) -> Result<Vec<String>, String> {
+    if hashes.is_empty() {
+        return Err("Select at least one commit.".into());
+    }
+    let mut resolved = Vec::with_capacity(hashes.len());
+    for hash in hashes {
+        resolved.push(require_commit(git, repo, hash)?);
+    }
+    Ok(resolved)
+}
+
+pub fn cherry_pick_commits(git: &Path, repo: &Path, hashes: &[String]) -> Result<String, String> {
+    require_no_operation(repo)?;
+    let resolved = resolve_commit_list(git, repo, hashes)?;
+    if resolved.iter().any(|hash| is_merge_commit(git, repo, hash)) {
+        return Err("Cherry-pick cannot apply a merge commit.".into());
+    }
+    let mut args = vec!["cherry-pick".to_string()];
+    args.extend(resolved);
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = run_git(git, repo, &arg_refs)?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Cherry-pick failed.",
+        ));
+    }
+    let label = if hashes.len() == 1 {
+        "Cherry-picked 1 commit".to_string()
+    } else {
+        format!("Cherry-picked {} commits", hashes.len())
+    };
+    Ok(or_fallback(&combined_message(&output), &label))
+}
+
+pub fn revert_commits(git: &Path, repo: &Path, hashes: &[String]) -> Result<String, String> {
+    require_no_operation(repo)?;
+    let resolved = resolve_commit_list(git, repo, hashes)?;
+    if resolved.iter().any(|hash| is_merge_commit(git, repo, hash)) {
+        return Err("Revert cannot undo a merge commit.".into());
+    }
+    let mut args = vec!["revert".to_string(), "--no-edit".to_string()];
+    args.extend(resolved);
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = run_git(git, repo, &arg_refs)?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), "Revert failed."));
+    }
+    let label = if hashes.len() == 1 {
+        "Reverted 1 commit".to_string()
+    } else {
+        format!("Reverted {} commits", hashes.len())
+    };
+    Ok(or_fallback(&combined_message(&output), &label))
+}
+
+fn host_from_browse_url(url: &str) -> String {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    rest.split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+pub fn commit_browse_url(browse: &str, hash: &str) -> Result<String, String> {
+    validate_commit_hash(hash)?;
+    let browse = browse.trim().trim_end_matches('/');
+    if browse.is_empty() {
+        return Err("This repository has no origin remote.".into());
+    }
+    let host = host_from_browse_url(browse);
+    let path = if host.contains("gitlab.") || host.ends_with("gitlab.com") {
+        format!("/-/commit/{hash}")
+    } else if host.contains("bitbucket.") || host.ends_with("bitbucket.org") {
+        format!("/commits/{hash}")
+    } else {
+        format!("/commit/{hash}")
+    };
+    Ok(format!("{browse}{path}"))
+}
+
+pub fn commit_remote_url(git: &Path, repo: &Path, hash: &str) -> Result<String, String> {
+    let hash = require_commit(git, repo, hash)?;
+    let browse = repo_remote_browse_url(git, repo)?;
+    commit_browse_url(&browse, &hash)
 }
 
 pub fn rename_local_branch(
@@ -3787,13 +3934,13 @@ filename README.md
         assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
         assert!(checkout_local_branch(&git_bin(), &repo, "missing").is_err());
 
-        let created = create_and_checkout_branch(&git_bin(), &repo, "task/123").unwrap();
+        let created = create_and_checkout_branch(&git_bin(), &repo, "task/123", "").unwrap();
         assert!(created.contains("task/123"));
         assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "task/123");
         assert!(local_branches(&git_bin(), &repo)
             .unwrap()
             .contains(&"task/123".into()));
-        assert!(create_and_checkout_branch(&git_bin(), &repo, "task/123").is_err());
+        assert!(create_and_checkout_branch(&git_bin(), &repo, "task/123", "").is_err());
 
         let renamed = rename_local_branch(&git_bin(), &repo, "task/123", "task/456").unwrap();
         assert!(renamed.contains("task/456"));
@@ -4440,6 +4587,19 @@ filename README.md
             remote_browse_url("git://github.com/owner/repo.git").unwrap(),
             "https://github.com/owner/repo"
         );
+        assert_eq!(
+            commit_browse_url("https://github.com/owner/repo", "abc1234").unwrap(),
+            "https://github.com/owner/repo/commit/abc1234"
+        );
+        assert_eq!(
+            commit_browse_url("https://gitlab.com/group/sub/repo", "abc1234").unwrap(),
+            "https://gitlab.com/group/sub/repo/-/commit/abc1234"
+        );
+        assert_eq!(
+            commit_browse_url("https://bitbucket.org/owner/repo", "abc1234").unwrap(),
+            "https://bitbucket.org/owner/repo/commits/abc1234"
+        );
+        assert!(commit_browse_url("https://github.com/owner/repo", "bad hash").is_err());
     }
 
     #[test]
@@ -4450,6 +4610,70 @@ filename README.md
         assert!(remote_browse_url("/Users/me/repo").is_err());
         assert!(remote_browse_url("C:\\Users\\me\\repo").is_err());
         assert!(remote_browse_url("not a remote").is_err());
+    }
+
+    #[test]
+    fn checks_out_creates_cherry_picks_and_reverts_commits() {
+        let repo = init_repo();
+        let first = head_commit(&git_bin(), &repo).unwrap();
+        fs::write(repo.join("README.md"), "second\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "second"]);
+
+        let detached = checkout_commit(&git_bin(), &repo, &first).unwrap();
+        assert!(detached.to_lowercase().contains("detach") || detached.contains(&first[..7]));
+        assert!(current_branch(&git_bin(), &repo)
+            .unwrap()
+            .starts_with("detached"));
+        assert_eq!(head_commit(&git_bin(), &repo).unwrap(), first);
+        assert_eq!(
+            checkout_commit(&git_bin(), &repo, &first).unwrap(),
+            "Already on this commit."
+        );
+        assert!(checkout_commit(&git_bin(), &repo, "deadbee").is_err());
+
+        let created = create_and_checkout_branch(&git_bin(), &repo, "from-first", &first).unwrap();
+        assert!(created.contains("from-first"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "from-first");
+        assert_eq!(head_commit(&git_bin(), &repo).unwrap(), first);
+
+        git(&repo, &["checkout", "develop"]);
+        git(&repo, &["checkout", "-b", "side"]);
+        fs::write(repo.join("extra.txt"), "extra\n").unwrap();
+        git(&repo, &["add", "extra.txt"]);
+        git(&repo, &["commit", "-m", "extra"]);
+        let extra = head_commit(&git_bin(), &repo).unwrap();
+        git(&repo, &["checkout", "develop"]);
+        let picked = cherry_pick_commits(&git_bin(), &repo, &[extra]).unwrap();
+        assert!(picked.to_lowercase().contains("cherry") || picked.contains("extra"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
+        assert_eq!(fs::read_to_string(repo.join("extra.txt")).unwrap(), "extra\n");
+
+        fs::write(repo.join("README.md"), "third\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "third"]);
+        let third = head_commit(&git_bin(), &repo).unwrap();
+        let reverted = revert_commits(&git_bin(), &repo, &[third]).unwrap();
+        assert!(reverted.to_lowercase().contains("revert") || reverted.contains("third"));
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "second\n");
+
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("one.txt"), "one\n").unwrap();
+        git(&repo, &["add", "one.txt"]);
+        git(&repo, &["commit", "-m", "one"]);
+        let one = head_commit(&git_bin(), &repo).unwrap();
+        fs::write(repo.join("two.txt"), "two\n").unwrap();
+        git(&repo, &["add", "two.txt"]);
+        git(&repo, &["commit", "-m", "two"]);
+        let two = head_commit(&git_bin(), &repo).unwrap();
+        git(&repo, &["checkout", "develop"]);
+        cherry_pick_commits(&git_bin(), &repo, &[one, two]).unwrap();
+        assert_eq!(fs::read_to_string(repo.join("one.txt")).unwrap(), "one\n");
+        assert_eq!(fs::read_to_string(repo.join("two.txt")).unwrap(), "two\n");
+
+        assert!(cherry_pick_commits(&git_bin(), &repo, &[]).is_err());
+        assert!(revert_commits(&git_bin(), &repo, &[]).is_err());
+        assert!(cherry_pick_commits(&git_bin(), &repo, &["missing1".into()]).is_err());
     }
 
     #[test]
@@ -4464,6 +4688,11 @@ filename README.md
         assert_eq!(
             repo_remote_browse_url(&git_bin(), &repo).unwrap(),
             "https://github.com/owner/repo"
+        );
+        let hash = head_commit(&git_bin(), &repo).unwrap();
+        assert_eq!(
+            commit_remote_url(&git_bin(), &repo, &hash).unwrap(),
+            format!("https://github.com/owner/repo/commit/{hash}")
         );
     }
 

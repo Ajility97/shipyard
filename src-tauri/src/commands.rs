@@ -1119,10 +1119,68 @@ pub async fn create_and_checkout_branch(
     state: State<'_, AppState>,
     path: String,
     branch: String,
+    start: Option<String>,
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
-        git::create_and_checkout_branch(&git, Path::new(&path), &branch)
+        git::create_and_checkout_branch(
+            &git,
+            Path::new(&path),
+            &branch,
+            start.as_deref().unwrap_or(""),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn checkout_commit(
+    state: State<'_, AppState>,
+    path: String,
+    hash: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::checkout_commit(&git, Path::new(&path), &hash))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn cherry_pick_commits(
+    state: State<'_, AppState>,
+    path: String,
+    hashes: Vec<String>,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::cherry_pick_commits(&git, Path::new(&path), &hashes)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn revert_commits(
+    state: State<'_, AppState>,
+    path: String,
+    hashes: Vec<String>,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::revert_commits(&git, Path::new(&path), &hashes))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn commit_remote_url(
+    state: State<'_, AppState>,
+    path: String,
+    hash: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::commit_remote_url(&git, Path::new(&path), &hash)
     })
     .await
     .map_err(|err| err.to_string())?

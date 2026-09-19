@@ -152,6 +152,14 @@ export interface LocalBranch {
   pending: boolean;
 }
 
+export interface BranchTracking {
+  name: string;
+  localOnly: boolean;
+  ahead: number;
+  behind: number;
+  upstream: string | null;
+}
+
 export interface DeleteMergedResult {
   deleted: string[];
   refused: string[];

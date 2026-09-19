@@ -499,6 +499,16 @@ pub struct LocalBranch {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BranchTracking {
+    pub name: String,
+    pub local_only: bool,
+    pub ahead: u32,
+    pub behind: u32,
+    pub upstream: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeleteMergedResult {
     pub deleted: Vec<String>,
     pub refused: Vec<String>,

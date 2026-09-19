@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use crate::command_log;
 use crate::models::{
-    BlameLine, BranchOverview, CommitFile, CommitNode, DeleteMergedResult, FileBlame, GitConfig,
-    LastCommit, LocalBranch, RepoFile, StashEntry, TagEntry, WorkingTreeFile,
+    BlameLine, BranchOverview, BranchTracking, CommitFile, CommitNode, DeleteMergedResult,
+    FileBlame, GitConfig, LastCommit, LocalBranch, RepoFile, StashEntry, TagEntry, WorkingTreeFile,
 };
 
 pub struct GitOutput {
@@ -615,8 +615,23 @@ fn parse_count(value: Option<&str>, prefix: char) -> u32 {
 }
 
 fn ahead_behind_for_ref(git: &Path, repo: &Path, other: &str) -> (u32, u32) {
-    let spec = format!("HEAD...{other}");
-    let output = match run_git(git, repo, &["rev-list", "--left-right", "--count", &spec]) {
+    ahead_behind_between(git, repo, "HEAD", other, true)
+}
+
+fn ahead_behind_between(
+    git: &Path,
+    repo: &Path,
+    left: &str,
+    right: &str,
+    log: bool,
+) -> (u32, u32) {
+    let spec = format!("{left}...{right}");
+    let output = if log {
+        run_git(git, repo, &["rev-list", "--left-right", "--count", &spec])
+    } else {
+        run_git_quiet(git, repo, &["rev-list", "--left-right", "--count", &spec])
+    };
+    let output = match output {
         Ok(output) if output.success => output,
         _ => return (0, 0),
     };
@@ -1021,6 +1036,133 @@ pub fn local_branches(git: &Path, repo: &Path) -> Result<Vec<String>, String> {
         .collect();
     branches.sort();
     Ok(branches)
+}
+
+pub fn local_branch_tracking(git: &Path, repo: &Path) -> Result<Vec<BranchTracking>, String> {
+    let output = run_git(
+        git,
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(refname)%00%(refname:short)%00%(upstream)%00%(upstream:track)",
+            "refs/heads",
+            "refs/remotes/origin",
+        ],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not list branch remotes.",
+        ));
+    }
+
+    let mut locals = Vec::new();
+    let mut origin_names = HashSet::new();
+    for line in output.stdout.lines() {
+        let mut parts = line.split('\0');
+        let refname = parts.next().unwrap_or("");
+        let short = parts.next().unwrap_or("").trim();
+        let upstream = parts.next().unwrap_or("").trim();
+        let track = parts.next().unwrap_or("").trim();
+        if short.is_empty() {
+            continue;
+        }
+        if refname.starts_with("refs/heads/") {
+            locals.push((short.to_string(), upstream.to_string(), track.to_string()));
+            continue;
+        }
+        if let Some(name) = short.strip_prefix("origin/") {
+            if name != "HEAD" {
+                origin_names.insert(name.to_string());
+            }
+        }
+    }
+    locals.sort_by(|left, right| left.0.cmp(&right.0));
+
+    Ok(locals
+        .into_iter()
+        .map(|(name, upstream, track)| {
+            branch_tracking_for(git, repo, &name, &upstream, &track, &origin_names)
+        })
+        .collect())
+}
+
+fn branch_tracking_for(
+    git: &Path,
+    repo: &Path,
+    name: &str,
+    upstream: &str,
+    track: &str,
+    origin_names: &HashSet<String>,
+) -> BranchTracking {
+    if let Some(remote) = remote_tracking_name(upstream) {
+        if let Some((ahead, behind)) = parse_upstream_track(track) {
+            return BranchTracking {
+                name: name.to_string(),
+                local_only: false,
+                ahead,
+                behind,
+                upstream: Some(remote),
+            };
+        }
+    }
+
+    let origin = format!("origin/{name}");
+    if origin_names.contains(name) {
+        let (ahead, behind) = ahead_behind_between(git, repo, name, &origin, false);
+        return BranchTracking {
+            name: name.to_string(),
+            local_only: false,
+            ahead,
+            behind,
+            upstream: Some(origin),
+        };
+    }
+
+    BranchTracking {
+        name: name.to_string(),
+        local_only: true,
+        ahead: 0,
+        behind: 0,
+        upstream: None,
+    }
+}
+
+fn remote_tracking_name(upstream: &str) -> Option<String> {
+    let rest = upstream.strip_prefix("refs/remotes/")?.trim();
+    if rest.is_empty() {
+        return None;
+    }
+    let short = rest.rsplit_once('/').map(|(_, name)| name).unwrap_or(rest);
+    if short == "HEAD" {
+        return None;
+    }
+    Some(rest.to_string())
+}
+
+fn parse_upstream_track(track: &str) -> Option<(u32, u32)> {
+    let track = track.trim();
+    if track.is_empty() {
+        return Some((0, 0));
+    }
+    let inner = track.trim_start_matches('[').trim_end_matches(']').trim();
+    if inner.is_empty() {
+        return Some((0, 0));
+    }
+    if inner.to_ascii_lowercase().contains("gone") {
+        return None;
+    }
+    let mut ahead = 0;
+    let mut behind = 0;
+    for part in inner.split(',') {
+        let part = part.trim();
+        if let Some(value) = part.strip_prefix("ahead ") {
+            ahead = value.trim().parse().unwrap_or(0);
+        } else if let Some(value) = part.strip_prefix("behind ") {
+            behind = value.trim().parse().unwrap_or(0);
+        }
+    }
+    Some((ahead, behind))
 }
 
 fn short_branch_name(name: &str) -> &str {
@@ -4422,6 +4564,100 @@ filename README.md
         git(&work, &["commit", "-m", "local commit"]);
         let diverged = live_status(&git_bin(), &work).unwrap();
         assert_eq!((diverged.ahead, diverged.behind), (1, 1));
+    }
+
+    fn tracking_named(items: &[BranchTracking], name: &str) -> BranchTracking {
+        items
+            .iter()
+            .find(|item| item.name == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("missing branch {name}"))
+    }
+
+    #[test]
+    fn marks_local_only_branches_without_a_remote() {
+        let repo = init_repo();
+        git(&repo, &["branch", "feature"]);
+        let items = local_branch_tracking(&git_bin(), &repo).unwrap();
+        let develop = tracking_named(&items, "develop");
+        let feature = tracking_named(&items, "feature");
+        assert!(develop.local_only);
+        assert_eq!((develop.ahead, develop.behind), (0, 0));
+        assert!(develop.upstream.is_none());
+        assert!(feature.local_only);
+        assert_eq!((feature.ahead, feature.behind), (0, 0));
+    }
+
+    #[test]
+    fn reports_branch_ahead_behind_against_upstream() {
+        let upstream = init_repo();
+        let work = temp_dir();
+        git(&work, &["clone", upstream.to_str().unwrap(), "."]);
+        git(&work, &["config", "user.name", "Shipyard Test"]);
+        git(&work, &["config", "user.email", "test@shipyard.local"]);
+
+        let even = tracking_named(&local_branch_tracking(&git_bin(), &work).unwrap(), "develop");
+        assert!(!even.local_only);
+        assert_eq!((even.ahead, even.behind), (0, 0));
+        assert_eq!(even.upstream.as_deref(), Some("origin/develop"));
+
+        git(&work, &["branch", "feature"]);
+        let local = tracking_named(&local_branch_tracking(&git_bin(), &work).unwrap(), "feature");
+        assert!(local.local_only);
+
+        fs::write(upstream.join("README.md"), "upstream\n").unwrap();
+        git(&upstream, &["add", "README.md"]);
+        git(&upstream, &["commit", "-m", "upstream commit"]);
+        git(&work, &["fetch"]);
+        let behind = tracking_named(&local_branch_tracking(&git_bin(), &work).unwrap(), "develop");
+        assert_eq!((behind.ahead, behind.behind), (0, 1));
+
+        fs::write(work.join("local.txt"), "mine\n").unwrap();
+        git(&work, &["add", "local.txt"]);
+        git(&work, &["commit", "-m", "local commit"]);
+        let diverged = tracking_named(&local_branch_tracking(&git_bin(), &work).unwrap(), "develop");
+        assert!(!diverged.local_only);
+        assert_eq!((diverged.ahead, diverged.behind), (1, 1));
+    }
+
+    #[test]
+    fn treats_matching_origin_ref_as_remote_without_upstream() {
+        let upstream = init_repo();
+        let work = temp_dir();
+        git(&work, &["clone", upstream.to_str().unwrap(), "."]);
+        git(&work, &["config", "user.name", "Shipyard Test"]);
+        git(&work, &["config", "user.email", "test@shipyard.local"]);
+        git(&work, &["branch", "feature"]);
+        let feature_tip = git(&work, &["rev-parse", "refs/heads/feature"])
+            .stdout
+            .trim()
+            .to_string();
+        git(
+            &work,
+            &["update-ref", "refs/remotes/origin/feature", &feature_tip],
+        );
+
+        let even = tracking_named(&local_branch_tracking(&git_bin(), &work).unwrap(), "feature");
+        assert!(!even.local_only);
+        assert_eq!((even.ahead, even.behind), (0, 0));
+        assert_eq!(even.upstream.as_deref(), Some("origin/feature"));
+
+        git(&work, &["checkout", "feature"]);
+        fs::write(work.join("feature.txt"), "only local\n").unwrap();
+        git(&work, &["add", "feature.txt"]);
+        git(&work, &["commit", "-m", "local feature"]);
+        let ahead = tracking_named(&local_branch_tracking(&git_bin(), &work).unwrap(), "feature");
+        assert!(!ahead.local_only);
+        assert_eq!((ahead.ahead, ahead.behind), (1, 0));
+    }
+
+    #[test]
+    fn parse_upstream_track_reads_ahead_behind_and_gone() {
+        assert_eq!(parse_upstream_track(""), Some((0, 0)));
+        assert_eq!(parse_upstream_track("[ahead 2]"), Some((2, 0)));
+        assert_eq!(parse_upstream_track("[behind 3]"), Some((0, 3)));
+        assert_eq!(parse_upstream_track("[ahead 2, behind 3]"), Some((2, 3)));
+        assert_eq!(parse_upstream_track("[gone]"), None);
     }
 
     #[test]

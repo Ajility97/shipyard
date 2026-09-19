@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppData,
   BranchOverview,
+  BranchTracking,
   CommandLogEntry,
   CommitFile,
   CommitNode,
@@ -279,6 +280,10 @@ export function unstageAll(path: string) {
 
 export function listLocalBranches(path: string) {
   return invoke<string[]>("list_local_branches", { path });
+}
+
+export function listBranchTracking(path: string) {
+  return invoke<BranchTracking[]>("list_branch_tracking", { path });
 }
 
 export function branchOverview(path: string, preferred?: string, classify = true) {

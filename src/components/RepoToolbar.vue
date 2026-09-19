@@ -6,6 +6,7 @@ import FileHistoryToggle from "./FileHistoryToggle.vue";
 import SplitAction from "./SplitAction.vue";
 import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
+import type { BranchTracking } from "../types";
 
 const props = defineProps<{
   repoId: string;
@@ -13,6 +14,7 @@ const props = defineProps<{
   branch: string;
   path: string;
   branches: string[];
+  branchTracking?: BranchTracking[];
   busy: boolean;
   busyLabel: string;
   busyBranch?: string;
@@ -61,6 +63,26 @@ const pullTitle = computed(() =>
 const pushTitle = computed(() =>
   currentBranch.value ? `Push to ${currentBranch.value}` : "Push current branch",
 );
+
+const branchItems = computed(() => {
+  const tracking = new Map((props.branchTracking ?? []).map((item) => [item.name, item]));
+  return props.branches.map((name) => {
+    const item = tracking.get(name);
+    const remote = item?.upstream?.trim() || "";
+    return {
+      name,
+      localOnly: item?.localOnly ?? false,
+      ahead: item?.ahead ?? 0,
+      behind: item?.behind ?? 0,
+      aheadTitle: remote
+        ? `${item?.ahead ?? 0} commits ahead of ${remote}`
+        : `${item?.ahead ?? 0} commits ahead`,
+      behindTitle: remote
+        ? `${item?.behind ?? 0} commits behind ${remote}`
+        : `${item?.behind ?? 0} commits behind`,
+    };
+  });
+});
 
 const unpushedCount = computed(() => statuses.value[props.repoId]?.ahead ?? 0);
 const canUndoUnpushed = computed(
@@ -155,15 +177,34 @@ async function toggleBranches() {
           <div class="context-menu-sep" />
           <p v-if="!branches.length" class="muted tiny empty-branches">No local branches.</p>
           <button
-            v-for="item in branches"
-            :key="item"
-            class="overflow-menu-item"
-            :class="{ active: item === branch }"
+            v-for="item in branchItems"
+            :key="item.name"
+            class="overflow-menu-item branch-menu-branch"
+            :class="{ active: item.name === branch }"
             type="button"
             role="menuitem"
-            @click="selectBranch(item)"
+            @click="selectBranch(item.name)"
           >
-            {{ item }}
+            <span class="branch-menu-name">{{ item.name }}</span>
+            <span
+              v-if="item.localOnly"
+              class="branch-pill"
+              title="Local only — no remote counterpart"
+            >
+              Local
+            </span>
+            <span v-else-if="item.behind || item.ahead" class="sync-counts">
+              <span
+                v-if="item.behind"
+                class="sync-count behind"
+                :title="item.behindTitle"
+              >
+                ↓{{ item.behind }}
+              </span>
+              <span v-if="item.ahead" class="sync-count ahead" :title="item.aheadTitle">
+                ↑{{ item.ahead }}
+              </span>
+            </span>
           </button>
         </div>
       </div>

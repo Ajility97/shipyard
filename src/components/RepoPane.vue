@@ -22,6 +22,7 @@ import { useApp } from "../composables/useApp";
 import * as api from "../api";
 import type {
   BranchOverview,
+  BranchTracking,
   CommitFile,
   CommitNode,
   LastCommit,
@@ -72,6 +73,9 @@ const {
 const commits = ref<CommitNode[]>([]);
 const files = ref<WorkingTreeFile[]>([]);
 const branches = ref<string[]>([]);
+const branchTracking = ref<BranchTracking[]>([]);
+let trackingGeneration = 0;
+const trackingPath = ref("");
 const branchesView = ref(false);
 const graphStale = ref(false);
 const stashes = ref<StashEntry[]>([]);
@@ -440,9 +444,12 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
   const generation = ++loadGeneration;
   if (!match) {
     overviewGeneration += 1;
+    trackingGeneration += 1;
     commits.value = [];
     files.value = [];
     branches.value = [];
+    branchTracking.value = [];
+    trackingPath.value = "";
     stashes.value = [];
     tags.value = [];
     overview.value = null;
@@ -486,6 +493,8 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
       void loadRepoFiles({ silent: options?.silent });
     }
     branches.value = nextBranches;
+    rememberTrackingPath(match.repo.path);
+    void loadBranchTracking(match.repo.path);
     stashes.value = nextStashes;
     tags.value = nextTags;
     if (wantOverview) {
@@ -1628,6 +1637,30 @@ async function refreshBranches() {
   }
   try {
     branches.value = await api.listLocalBranches(match.repo.path);
+    rememberTrackingPath(match.repo.path);
+    void loadBranchTracking(match.repo.path);
+  } catch {
+    /* keep the last successful list */
+  }
+}
+
+function rememberTrackingPath(path: string) {
+  if (trackingPath.value === path) {
+    return;
+  }
+  trackingPath.value = path;
+  trackingGeneration += 1;
+  branchTracking.value = [];
+}
+
+async function loadBranchTracking(path: string) {
+  const generation = ++trackingGeneration;
+  try {
+    const next = await api.listBranchTracking(path);
+    if (generation !== trackingGeneration) {
+      return;
+    }
+    branchTracking.value = next;
   } catch {
     /* keep the last successful list */
   }
@@ -2072,6 +2105,9 @@ watch(
     graphStale.value = false;
     overviewGeneration += 1;
     overview.value = null;
+    trackingGeneration += 1;
+    branchTracking.value = [];
+    trackingPath.value = "";
     closeCommitDetail();
     closeDiff();
     closeCommitMenu();
@@ -2133,6 +2169,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         :branch="current.status?.branch ?? ''"
         :path="current.repo.path"
         :branches="branches"
+        :branch-tracking="branchTracking"
         :busy="actionBusy"
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
         :busy-branch="actionBranch"

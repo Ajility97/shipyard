@@ -105,6 +105,7 @@ pub fn run() {
             commands::unstage_file,
             commands::unstage_all,
             commands::list_local_branches,
+            commands::list_branch_tracking,
             commands::branch_overview,
             commands::delete_local_branch,
             commands::delete_merged_branches,

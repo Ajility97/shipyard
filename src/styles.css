@@ -2909,12 +2909,31 @@ body.is-resizing-y * {
   left: 0;
   width: max-content;
   min-width: max(12.5rem, 100%);
+  max-width: 28rem;
   max-height: 18rem;
   overflow: auto;
 }
 
 .branch-menu-dropdown .overflow-menu-item {
   white-space: nowrap;
+}
+
+.branch-menu-dropdown .branch-menu-branch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.branch-menu-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-menu-dropdown .branch-pill,
+.branch-menu-dropdown .sync-counts {
+  flex-shrink: 0;
 }
 
 .branch-menu-dropdown .overflow-menu-item.active {

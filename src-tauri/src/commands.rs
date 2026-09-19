@@ -6,9 +6,9 @@ use tauri::{AppHandle, State};
 use crate::git;
 use crate::models::{
     sanitize_editor, sanitize_font_family, sanitize_font_size, sanitize_refresh_active_hours,
-    AppData, BranchOverview, CommitFile, CommitNode, DeleteMergedResult, FileBlame, GitConfig,
-    LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry, RepoFile, RepoGroup, RepoStatus,
-    StashEntry, TagEntry, WorkingTreeFile,
+    AppData, BranchOverview, BranchTracking, CommitFile, CommitNode, DeleteMergedResult, FileBlame,
+    GitConfig, LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry, RepoFile, RepoGroup,
+    RepoStatus, StashEntry, TagEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -1045,6 +1045,17 @@ pub fn unstage_all(state: State<AppState>, path: String) -> Result<(), String> {
 pub fn list_local_branches(state: State<AppState>, path: String) -> Result<Vec<String>, String> {
     let git = require_git(&state)?;
     git::local_branches(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn list_branch_tracking(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Vec<BranchTracking>, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::local_branch_tracking(&git, Path::new(&path)))
+        .await
+        .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

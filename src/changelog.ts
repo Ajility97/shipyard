@@ -16,6 +16,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "Right-click a commit in the graph to check it out, create a branch or tag there, cherry-pick, revert, or copy its SHA or remote link. Command-click or Shift-click selects several commits for cherry-pick or revert.",
       "Merge a local branch into another from the branch switcher or a row in Branches. Checkout switches to the target first when needed, and conflicts use the existing resolve, continue, and abort flow.",
       "New branch and Merge into live in the branch switcher so the action bar stays Fetch, Pull, Push, and the view toggles.",
+      "The branch switcher marks local-only branches and shows ahead or behind counts when a branch is out of date with its remote.",
     ],
   },
   {

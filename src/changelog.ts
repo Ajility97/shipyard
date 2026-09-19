@@ -10,6 +10,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     date: "September 19, 2026",
     notes: [
       "1.0.1 through 1.0.8 were feature releases, not patches. From here on we follow semantic versioning: patch for fixes, minor for features, major for breaking changes.",
+      "General settings pick the font and size for file diffs and the repository terminal, including a custom family name.",
     ],
   },
   {

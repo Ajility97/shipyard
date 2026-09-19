@@ -20,6 +20,47 @@ fn default_editor() -> String {
     "system".into()
 }
 
+fn default_code_font() -> String {
+    "jetbrains".into()
+}
+
+fn default_diff_font_size() -> f64 {
+    13.0
+}
+
+fn default_terminal_font_size() -> f64 {
+    14.0
+}
+
+pub fn sanitize_font_family(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 80
+        || value
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ';' | '{' | '}'))
+    {
+        return default_code_font();
+    }
+    match value.to_ascii_lowercase().as_str() {
+        "jetbrains" | "jetbrains mono" => "jetbrains".into(),
+        "system" | "system mono" | "default" | "ui-monospace" => "system".into(),
+        "sf-mono" | "sf mono" | "sfmono" => "sf-mono".into(),
+        "menlo" => "menlo".into(),
+        "monaco" => "monaco".into(),
+        "courier" | "courier new" => "courier".into(),
+        _ => value.replace(['\'', '"'], ""),
+    }
+}
+
+pub fn sanitize_font_size(value: f64, default: f64) -> f64 {
+    if !value.is_finite() {
+        return default;
+    }
+    let clamped = value.clamp(9.0, 22.0);
+    (clamped * 2.0).round() / 2.0
+}
+
 pub fn sanitize_editor(value: &str) -> String {
     let value = value.trim();
     if value.is_empty()
@@ -162,6 +203,14 @@ pub struct AppData {
     pub terminal_pane_height: u32,
     #[serde(default = "default_diff_mode")]
     pub diff_mode: String,
+    #[serde(default = "default_code_font")]
+    pub diff_font_family: String,
+    #[serde(default = "default_diff_font_size")]
+    pub diff_font_size: f64,
+    #[serde(default = "default_code_font")]
+    pub terminal_font_family: String,
+    #[serde(default = "default_terminal_font_size")]
+    pub terminal_font_size: f64,
     #[serde(default = "default_editor")]
     pub editor: String,
     #[serde(default)]
@@ -179,6 +228,10 @@ impl Default for AppData {
             files_pane_width: default_files_pane_width(),
             terminal_pane_height: default_terminal_pane_height(),
             diff_mode: default_diff_mode(),
+            diff_font_family: default_code_font(),
+            diff_font_size: default_diff_font_size(),
+            terminal_font_family: default_code_font(),
+            terminal_font_size: default_terminal_font_size(),
             editor: default_editor(),
             refresh_active_hours: RefreshActiveHours::default(),
             window: None,
@@ -214,6 +267,10 @@ mod tests {
             files_pane_width: 320,
             terminal_pane_height: 280,
             diff_mode: "split".into(),
+            diff_font_family: "jetbrains".into(),
+            diff_font_size: 13.0,
+            terminal_font_family: "jetbrains".into(),
+            terminal_font_size: 14.0,
             editor: "system".into(),
             refresh_active_hours: RefreshActiveHours::default(),
             window: None,
@@ -243,6 +300,27 @@ mod tests {
         assert_eq!(parsed.refresh_active_hours.start, "08:00");
         assert_eq!(parsed.refresh_active_hours.end, "18:00");
         assert_eq!(parsed.editor, "system");
+        assert_eq!(parsed.diff_font_family, "jetbrains");
+        assert_eq!(parsed.diff_font_size, 13.0);
+        assert_eq!(parsed.terminal_font_family, "jetbrains");
+        assert_eq!(parsed.terminal_font_size, 14.0);
+    }
+
+    #[test]
+    fn sanitizes_font_family_aliases_and_rejects_paths() {
+        assert_eq!(sanitize_font_family("JetBrains Mono"), "jetbrains");
+        assert_eq!(sanitize_font_family("SF Mono"), "sf-mono");
+        assert_eq!(sanitize_font_family("Fira Code"), "Fira Code");
+        assert_eq!(sanitize_font_family(""), "jetbrains");
+        assert_eq!(sanitize_font_family("/System/Library/Fonts/Menlo.ttc"), "jetbrains");
+    }
+
+    #[test]
+    fn sanitizes_font_size_range() {
+        assert_eq!(sanitize_font_size(12.4, 12.0), 12.5);
+        assert_eq!(sanitize_font_size(8.0, 12.0), 9.0);
+        assert_eq!(sanitize_font_size(40.0, 12.5), 22.0);
+        assert_eq!(sanitize_font_size(f64::NAN, 12.5), 12.5);
     }
 
     #[test]
@@ -262,6 +340,10 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.refresh_active_hours, RefreshActiveHours::default());
         assert_eq!(parsed.terminal_pane_height, 280);
+        assert_eq!(parsed.diff_font_family, "jetbrains");
+        assert_eq!(parsed.diff_font_size, 13.0);
+        assert_eq!(parsed.terminal_font_family, "jetbrains");
+        assert_eq!(parsed.terminal_font_size, 14.0);
     }
 
     #[test]

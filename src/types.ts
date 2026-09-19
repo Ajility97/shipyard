@@ -57,6 +57,10 @@ export interface AppData {
   filesPaneWidth?: number;
   terminalPaneHeight?: number;
   diffMode?: DiffMode;
+  diffFontFamily?: string;
+  diffFontSize?: number;
+  terminalFontFamily?: string;
+  terminalFontSize?: number;
   editor?: string;
   refreshActiveHours?: RefreshActiveHours;
   window?: WindowState;

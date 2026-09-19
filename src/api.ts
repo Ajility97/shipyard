@@ -120,6 +120,22 @@ export function updateDiffMode(mode: DiffMode) {
   return invoke<DiffMode>("update_diff_mode", { mode });
 }
 
+export function updateDiffFontFamily(fontFamily: string) {
+  return invoke<string>("update_diff_font_family", { fontFamily });
+}
+
+export function updateDiffFontSize(fontSize: number) {
+  return invoke<number>("update_diff_font_size", { fontSize });
+}
+
+export function updateTerminalFontFamily(fontFamily: string) {
+  return invoke<string>("update_terminal_font_family", { fontFamily });
+}
+
+export function updateTerminalFontSize(fontSize: number) {
+  return invoke<number>("update_terminal_font_size", { fontSize });
+}
+
 export function updateEditor(editor: string) {
   return invoke<string>("update_editor", { editor });
 }

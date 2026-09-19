@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, h, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, h, onMounted, onUnmounted, ref, watch } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -24,6 +24,7 @@ const SettingsView = defineAsyncComponent({
 });
 const ChangelogView = defineAsyncComponent(() => import("./views/ChangelogView.vue"));
 import { useApp } from "./composables/useApp";
+import { resolveFontStack } from "./fonts";
 import { useUpdater } from "./composables/useUpdater";
 import {
   CHANGELOG_TAB_ID,
@@ -46,7 +47,18 @@ const {
   dismissOutput,
   openOutput,
   showToast,
+  diffFontFamily,
+  diffFontSize,
+  terminalFontFamily,
+  terminalFontSize,
 } = useApp();
+
+const appStyle = computed(() => ({
+  "--diff-font-family": resolveFontStack(diffFontFamily.value),
+  "--diff-font-size": `${diffFontSize.value}px`,
+  "--terminal-font-family": resolveFontStack(terminalFontFamily.value),
+  "--terminal-font-size": `${terminalFontSize.value}px`,
+}));
 const {
   status,
   statusText,
@@ -184,7 +196,7 @@ watch(statuses, () => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :style="appStyle">
     <TabBar />
     <main class="main">
       <p v-if="error" class="banner">{{ error }}</p>

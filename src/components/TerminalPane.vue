@@ -6,8 +6,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../api";
 import { useApp } from "../composables/useApp";
-
-const TERMINAL_FONT = "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+import { fontFaceName, resolveFontStack } from "../fonts";
 
 const props = defineProps<{
   cwd: string;
@@ -17,7 +16,13 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const { terminalPaneHeight, setTerminalPaneHeight, saveTerminalPaneHeight } = useApp();
+const {
+  terminalPaneHeight,
+  setTerminalPaneHeight,
+  saveTerminalPaneHeight,
+  terminalFontFamily,
+  terminalFontSize,
+} = useApp();
 
 const host = ref<HTMLDivElement | null>(null);
 const message = ref("");
@@ -132,21 +137,37 @@ function startResize(event: PointerEvent) {
   window.addEventListener("pointercancel", stopResize);
 }
 
+async function preloadTerminalFont() {
+  const stack = resolveFontStack(terminalFontFamily.value);
+  const face = fontFaceName(stack);
+  try {
+    if (face) {
+      await document.fonts.load(`${terminalFontSize.value}px "${face}"`);
+    }
+    await document.fonts.ready;
+  } catch {
+    /* use the fallback stack if the face is not available */
+  }
+}
+
+function applyTerminalFont() {
+  if (!term) {
+    return;
+  }
+  term.options.fontFamily = resolveFontStack(terminalFontFamily.value);
+  term.options.fontSize = terminalFontSize.value;
+}
+
 onMounted(async () => {
   const node = host.value;
   if (!node) {
     return;
   }
-  try {
-    await document.fonts.load(`12.5px "JetBrains Mono"`);
-    await document.fonts.ready;
-  } catch {
-    /* use the fallback stack if the face is not available */
-  }
+  await preloadTerminalFont();
   term = new Terminal({
     cursorBlink: true,
-    fontFamily: TERMINAL_FONT,
-    fontSize: 12.5,
+    fontFamily: resolveFontStack(terminalFontFamily.value),
+    fontSize: terminalFontSize.value,
     fontWeight: "400",
     fontWeightBold: "700",
     lineHeight: 1.35,
@@ -230,6 +251,15 @@ watch(
     }
   },
 );
+
+watch([terminalFontFamily, terminalFontSize], async () => {
+  if (!term) {
+    return;
+  }
+  await preloadTerminalFont();
+  applyTerminalFont();
+  syncSize();
+});
 </script>
 
 <template>

@@ -5,9 +5,10 @@ use tauri::{AppHandle, State};
 
 use crate::git;
 use crate::models::{
-    sanitize_editor, sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
-    DeleteMergedResult, FileBlame, GitConfig, LastCommit, RefreshActiveHours, RepoActionResult,
-    RepoEntry, RepoFile, RepoGroup, RepoStatus, StashEntry, TagEntry, WorkingTreeFile,
+    sanitize_editor, sanitize_font_family, sanitize_font_size, sanitize_refresh_active_hours,
+    AppData, BranchOverview, CommitFile, CommitNode, DeleteMergedResult, FileBlame, GitConfig,
+    LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry, RepoFile, RepoGroup, RepoStatus,
+    StashEntry, TagEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -290,6 +291,58 @@ pub fn update_diff_mode(
 }
 
 #[tauri::command]
+pub fn update_diff_font_family(
+    app: AppHandle,
+    state: State<AppState>,
+    font_family: String,
+) -> Result<String, String> {
+    let font_family = sanitize_font_family(&font_family);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.diff_font_family = font_family.clone();
+    persist_data(&app, &data)?;
+    Ok(font_family)
+}
+
+#[tauri::command]
+pub fn update_diff_font_size(
+    app: AppHandle,
+    state: State<AppState>,
+    font_size: f64,
+) -> Result<f64, String> {
+    let font_size = sanitize_font_size(font_size, 13.0);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.diff_font_size = font_size;
+    persist_data(&app, &data)?;
+    Ok(font_size)
+}
+
+#[tauri::command]
+pub fn update_terminal_font_family(
+    app: AppHandle,
+    state: State<AppState>,
+    font_family: String,
+) -> Result<String, String> {
+    let font_family = sanitize_font_family(&font_family);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.terminal_font_family = font_family.clone();
+    persist_data(&app, &data)?;
+    Ok(font_family)
+}
+
+#[tauri::command]
+pub fn update_terminal_font_size(
+    app: AppHandle,
+    state: State<AppState>,
+    font_size: f64,
+) -> Result<f64, String> {
+    let font_size = sanitize_font_size(font_size, 14.0);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.terminal_font_size = font_size;
+    persist_data(&app, &data)?;
+    Ok(font_size)
+}
+
+#[tauri::command]
 pub fn update_editor(
     app: AppHandle,
     state: State<AppState>,
@@ -344,6 +397,10 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
     data.files_pane_width = data.files_pane_width.clamp(220, 800);
     data.terminal_pane_height = data.terminal_pane_height.clamp(160, 720);
     data.diff_mode = sanitize_diff_mode(&data.diff_mode)?;
+    data.diff_font_family = sanitize_font_family(&data.diff_font_family);
+    data.diff_font_size = sanitize_font_size(data.diff_font_size, 13.0);
+    data.terminal_font_family = sanitize_font_family(&data.terminal_font_family);
+    data.terminal_font_size = sanitize_font_size(data.terminal_font_size, 14.0);
     data.editor = sanitize_editor(&data.editor);
     data.refresh_active_hours = sanitize_refresh_active_hours(data.refresh_active_hours);
     if let Some(window) = &mut data.window {

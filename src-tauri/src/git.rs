@@ -849,6 +849,23 @@ pub fn open_repo_in_finder(path: &Path) -> Result<(), String> {
     }
 }
 
+pub fn reveal_file_in_finder(repo: &Path, file: &str) -> Result<(), String> {
+    let path = repo_file_path(repo, file)?;
+    if !path.exists() {
+        return Err("That file is not on disk.".into());
+    }
+    let status = Command::new("open")
+        .arg("-R")
+        .arg(&path)
+        .status()
+        .map_err(|err| format!("Could not show the file in Finder: {err}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Could not show the file in Finder.".into())
+    }
+}
+
 pub fn repo_remote_browse_url(git: &Path, repo: &Path) -> Result<String, String> {
     let output = run_git_quiet(git, repo, &["remote", "get-url", "origin"])?;
     if !output.success {
@@ -2845,6 +2862,236 @@ fn require_file_path(file: &str) -> Result<(), String> {
     if file.is_empty() || file.contains('\0') {
         return Err("Invalid file path".into());
     }
+    let path = Path::new(file);
+    if path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return Err("Invalid file path".into());
+    }
+    Ok(())
+}
+
+fn repo_file_path(repo: &Path, file: &str) -> Result<PathBuf, String> {
+    require_file_path(file)?;
+    Ok(repo.join(file))
+}
+
+fn is_git_internal(file: &str) -> bool {
+    let normalized = file.replace('\\', "/");
+    normalized == ".git" || normalized.starts_with(".git/")
+}
+
+fn file_name(file: &str) -> String {
+    Path::new(file)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file)
+        .to_string()
+}
+
+fn parent_folder_name(file: &str) -> String {
+    Path::new(file)
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn file_extension(file: &str) -> String {
+    let name = file_name(file);
+    let rest = name.strip_prefix('.').unwrap_or(&name);
+    match rest.rfind('.') {
+        Some(index) if index > 0 && index + 1 < rest.len() => {
+            format!(".{}", &rest[index + 1..])
+        }
+        Some(index) if name.starts_with('.') && index + 1 < rest.len() => {
+            format!(".{}", &rest[index + 1..])
+        }
+        _ => String::new(),
+    }
+}
+
+fn escape_gitignore(value: &str) -> String {
+    let mut escaped = String::new();
+    for ch in value.chars() {
+        if matches!(ch, '#' | '!' | '?' | '*' | '[' | '\\' | ' ') {
+            escaped.push('\\');
+        }
+        escaped.push(ch);
+    }
+    escaped
+}
+
+fn ignore_pattern(file: &str, kind: &str) -> Result<String, String> {
+    match kind {
+        "file" => {
+            let name = file_name(file);
+            if name.is_empty() || name == "." || name == ".." {
+                return Err("Invalid file path".into());
+            }
+            Ok(escape_gitignore(&name))
+        }
+        "extension" => {
+            let ext = file_extension(file);
+            if ext.is_empty() {
+                return Err("That file has no extension.".into());
+            }
+            Ok(format!("*{ext}"))
+        }
+        "folder" => {
+            let folder = parent_folder_name(file);
+            if folder.is_empty() {
+                return Err("That file is not in a folder.".into());
+            }
+            Ok(format!("{}/", escape_gitignore(&folder)))
+        }
+        _ => Err("Unknown ignore option.".into()),
+    }
+}
+
+fn ignore_kind_matches(source: &str, kind: &str, path: &str) -> bool {
+    match kind {
+        "file" => path == source,
+        "extension" => {
+            let ext = file_extension(source);
+            !ext.is_empty() && file_extension(path) == ext
+        }
+        "folder" => {
+            let folder = parent_folder_name(source);
+            !folder.is_empty() && parent_folder_name(path) == folder
+        }
+        _ => false,
+    }
+}
+
+fn append_gitignore(repo: &Path, pattern: &str) -> Result<(), String> {
+    let path = repo.join(".gitignore");
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    if existing.lines().any(|line| line.trim() == pattern) {
+        return Ok(());
+    }
+    let mut contents = existing;
+    if !contents.is_empty() && !contents.ends_with('\n') {
+        contents.push('\n');
+    }
+    contents.push_str(pattern);
+    contents.push('\n');
+    fs::write(&path, contents).map_err(|err| format!("Could not update .gitignore: {err}"))?;
+    Ok(())
+}
+
+fn is_tracked(git: &Path, repo: &Path, file: &str) -> bool {
+    run_git_quiet(git, repo, &["ls-files", "--error-unmatch", "--", file])
+        .map(|output| output.success)
+        .unwrap_or(false)
+}
+
+fn committed_in_head(git: &Path, repo: &Path, file: &str) -> bool {
+    let spec = format!("HEAD:{file}");
+    run_git_quiet(git, repo, &["cat-file", "-e", &spec])
+        .map(|output| output.success)
+        .unwrap_or(false)
+}
+
+fn untrack_file(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    if !is_tracked(git, repo, file) {
+        return Ok(());
+    }
+    let output = run_git(git, repo, &["rm", "--cached", "-q", "--", file])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to stop tracking the file.",
+        ));
+    }
+    Ok(())
+}
+
+pub fn ignore_working_tree_path(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    kind: &str,
+) -> Result<(), String> {
+    require_file_path(file)?;
+    if is_git_internal(file) {
+        return Err("Cannot ignore git internals.".into());
+    }
+    let pattern = ignore_pattern(file, kind)?;
+    append_gitignore(repo, &pattern)?;
+    let files = working_tree(git, repo)?;
+    for entry in files {
+        if entry.untracked || !ignore_kind_matches(file, kind, &entry.path) {
+            continue;
+        }
+        untrack_file(git, repo, &entry.path)?;
+    }
+    Ok(())
+}
+
+pub fn stash_file(git: &Path, repo: &Path, file: &str) -> Result<String, String> {
+    require_file_path(file)?;
+    let files = working_tree(git, repo)?;
+    if !files.iter().any(|entry| entry.path == file) {
+        return Err("Nothing to stash for that file.".into());
+    }
+    let output = run_git(
+        git,
+        repo,
+        &["stash", "push", "--include-untracked", "--", file],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to stash the file.",
+        ));
+    }
+    let combined = combined_message(&output);
+    if combined.to_ascii_lowercase().contains("no local changes") {
+        return Err("Nothing to stash for that file.".into());
+    }
+    Ok(or_fallback(&combined, "Stashed file"))
+}
+
+pub fn delete_working_tree_file(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    let path = repo_file_path(repo, file)?;
+    if is_git_internal(file) {
+        return Err("Cannot delete git internals.".into());
+    }
+    if path.is_dir() {
+        return Err("That path is a folder.".into());
+    }
+    let tracked = is_tracked(git, repo, file);
+    if !path.exists() {
+        if tracked && !committed_in_head(git, repo, file) {
+            let output = run_git(git, repo, &["rm", "--cached", "-f", "--", file])?;
+            if !output.success {
+                return Err(or_fallback(
+                    &combined_message(&output),
+                    "Failed to delete the file.",
+                ));
+            }
+            return Ok(());
+        }
+        return Err("That file is not on disk.".into());
+    }
+    if tracked && !committed_in_head(git, repo, file) {
+        let output = run_git(git, repo, &["rm", "-f", "--", file])?;
+        if !output.success {
+            return Err(or_fallback(
+                &combined_message(&output),
+                "Failed to delete the file.",
+            ));
+        }
+        return Ok(());
+    }
+    fs::remove_file(&path).map_err(|err| format!("Could not delete the file: {err}"))?;
     Ok(())
 }
 
@@ -3266,6 +3513,117 @@ filename README.md
         let commits = log_graph(&git_bin(), &repo).unwrap();
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].subject, "initial");
+    }
+
+    #[test]
+    fn ignore_helpers_read_name_extension_and_folder() {
+        assert_eq!(file_name("scripts/find-email-inserts.sh"), "find-email-inserts.sh");
+        assert_eq!(file_extension("scripts/find-email-inserts.sh"), ".sh");
+        assert_eq!(parent_folder_name("scripts/find-email-inserts.sh"), "scripts");
+        assert_eq!(file_extension(".env"), "");
+        assert_eq!(file_extension(".env.local"), ".local");
+        assert_eq!(file_extension("Makefile"), "");
+        assert_eq!(parent_folder_name("README.md"), "");
+        assert_eq!(ignore_pattern("src/app.ts", "file").unwrap(), "app.ts");
+        assert_eq!(ignore_pattern("src/app.ts", "extension").unwrap(), "*.ts");
+        assert_eq!(ignore_pattern("src/app.ts", "folder").unwrap(), "src/");
+        assert!(ignore_pattern("README.md", "folder").is_err());
+        assert!(ignore_pattern("Makefile", "extension").is_err());
+        assert!(require_file_path("../secret").is_err());
+        assert!(require_file_path("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn ignores_working_tree_files_by_name_extension_and_folder() {
+        let repo = init_repo();
+        fs::create_dir_all(repo.join("scripts")).unwrap();
+        fs::write(repo.join("scripts/one.sh"), "echo one\n").unwrap();
+        fs::write(repo.join("scripts/two.sh"), "echo two\n").unwrap();
+        fs::write(repo.join("notes.md"), "keep\n").unwrap();
+        fs::create_dir_all(repo.join("tmp")).unwrap();
+        fs::write(repo.join("tmp/scratch.txt"), "scratch\n").unwrap();
+        ignore_working_tree_path(&git_bin(), &repo, "tmp/scratch.txt", "folder").unwrap();
+        let after_folder = working_tree(&git_bin(), &repo).unwrap();
+        assert!(!after_folder.iter().any(|file| file.path.starts_with("tmp/")));
+        assert!(fs::read_to_string(repo.join(".gitignore"))
+            .unwrap()
+            .contains("tmp/"));
+        fs::write(repo.join("tracked.log"), "old\n").unwrap();
+        git(&repo, &["add", "tracked.log"]);
+        git(&repo, &["commit", "-m", "track log"]);
+        fs::write(repo.join("tracked.log"), "dirty\n").unwrap();
+
+        ignore_working_tree_path(&git_bin(), &repo, "scripts/one.sh", "file").unwrap();
+        let after_file = working_tree(&git_bin(), &repo).unwrap();
+        assert!(!after_file.iter().any(|file| file.path == "scripts/one.sh"));
+        assert!(after_file.iter().any(|file| file.path == "scripts/two.sh"));
+        assert!(fs::read_to_string(repo.join(".gitignore"))
+            .unwrap()
+            .contains("one.sh"));
+
+        ignore_working_tree_path(&git_bin(), &repo, "scripts/two.sh", "extension").unwrap();
+        let after_ext = working_tree(&git_bin(), &repo).unwrap();
+        assert!(!after_ext.iter().any(|file| file.path.ends_with(".sh")));
+        assert!(fs::read_to_string(repo.join(".gitignore"))
+            .unwrap()
+            .contains("*.sh"));
+
+        ignore_working_tree_path(&git_bin(), &repo, "tracked.log", "file").unwrap();
+        let after_tracked = working_tree(&git_bin(), &repo).unwrap();
+        assert!(after_tracked
+            .iter()
+            .any(|file| file.path == "tracked.log" && file.staged && file.status == "Deleted"));
+        assert!(!after_tracked
+            .iter()
+            .any(|file| file.path == "tracked.log" && !file.staged));
+        assert!(repo.join("tracked.log").exists());
+        assert!(after_tracked.iter().any(|file| file.path == "notes.md"));
+    }
+
+    #[test]
+    fn stashes_a_single_working_tree_file() {
+        let repo = init_repo();
+        fs::write(repo.join("README.md"), "changed\n").unwrap();
+        fs::write(repo.join("notes.txt"), "untracked\n").unwrap();
+
+        stash_file(&git_bin(), &repo, "notes.txt").unwrap();
+        assert!(!repo.join("notes.txt").exists());
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files.iter().any(|file| file.path == "README.md"));
+        assert!(!files.iter().any(|file| file.path == "notes.txt"));
+        assert_eq!(stash_list(&git_bin(), &repo).unwrap().len(), 1);
+
+        stash_file(&git_bin(), &repo, "README.md").unwrap();
+        assert!(working_tree(&git_bin(), &repo).unwrap().is_empty());
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "hello\n");
+        assert_eq!(stash_list(&git_bin(), &repo).unwrap().len(), 2);
+        assert!(stash_file(&git_bin(), &repo, "README.md").is_err());
+    }
+
+    #[test]
+    fn deletes_untracked_and_tracked_working_tree_files() {
+        let repo = init_repo();
+        fs::write(repo.join("notes.txt"), "untracked\n").unwrap();
+        fs::write(repo.join("README.md"), "changed\n").unwrap();
+        fs::write(repo.join("fresh.txt"), "staged new\n").unwrap();
+        git(&repo, &["add", "fresh.txt"]);
+
+        delete_working_tree_file(&git_bin(), &repo, "notes.txt").unwrap();
+        assert!(!repo.join("notes.txt").exists());
+
+        delete_working_tree_file(&git_bin(), &repo, "README.md").unwrap();
+        assert!(!repo.join("README.md").exists());
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(files
+            .iter()
+            .any(|file| file.path == "README.md" && !file.staged && file.status == "Deleted"));
+
+        delete_working_tree_file(&git_bin(), &repo, "fresh.txt").unwrap();
+        assert!(!repo.join("fresh.txt").exists());
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(!files.iter().any(|file| file.path == "fresh.txt"));
+        assert!(delete_working_tree_file(&git_bin(), &repo, "../secret").is_err());
+        assert!(reveal_file_in_finder(&repo, "missing.txt").is_err());
     }
 
     #[test]

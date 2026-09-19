@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
+import { defineAsyncComponent, h, onMounted, onUnmounted, ref, watch } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -13,7 +13,15 @@ import Modal from "./components/Modal.vue";
 import GroupsView from "./views/GroupsView.vue";
 
 const HistoryView = defineAsyncComponent(() => import("./views/HistoryView.vue"));
-const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
+const SettingsView = defineAsyncComponent({
+  loader: () => import("./views/SettingsView.vue"),
+  errorComponent: {
+    setup() {
+      return () =>
+        h("p", { class: "settings-error settings-pane-error" }, "Could not open Settings.");
+    },
+  },
+});
 const ChangelogView = defineAsyncComponent(() => import("./views/ChangelogView.vue"));
 import { useApp } from "./composables/useApp";
 import { useUpdater } from "./composables/useUpdater";

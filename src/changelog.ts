@@ -16,6 +16,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "Tags view on the repo toolbar lists local tags. New tag creates a lightweight or annotated tag on HEAD or a commit you specify; Delete removes it.",
       "Hover a diff line in Changes or File History to highlight it and see git blame for that line.",
       "Commit opens when the working tree has changes, even if nothing is staged. Close keeps the title and description for that repository until you commit; a mark on the button shows when a draft is waiting.",
+      "Right-click or Control-click a staged or unstaged file to stage or unstage it, ignore it, stash it, open it in the chosen editor, show it in Finder, copy its path, or delete it.",
     ],
   },
   {

@@ -233,6 +233,18 @@ export function openRepoInFinder(path: string) {
   return invoke<void>("open_repo_in_finder", { path });
 }
 
+export function revealFileInFinder(path: string, file: string) {
+  return invoke<void>("reveal_file_in_finder", { path, file });
+}
+
+export function ignoreWorkingTreePath(path: string, file: string, kind: string) {
+  return invoke<void>("ignore_working_tree_path", { path, file, kind });
+}
+
+export function deleteWorkingTreeFile(path: string, file: string) {
+  return invoke<void>("delete_working_tree_file", { path, file });
+}
+
 export function stageFile(path: string, file: string) {
   return invoke<void>("stage_file", { path, file });
 }
@@ -337,6 +349,10 @@ export function stashList(path: string) {
 
 export function stashPush(path: string, message: string) {
   return invoke<string>("stash_push", { path, message });
+}
+
+export function stashFile(path: string, file: string) {
+  return invoke<string>("stash_file", { path, file });
 }
 
 export function stashApply(path: string, index: number) {

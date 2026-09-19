@@ -935,6 +935,32 @@ pub fn open_repo_in_finder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn reveal_file_in_finder(path: String, file: String) -> Result<(), String> {
+    git::reveal_file_in_finder(Path::new(&path), &file)
+}
+
+#[tauri::command]
+pub fn ignore_working_tree_path(
+    state: State<AppState>,
+    path: String,
+    file: String,
+    kind: String,
+) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::ignore_working_tree_path(&git, Path::new(&path), &file, &kind)
+}
+
+#[tauri::command]
+pub fn delete_working_tree_file(
+    state: State<AppState>,
+    path: String,
+    file: String,
+) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::delete_working_tree_file(&git, Path::new(&path), &file)
+}
+
+#[tauri::command]
 pub fn stage_file(state: State<AppState>, path: String, file: String) -> Result<(), String> {
     let git = require_git(&state)?;
     git::stage_file(&git, Path::new(&path), &file)
@@ -1146,6 +1172,18 @@ pub async fn stash_push(
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || git::stash_push(&git, Path::new(&path), &message))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn stash_file(
+    state: State<'_, AppState>,
+    path: String,
+    file: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::stash_file(&git, Path::new(&path), &file))
         .await
         .map_err(|err| err.to_string())?
 }

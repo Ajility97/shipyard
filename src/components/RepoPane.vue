@@ -34,11 +34,14 @@ import type {
 import { STANDALONE_GROUP_ID } from "../types";
 import {
   abortLabel,
+  absoluteFilePath,
   continueLabel,
+  fileBasename,
   isConflicted,
   openInEditorLabel,
   operationNoun,
   operationTitle,
+  type IgnoreKind,
 } from "../gitOperation";
 
 const props = defineProps<{
@@ -1594,6 +1597,84 @@ async function openInEditor(file: WorkingTreeFile) {
   }
 }
 
+async function ignoreFile(file: WorkingTreeFile, kind: IgnoreKind) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await api.ignoreWorkingTreePath(match.repo.path, file.path, kind);
+    if (selectedFile.value?.path === file.path) {
+      closeDiff();
+    }
+    await reloadAfterIndexChange();
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
+function stashFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match || actionBusy.value) {
+    return;
+  }
+  closeDiff();
+  return runRepoAction("Stashing…", () => api.stashFile(match.repo.path, file.path));
+}
+
+async function revealFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await api.revealFileInFinder(match.repo.path, file.path);
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
+async function copyFilePath(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(absoluteFilePath(match.repo.path, file.path));
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
+async function deleteFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const ok = await confirm(`Delete ${fileBasename(file.path)}? This cannot be undone.`, {
+    title: "Delete file",
+    kind: "warning",
+    okLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!ok) {
+    return;
+  }
+  try {
+    await api.deleteWorkingTreeFile(match.repo.path, file.path);
+    if (selectedFile.value?.path === file.path) {
+      closeDiff();
+    }
+    await reloadAfterIndexChange();
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
 async function abortCurrentOperation() {
   const match = current.value;
   if (!match || !operation.value || actionBusy.value) {
@@ -1963,6 +2044,11 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @unstage-all="unstageAll"
         @discard="discardAll"
         @stash="openStash"
+        @stash-file="stashFile"
+        @ignore="ignoreFile"
+        @reveal="revealFile"
+        @copy-path="copyFilePath"
+        @delete-file="deleteFile"
         @commit="openCommit"
         @open-editor="openInEditor"
       />

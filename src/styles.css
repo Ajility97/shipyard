@@ -831,6 +831,10 @@ button.toast.error:hover:not(:disabled) {
   font-size: 12px;
 }
 
+.settings-pane-error {
+  padding: 1.25rem 1.5rem;
+}
+
 .settings-form-page {
   overflow: auto;
 }
@@ -2258,6 +2262,83 @@ body.reordering-repos .repo-row,
 
 .overflow-menu-item.danger {
   color: var(--bad);
+}
+
+.file-context-menu,
+.context-menu-sub {
+  z-index: 70;
+  min-width: 13.5rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+.file-context-menu {
+  position: fixed;
+  user-select: none;
+}
+
+.context-menu-subwrap {
+  position: relative;
+}
+
+.context-menu-sub {
+  position: absolute;
+  top: 0;
+  left: calc(100% - 0.2rem);
+  min-width: 15rem;
+}
+
+.context-menu-sub.left {
+  left: auto;
+  right: calc(100% - 0.2rem);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  color: inherit;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.context-menu-item.danger {
+  color: var(--bad);
+}
+
+.context-menu-item.has-sub {
+  padding-right: 0.4rem;
+}
+
+.context-menu-chevron {
+  width: 0.7rem;
+  height: 0.7rem;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.context-menu-sep {
+  height: 1px;
+  margin: 0.25rem 0.35rem;
+  background: var(--border);
 }
 
 .diff-stat {

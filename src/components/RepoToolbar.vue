@@ -83,6 +83,19 @@ function selectBranch(branch: string) {
   emit("checkout", branch);
 }
 
+function createBranch() {
+  close();
+  emit("create");
+}
+
+function mergeBranch() {
+  close();
+  if (props.branches.length < 2) {
+    return;
+  }
+  emit("merge");
+}
+
 async function toggleBranches() {
   if (!isOpen.value) {
     emit("refreshBranches");
@@ -101,7 +114,7 @@ async function toggleBranches() {
           type="button"
           :disabled="busy"
           :aria-expanded="isOpen"
-          aria-haspopup="listbox"
+          aria-haspopup="menu"
           :title="branch ? `Switch branch from ${branch}` : 'Switch branch'"
           @click="toggleBranches"
         >
@@ -113,9 +126,33 @@ async function toggleBranches() {
         <div
           v-if="isOpen"
           class="overflow-menu-dropdown branch-menu-dropdown"
-          role="listbox"
-          aria-label="Local branches"
+          role="menu"
+          aria-label="Branch actions"
         >
+          <button
+            class="overflow-menu-item"
+            type="button"
+            role="menuitem"
+            :disabled="busy"
+            @click="createBranch"
+          >
+            New branch
+          </button>
+          <button
+            class="overflow-menu-item"
+            type="button"
+            role="menuitem"
+            :disabled="busy || branches.length < 2"
+            :title="
+              branches.length < 2
+                ? 'Need another local branch to merge into'
+                : 'Merge a local branch into another'
+            "
+            @click="mergeBranch"
+          >
+            Merge into…
+          </button>
+          <div class="context-menu-sep" />
           <p v-if="!branches.length" class="muted tiny empty-branches">No local branches.</p>
           <button
             v-for="item in branches"
@@ -123,8 +160,7 @@ async function toggleBranches() {
             class="overflow-menu-item"
             :class="{ active: item === branch }"
             type="button"
-            role="option"
-            :aria-selected="item === branch"
+            role="menuitem"
             @click="selectBranch(item)"
           >
             {{ item }}
@@ -143,35 +179,6 @@ async function toggleBranches() {
     </div>
     <div class="repo-toolbar-bar repo-toolbar-actions">
       <div class="repo-toolbar-work">
-        <button class="ghost tiny" type="button" :disabled="busy" @click="emit('create')">
-          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 3v12a3 3 0 0 0 3 3h4.5" />
-            <circle cx="6" cy="5" r="2" />
-            <circle cx="6" cy="19" r="2" />
-            <path d="M15 6h6M18 3v6" />
-          </svg>
-          New branch
-        </button>
-        <button
-          class="ghost tiny"
-          type="button"
-          :disabled="busy || branches.length < 2"
-          :title="
-            branches.length < 2
-              ? 'Need another local branch to merge into'
-              : 'Merge a local branch into another'
-          "
-          @click="emit('merge')"
-        >
-          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 3v12a3 3 0 003 3h6" />
-            <path d="m13.5 15.75 2.25 2.25 2.25-2.25" />
-            <circle cx="6" cy="5" r="2" />
-            <circle cx="6" cy="19" r="2" />
-            <circle cx="18" cy="9" r="2" />
-          </svg>
-          Merge into…
-        </button>
         <button
           class="ghost tiny"
           type="button"

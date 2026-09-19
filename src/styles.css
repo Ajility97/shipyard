@@ -2911,10 +2911,15 @@ body.is-resizing-y * {
   gap: 0.45rem;
   padding: 0.4rem 0.85rem;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  user-select: none;
 }
 
 .branch-row.current {
   background: color-mix(in srgb, var(--bg-active) 55%, transparent);
+}
+
+.branch-row.selected {
+  background: var(--bg-active);
 }
 
 .branch-row-name {
@@ -3025,7 +3030,8 @@ body.is-resizing-y * {
 .branch-footer {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.75rem;
   padding: 0.55rem 0.75rem 0.65rem;
   border-top: 1px solid var(--border);
 }

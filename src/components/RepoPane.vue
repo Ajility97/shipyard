@@ -1494,6 +1494,133 @@ async function deleteBranch(branch: LocalBranch) {
   });
 }
 
+function selectedDeleteCopy(branches: LocalBranch[], target: string) {
+  const merged = branches.filter((branch) => branch.merged).length;
+  const partial = branches.filter((branch) => !branch.merged && branch.partial).length;
+  const unique = branches.filter((branch) => !branch.merged && !branch.partial).length;
+  const bits: string[] = [];
+  if (merged) {
+    bits.push(
+      `${merged} ${merged === 1 ? "is" : "are"} already merged into ${target}`,
+    );
+  }
+  if (partial) {
+    bits.push(`${partial} ${partial === 1 ? "is" : "are"} only partially merged`);
+  }
+  if (unique) {
+    bits.push(`${unique} ${unique === 1 ? "has" : "have"} unique work`);
+  }
+  const noun = branches.length === 1 ? "branch" : "branches";
+  return `Delete ${branches.length} local ${noun}?${bits.length ? ` ${bits.join(". ")}.` : ""}`;
+}
+
+async function deleteSelectedBranches(branches: LocalBranch[]) {
+  const match = current.value;
+  const victims = branches.filter((branch) => !branch.current && !branch.protected);
+  if (!match || !victims.length) {
+    return;
+  }
+  const target = overview.value?.mergeTarget ?? "the integration branch";
+  const ok = await confirm(selectedDeleteCopy(victims, target), {
+    title: "Delete selected branches",
+    kind: "warning",
+    okLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!ok) {
+    return;
+  }
+  if (actionBusy.value) {
+    return;
+  }
+  actionBusy.value = true;
+  actionLabel.value = "Deleting selected branches…";
+  message.value = "";
+  try {
+    const safe = victims.filter((branch) => branch.merged).map((branch) => branch.name);
+    const forced = victims.filter((branch) => !branch.merged).map((branch) => branch.name);
+    const deleted: string[] = [];
+    const errors: string[] = [];
+    const notes: string[] = [];
+
+    if (safe.length) {
+      let result = await api.deleteMergedBranches(
+        match.repo.path,
+        preferredMergeTarget(),
+        false,
+        safe,
+      );
+      deleted.push(...result.deleted);
+      errors.push(...result.errors);
+      if (result.message) {
+        notes.push(result.message);
+      }
+      if (result.refused.length) {
+        const refused = result.refused.join(", ");
+        const forceOk = await confirm(
+          result.deleted.length
+            ? `Deleted ${result.deleted.length}. Git would not safely delete ${refused}. Those branches are already contained in ${target}, but not fully merged into the branch you're on (squash merges and unmerged remotes do this). Force delete them?`
+            : `Git would not safely delete ${refused}. Those leftover branches are already contained in ${target}, but not fully merged into the branch you're on (squash merges and unmerged remotes do this). Force delete them?`,
+          {
+            title: "Force delete leftover branches",
+            kind: "warning",
+            okLabel: "Force delete",
+            cancelLabel: "Keep",
+          },
+        );
+        if (forceOk) {
+          const extra = await api.deleteMergedBranches(
+            match.repo.path,
+            preferredMergeTarget(),
+            true,
+            result.refused,
+          );
+          deleted.push(...extra.deleted);
+          errors.push(...extra.errors);
+          if (extra.message) {
+            notes.push(extra.message);
+          }
+        }
+      }
+    }
+
+    if (forced.length) {
+      const result = await api.deleteMergedBranches(
+        match.repo.path,
+        preferredMergeTarget(),
+        true,
+        forced,
+      );
+      deleted.push(...result.deleted);
+      errors.push(...result.errors);
+      if (result.message) {
+        notes.push(result.message);
+      }
+    }
+
+    const text = notes.filter(Boolean).join(" ") || `Deleted ${deleted.length} local branches.`;
+    const failed = deleted.length === 0 && errors.length > 0;
+    if (failed) {
+      message.value = text;
+    }
+    showToast(text, failed ? "error" : "success");
+    overviewGeneration += 1;
+    removeOverviewBranches(deleted);
+    await loadRepo({ overview: false, graph: !branchesView.value, silent: true });
+    if (branchesView.value && overview.value?.branches.some((branch) => branch.pending)) {
+      void loadOverview();
+    }
+    await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+  } catch (err) {
+    const text = String(err);
+    message.value = text;
+    showToast(text, "error");
+  } finally {
+    actionBusy.value = false;
+    actionLabel.value = "";
+  }
+}
+
 async function deleteMerged() {
   const match = current.value;
   const count =
@@ -1875,6 +2002,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
           @rename="openRenameBranch"
           @delete="deleteBranch"
           @delete-merged="deleteMerged"
+          @delete-selected="deleteSelectedBranches"
         />
         <TagList
           v-else-if="tagView"

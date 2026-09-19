@@ -1,32 +1,12 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
-import { useApp } from "../../composables/useApp";
 import { useUpdater } from "../../composables/useUpdater";
 
-const { showToast } = useApp();
-const {
-  status,
-  statusText,
-  currentVersion,
-  availableVersion,
-  busy,
-  ensureCurrentVersion,
-  checkForUpdates,
-  installUpdate,
-} = useUpdater();
+const { currentVersion, ensureCurrentVersion } = useUpdater();
 
 onMounted(() => {
   void ensureCurrentVersion();
 });
-
-async function onCheckForUpdates() {
-  await checkForUpdates({ prompt: false });
-  if (status.value === "up-to-date") {
-    showToast("You're on the latest version.");
-  } else if (status.value === "error") {
-    showToast(statusText.value, "error");
-  }
-}
 </script>
 
 <template>
@@ -36,7 +16,8 @@ async function onCheckForUpdates() {
         <div>
           <div class="brand">Updates</div>
           <p class="muted tiny">
-            Shipyard checks GitHub on launch. Newer builds install in place and restart.
+            Shipyard checks GitHub on launch and from Check for Updates in the
+            menu. Newer builds install in place and restart.
           </p>
         </div>
       </div>
@@ -48,29 +29,6 @@ async function onCheckForUpdates() {
             <p class="muted tiny">The build running on this Mac.</p>
           </div>
           <span class="muted tiny">{{ currentVersion ? `v${currentVersion}` : "…" }}</span>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-copy">
-            <h3>Check for updates</h3>
-            <p class="muted tiny">Compare this build to the latest GitHub release.</p>
-          </div>
-          <div class="settings-update-actions">
-            <button
-              v-if="status === 'available'"
-              class="ghost"
-              type="button"
-              :disabled="busy"
-              @click="installUpdate"
-            >
-              Install v{{ availableVersion }} and restart
-            </button>
-            <button class="ghost" type="button" :disabled="busy" @click="onCheckForUpdates">
-              {{ busy && status === "checking" ? "Checking…" : "Check for updates" }}
-            </button>
-            <p v-if="statusText" class="muted tiny" :class="{ 'settings-error': status === 'error' }">
-              {{ statusText }}
-            </p>
-          </div>
         </div>
       </section>
     </div>

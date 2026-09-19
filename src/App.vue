@@ -85,7 +85,6 @@ async function closeActiveTabOrWindow() {
 }
 
 async function onMenuCheckForUpdates() {
-  openSettings("updates");
   await checkForUpdates({ prompt: true });
   if (status.value === "up-to-date") {
     showToast("You're on the latest version.");

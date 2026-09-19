@@ -1187,6 +1187,21 @@ pub async fn commit_remote_url(
 }
 
 #[tauri::command]
+pub async fn merge_local_branch(
+    state: State<'_, AppState>,
+    path: String,
+    source: String,
+    target: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::merge_local_branch(&git, Path::new(&path), &source, &target)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub async fn rename_local_branch(
     state: State<'_, AppState>,
     path: String,

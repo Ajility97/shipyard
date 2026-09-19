@@ -14,6 +14,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "History can pause recording so new git commands stay off the log until you resume.",
       "Open-repo fetch, pull, and other progress sits on the name row so the toolbar buttons stay put.",
       "Right-click a commit in the graph to check it out, create a branch or tag there, cherry-pick, revert, or copy its SHA or remote link. Command-click or Shift-click selects several commits for cherry-pick or revert.",
+      "Merge a local branch into another from the repo toolbar or a row in Branches. Checkout switches to the target first when needed, and conflicts use the existing resolve, continue, and abort flow.",
     ],
   },
   {

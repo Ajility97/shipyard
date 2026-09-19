@@ -1722,6 +1722,43 @@ pub fn commit_remote_url(git: &Path, repo: &Path, hash: &str) -> Result<String, 
     commit_browse_url(&browse, &hash)
 }
 
+pub fn merge_local_branch(
+    git: &Path,
+    repo: &Path,
+    source: &str,
+    target: &str,
+) -> Result<String, String> {
+    validate_ref(source)?;
+    validate_ref(target)?;
+    require_no_operation(repo)?;
+    if source == target {
+        return Err("Choose a different branch to merge into.".into());
+    }
+    if !ref_exists(git, repo, &format!("refs/heads/{source}")) {
+        return Err(format!("Local branch {source} does not exist."));
+    }
+    if !ref_exists(git, repo, &format!("refs/heads/{target}")) {
+        return Err(format!("Local branch {target} does not exist."));
+    }
+
+    let current = current_branch(git, repo)?;
+    if current != target {
+        checkout_local_branch(git, repo, target)?;
+    }
+
+    let output = run_git(git, repo, &["merge", "--no-edit", source])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to merge {source} into {target}."),
+        ));
+    }
+    Ok(or_fallback(
+        &combined_message(&output),
+        &format!("Merged {source} into {target}"),
+    ))
+}
+
 pub fn rename_local_branch(
     git: &Path,
     repo: &Path,
@@ -3950,6 +3987,90 @@ filename README.md
         assert!(!after_rename.contains(&"task/123".into()));
         assert!(rename_local_branch(&git_bin(), &repo, "missing", "other").is_err());
         assert!(rename_local_branch(&git_bin(), &repo, "develop", "task/456").is_err());
+    }
+
+    #[test]
+    fn merges_local_branch_into_another() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("feature.txt"), "work\n").unwrap();
+        git(&repo, &["add", "feature.txt"]);
+        git(&repo, &["commit", "-m", "feature work"]);
+
+        let message = merge_local_branch(&git_bin(), &repo, "feature", "develop").unwrap();
+        assert!(
+            message.to_lowercase().contains("merge")
+                || message.to_lowercase().contains("fast-forward")
+                || message.contains("feature")
+        );
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
+        assert_eq!(
+            fs::read_to_string(repo.join("feature.txt")).unwrap(),
+            "work\n"
+        );
+
+        let again = merge_local_branch(&git_bin(), &repo, "feature", "develop").unwrap();
+        assert!(again.to_lowercase().contains("already"));
+
+        git(&repo, &["checkout", "-b", "other"]);
+        fs::write(repo.join("other.txt"), "other\n").unwrap();
+        git(&repo, &["add", "other.txt"]);
+        git(&repo, &["commit", "-m", "other work"]);
+        git(&repo, &["checkout", "develop"]);
+        let onto_current = merge_local_branch(&git_bin(), &repo, "other", "develop").unwrap();
+        assert!(
+            onto_current.to_lowercase().contains("merge")
+                || onto_current.to_lowercase().contains("fast-forward")
+                || onto_current.contains("other")
+        );
+        assert_eq!(fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n");
+
+        assert!(merge_local_branch(&git_bin(), &repo, "develop", "develop").is_err());
+        assert!(merge_local_branch(&git_bin(), &repo, "missing", "develop").is_err());
+        assert!(merge_local_branch(&git_bin(), &repo, "develop", "missing").is_err());
+    }
+
+    #[test]
+    fn merge_local_branch_leaves_conflicts_in_progress() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("README.md"), "feature\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "feature change"]);
+        git(&repo, &["checkout", "develop"]);
+        fs::write(repo.join("README.md"), "develop\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "develop change"]);
+        git(&repo, &["checkout", "feature"]);
+
+        let err = merge_local_branch(&git_bin(), &repo, "feature", "develop").unwrap_err();
+        assert!(err.to_lowercase().contains("conflict") || err.to_lowercase().contains("merge"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
+        assert_eq!(current_operation(&repo), Some("merge"));
+        assert!(merge_local_branch(&git_bin(), &repo, "feature", "develop").is_err());
+    }
+
+    #[test]
+    fn merge_local_branch_stays_put_when_checkout_is_blocked() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("feature.txt"), "work\n").unwrap();
+        git(&repo, &["add", "feature.txt"]);
+        git(&repo, &["commit", "-m", "feature work"]);
+        git(&repo, &["checkout", "develop"]);
+        fs::write(repo.join("README.md"), "develop\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        git(&repo, &["commit", "-m", "develop edit"]);
+        git(&repo, &["checkout", "feature"]);
+        fs::write(repo.join("README.md"), "uncommitted\n").unwrap();
+
+        assert!(merge_local_branch(&git_bin(), &repo, "feature", "develop").is_err());
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "feature");
+        assert!(current_operation(&repo).is_none());
+        assert_eq!(
+            fs::read_to_string(repo.join("README.md")).unwrap(),
+            "uncommitted\n"
+        );
     }
 
     #[test]

@@ -11,6 +11,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   checkout: [branch: LocalBranch];
+  merge: [branch: LocalBranch];
   rename: [branch: LocalBranch];
   delete: [branch: LocalBranch];
   deleteMerged: [];
@@ -26,6 +27,8 @@ const leftoverCount = computed(
       (branch) => branch.merged && !branch.current && !branch.protected && !branch.pending,
     ).length ?? 0,
 );
+
+const canMerge = computed(() => (props.overview?.branches.length ?? 0) >= 2);
 
 const classifying = computed(
   () => props.overview?.branches.some((branch) => branch.pending) ?? false,
@@ -204,6 +207,19 @@ onUnmounted(() => {
               />
             </svg>
             Checkout
+          </button>
+          <button
+            class="ghost tiny"
+            type="button"
+            :disabled="busy || !canMerge"
+            :title="
+              canMerge
+                ? `Merge ${branch.name} into another local branch`
+                : 'Need another local branch to merge into'
+            "
+            @click="emit('merge', branch)"
+          >
+            Merge
           </button>
           <button
             class="ghost tiny"

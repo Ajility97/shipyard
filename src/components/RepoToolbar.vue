@@ -37,6 +37,7 @@ const emit = defineEmits<{
   undoUnpushed: [];
   checkout: [branch: string];
   create: [];
+  merge: [];
   branches: [];
   tags: [];
   stash: [];
@@ -150,6 +151,26 @@ async function toggleBranches() {
             <path d="M15 6h6M18 3v6" />
           </svg>
           New branch
+        </button>
+        <button
+          class="ghost tiny"
+          type="button"
+          :disabled="busy || branches.length < 2"
+          :title="
+            branches.length < 2
+              ? 'Need another local branch to merge into'
+              : 'Merge a local branch into another'
+          "
+          @click="emit('merge')"
+        >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 3v12a3 3 0 003 3h6" />
+            <path d="m13.5 15.75 2.25 2.25 2.25-2.25" />
+            <circle cx="6" cy="5" r="2" />
+            <circle cx="6" cy="19" r="2" />
+            <circle cx="18" cy="9" r="2" />
+          </svg>
+          Merge into…
         </button>
         <button
           class="ghost tiny"

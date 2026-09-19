@@ -114,6 +114,7 @@ pub fn run() {
             commands::cherry_pick_commits,
             commands::revert_commits,
             commands::commit_remote_url,
+            commands::merge_local_branch,
             commands::rename_local_branch,
             commands::repo_pull,
             commands::repo_push,

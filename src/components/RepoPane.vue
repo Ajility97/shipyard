@@ -141,6 +141,9 @@ const commitMenu = ref<{
 const renamingBranch = ref<LocalBranch | null>(null);
 const renameBranchName = ref("");
 const renameBranchInput = ref<HTMLInputElement | null>(null);
+const mergingBranch = ref(false);
+const mergeSource = ref("");
+const mergeTarget = ref("");
 const committing = ref(false);
 const amending = ref(false);
 const lastCommit = ref<LastCommit | null>(null);
@@ -180,6 +183,22 @@ const canCreateTag = computed(() => Boolean(newTagName.value.trim()));
 const canRenameBranch = computed(() => {
   const next = renameBranchName.value.trim();
   return Boolean(next) && next !== (renamingBranch.value?.name ?? "");
+});
+const localBranchNames = computed(() => {
+  const fromOverview = overview.value?.branches.map((branch) => branch.name) ?? [];
+  if (fromOverview.length) {
+    return fromOverview;
+  }
+  return branches.value;
+});
+const mergeTargetHint = computed(() => {
+  const raw = overview.value?.mergeTarget ?? preferredMergeTarget() ?? "";
+  return raw.replace(/^origin\//, "").trim();
+});
+const canConfirmMerge = computed(() => {
+  const source = mergeSource.value.trim();
+  const target = mergeTarget.value.trim();
+  return Boolean(source && target && source !== target);
 });
 const commitTitleLength = computed(() => [...commitTitle.value].length);
 const commitTitleLeft = computed(() => Math.max(0, COMMIT_TITLE_MAX - commitTitleLength.value));
@@ -970,6 +989,64 @@ async function openRenameBranch(branch: LocalBranch) {
 function closeRenameBranch() {
   renamingBranch.value = null;
   renameBranchName.value = "";
+}
+
+function pickMergeTarget() {
+  const names = localBranchNames.value;
+  const preferred = [mergeTargetHint.value, "develop", "main", "master"];
+  for (const name of preferred) {
+    if (name && names.includes(name)) {
+      return name;
+    }
+  }
+  return names[0] ?? "";
+}
+
+function pickMergeSource(preferred: string, target: string) {
+  const names = localBranchNames.value;
+  if (preferred && preferred !== target && names.includes(preferred)) {
+    return preferred;
+  }
+  const currentName = current.value?.status?.branch ?? "";
+  if (currentName && currentName !== target && names.includes(currentName)) {
+    return currentName;
+  }
+  return names.find((name) => name !== target) ?? "";
+}
+
+async function openMergeBranch(branch?: LocalBranch) {
+  if (actionBusy.value || localBranchNames.value.length < 2) {
+    return;
+  }
+  if (!overview.value) {
+    await loadOverview().catch(() => undefined);
+  }
+  const preferredSource = branch?.name ?? current.value?.status?.branch ?? "";
+  const target = pickMergeTarget();
+  mergeTarget.value = target;
+  mergeSource.value = pickMergeSource(preferredSource, target);
+  mergingBranch.value = true;
+}
+
+function closeMergeBranch() {
+  mergingBranch.value = false;
+  mergeSource.value = "";
+  mergeTarget.value = "";
+}
+
+function mergeLocalBranch() {
+  const match = current.value;
+  const source = mergeSource.value.trim();
+  const target = mergeTarget.value.trim();
+  if (!match || !canConfirmMerge.value) {
+    return;
+  }
+  closeMergeBranch();
+  return runRepoAction(
+    "Merging…",
+    () => api.mergeLocalBranch(match.repo.path, source, target),
+    target,
+  );
 }
 
 function renameBranch() {
@@ -2077,6 +2154,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @undo-unpushed="undoUnpushedCommits"
         @checkout="checkoutBranch"
         @create="openCreateBranch"
+        @merge="openMergeBranch()"
         @branches="toggleBranchesView"
         @tags="toggleTagView"
         @stash="toggleStashView"
@@ -2119,6 +2197,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
           :overview="overview"
           :busy="actionBusy"
           @checkout="checkoutListedBranch"
+          @merge="openMergeBranch"
           @rename="openRenameBranch"
           @delete="deleteBranch"
           @delete-merged="deleteMerged"
@@ -2482,6 +2561,37 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
       <button class="ghost" type="button" @click="closeRenameBranch">Cancel</button>
       <button class="primary" type="button" :disabled="!canRenameBranch" @click="renameBranch">
         Rename
+      </button>
+    </template>
+  </Modal>
+  <Modal v-if="mergingBranch" title="Merge local branch" @close="closeMergeBranch">
+    <p class="pull-summary">
+      Merges <code>{{ mergeSource || "…" }}</code> into <code>{{ mergeTarget || "…" }}</code>.
+      Checkout switches to the target first if needed.
+    </p>
+    <label class="modal-label">
+      <span class="muted tiny">From</span>
+      <select v-model="mergeSource">
+        <option v-for="name in localBranchNames" :key="`from-${name}`" :value="name">
+          {{ name }}
+        </option>
+      </select>
+    </label>
+    <label class="modal-label">
+      <span class="muted tiny">Into</span>
+      <select v-model="mergeTarget">
+        <option v-for="name in localBranchNames" :key="`into-${name}`" :value="name">
+          {{ name }}
+        </option>
+      </select>
+    </label>
+    <p class="muted tiny pull-hint">
+      Conflicts appear in the files list so you can open them, mark them resolved, or abort.
+    </p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeMergeBranch">Cancel</button>
+      <button class="primary" type="button" :disabled="!canConfirmMerge" @click="mergeLocalBranch">
+        Merge
       </button>
     </template>
   </Modal>

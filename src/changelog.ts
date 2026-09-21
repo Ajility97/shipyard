@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.1.2",
+    date: "September 21, 2026",
+    notes: [
+      "Stage, unstage, and discard no longer freeze the window. File watching was reloading the commit graph for index updates, and status was writing the index again, so each click ran that work twice.",
+    ],
+  },
+  {
     version: "1.1.1",
     date: "September 19, 2026",
     notes: [

@@ -75,6 +75,7 @@ fn run_git_stdin(git: &Path, cwd: &Path, args: &[&str], input: &str) -> Result<G
         .args(args)
         .current_dir(cwd)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -109,10 +110,14 @@ fn run_git_command(
 ) -> Result<GitOutput, String> {
     let started = Instant::now();
     let mut command = Command::new(git);
+    // Status and diff otherwise refresh the index stat cache and rewrite
+    // `.git/index`. The file watcher then runs them again. Optional locks
+    // are only that cache update; add, commit, and restore still lock.
     command
         .args(args)
         .current_dir(cwd)
-        .env("GIT_TERMINAL_PROMPT", "0");
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0");
     for (key, value) in extra_env {
         command.env(key, value);
     }
@@ -437,6 +442,7 @@ pub fn fetch_remote(git: &Path, repo: &Path) {
         .args(args)
         .current_dir(repo)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .env("GCM_INTERACTIVE", "Never")
         .env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=8")
         .stdin(Stdio::null())

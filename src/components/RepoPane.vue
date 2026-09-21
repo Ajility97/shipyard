@@ -62,7 +62,6 @@ const {
   diffMode,
   saveDiffMode,
   editor,
-  refreshStatus,
   refreshRepoStatus,
   patchRepoStatus,
   showToast,
@@ -242,6 +241,11 @@ let resizeStartX = 0;
 let resizeStartWidth = 320;
 let resizePointerId: number | null = null;
 let loadGeneration = 0;
+let filesGeneration = 0;
+let worktreeMutation = 0;
+let watchRefresh: Promise<void> | null = null;
+let watchRefreshQueued = false;
+let watchRefreshRefs = false;
 let watchToken = 0;
 let watchClosed = false;
 let stopWatch: UnlistenFn | undefined;
@@ -364,20 +368,59 @@ async function refreshSelectedFileDiff(file: WorkingTreeFile) {
   }
 }
 
-async function onRepoFilesChanged(payload: RepoFilesChanged) {
-  const match = current.value;
-  if (!match || watchKey(match.repo.path) !== watchKey(payload.path) || actionBusy.value) {
+function scheduleWatchRefresh(refs: boolean) {
+  watchRefreshRefs ||= refs;
+  watchRefreshQueued = true;
+  if (watchRefresh || worktreeMutation > 0 || actionBusy.value) {
     return;
   }
-  await loadRepo({
-    silent: true,
-    graph: payload.git,
-    overview: payload.git && branchesView.value,
+  watchRefresh = drainWatchRefresh().finally(() => {
+    watchRefresh = null;
+    if (watchRefreshQueued && worktreeMutation === 0 && !actionBusy.value) {
+      scheduleWatchRefresh(false);
+    }
   });
-  void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
-  if (payload.git && selectedHistoryFile.value) {
+}
+
+async function drainWatchRefresh() {
+  while (watchRefreshQueued && worktreeMutation === 0 && !actionBusy.value) {
+    watchRefreshQueued = false;
+    const refs = watchRefreshRefs;
+    watchRefreshRefs = false;
+    await refreshFromWatch(refs);
+  }
+}
+
+async function refreshFromWatch(refs: boolean) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  if (refs) {
+    await loadRepo({
+      silent: true,
+      graph: true,
+      overview: branchesView.value,
+    });
+  } else {
+    await loadWorkingTree();
+  }
+  await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+  if (refs && selectedHistoryFile.value) {
     void refreshHistoryFile();
   }
+}
+
+async function onRepoFilesChanged(payload: RepoFilesChanged) {
+  const match = current.value;
+  if (!match || watchKey(match.repo.path) !== watchKey(payload.path)) {
+    return;
+  }
+  if (actionBusy.value) {
+    return;
+  }
+  scheduleWatchRefresh(payload.git);
+  await watchRefresh;
 }
 
 function mergeOverview(previous: BranchOverview | null, next: BranchOverview): BranchOverview {
@@ -439,9 +482,52 @@ async function loadOverview() {
   }
 }
 
+function applyWorkingTree(nextFiles: WorkingTreeFile[], silent: boolean) {
+  const match = current.value;
+  files.value = nextFiles;
+  if (match && nextFiles.some(isConflicted)) {
+    openChangesPane();
+    void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+  }
+  if (historyOpen.value) {
+    void loadRepoFiles({ silent });
+  }
+  const nextSelected = selectedFile.value
+    ? nextFiles.find((file) => sameFile(file, selectedFile.value))
+    : undefined;
+  if (selectedFile.value && !nextSelected) {
+    selectedFile.value = null;
+    if (!selectedCommitFile.value && !selectedHistoryCommit.value) {
+      diff.value = "";
+    }
+  } else if (nextSelected) {
+    selectedFile.value = nextSelected;
+    void refreshSelectedFileDiff(nextSelected);
+  }
+}
+
+async function loadWorkingTree() {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const path = match.repo.path;
+  const generation = ++filesGeneration;
+  try {
+    const nextFiles = await api.workingTree(path);
+    if (generation !== filesGeneration || current.value?.repo.path !== path) {
+      return;
+    }
+    applyWorkingTree(nextFiles, true);
+  } catch {
+    /* keep the list already on screen */
+  }
+}
+
 async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?: boolean }) {
   const match = current.value;
   const generation = ++loadGeneration;
+  const fileGeneration = ++filesGeneration;
   if (!match) {
     overviewGeneration += 1;
     trackingGeneration += 1;
@@ -484,13 +570,8 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
       commits.value = nextCommits;
       graphStale.value = false;
     }
-    files.value = nextFiles;
-    if (nextFiles.some(isConflicted)) {
-      openChangesPane();
-      void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
-    }
-    if (historyOpen.value) {
-      void loadRepoFiles({ silent: options?.silent });
+    if (fileGeneration === filesGeneration) {
+      applyWorkingTree(nextFiles, Boolean(options?.silent));
     }
     branches.value = nextBranches;
     rememberTrackingPath(match.repo.path);
@@ -503,18 +584,6 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
       if (needsClassify && overviewGen === overviewGeneration) {
         void classifyOverview(match.repo.path, preferredMergeTarget(), overviewGen);
       }
-    }
-    const nextSelected = selectedFile.value
-      ? nextFiles.find((file) => sameFile(file, selectedFile.value))
-      : undefined;
-    if (selectedFile.value && !nextSelected) {
-      selectedFile.value = null;
-      if (!selectedCommitFile.value && !selectedHistoryCommit.value) {
-        diff.value = "";
-      }
-    } else if (nextSelected) {
-      selectedFile.value = nextSelected;
-      void refreshSelectedFileDiff(nextSelected);
     }
     if (selectedCommit.value) {
       const nextCommit = nextCommits.find((commit) => commit.hash === selectedCommit.value?.hash);
@@ -640,13 +709,29 @@ async function selectFile(file: WorkingTreeFile) {
   }
 }
 
-async function reloadAfterIndexChange() {
-  const match = current.value;
-  if (!match) {
-    return;
+async function runWorktreeMutation(work: () => Promise<void>) {
+  worktreeMutation += 1;
+  let succeeded = false;
+  try {
+    await work();
+    succeeded = true;
+    await loadWorkingTree();
+    const match = current.value;
+    if (match) {
+      await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+    }
+  } finally {
+    worktreeMutation -= 1;
+    if (worktreeMutation > 0) {
+      return;
+    }
+    if (watchRefreshRefs || (!succeeded && watchRefreshQueued)) {
+      scheduleWatchRefresh(watchRefreshRefs);
+    } else {
+      watchRefreshQueued = false;
+      watchRefreshRefs = false;
+    }
   }
-  await loadRepo();
-  await refreshStatus(match.group?.id ?? STANDALONE_GROUP_ID);
 }
 
 async function stageFile(file: WorkingTreeFile) {
@@ -655,8 +740,7 @@ async function stageFile(file: WorkingTreeFile) {
     return;
   }
   try {
-    await api.stageFile(match.repo.path, file.path);
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(() => api.stageFile(match.repo.path, file.path));
   } catch (err) {
     message.value = String(err);
   }
@@ -668,8 +752,7 @@ async function stageAll() {
     return;
   }
   try {
-    await api.stageAll(match.repo.path);
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(() => api.stageAll(match.repo.path));
   } catch (err) {
     message.value = String(err);
   }
@@ -681,8 +764,7 @@ async function unstageFile(file: WorkingTreeFile) {
     return;
   }
   try {
-    await api.unstageFile(match.repo.path, file.path);
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(() => api.unstageFile(match.repo.path, file.path));
   } catch (err) {
     message.value = String(err);
   }
@@ -694,8 +776,7 @@ async function unstageAll() {
     return;
   }
   try {
-    await api.unstageAll(match.repo.path);
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(() => api.unstageAll(match.repo.path));
   } catch (err) {
     message.value = String(err);
   }
@@ -1959,11 +2040,12 @@ async function ignoreFile(file: WorkingTreeFile, kind: IgnoreKind) {
     return;
   }
   try {
-    await api.ignoreWorkingTreePath(match.repo.path, file.path, kind);
-    if (selectedFile.value?.path === file.path) {
-      closeDiff();
-    }
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(async () => {
+      await api.ignoreWorkingTreePath(match.repo.path, file.path, kind);
+      if (selectedFile.value?.path === file.path) {
+        closeDiff();
+      }
+    });
   } catch (err) {
     message.value = String(err);
     showToast(String(err), "error");
@@ -2020,11 +2102,12 @@ async function deleteFile(file: WorkingTreeFile) {
     return;
   }
   try {
-    await api.deleteWorkingTreeFile(match.repo.path, file.path);
-    if (selectedFile.value?.path === file.path) {
-      closeDiff();
-    }
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(async () => {
+      await api.deleteWorkingTreeFile(match.repo.path, file.path);
+      if (selectedFile.value?.path === file.path) {
+        closeDiff();
+      }
+    });
   } catch (err) {
     message.value = String(err);
     showToast(String(err), "error");
@@ -2080,10 +2163,10 @@ async function discardAll() {
     return;
   }
   try {
-    await api.discardAllChanges(match.repo.path);
-    closeDiff();
-    await loadRepo();
-    await refreshStatus(match.group?.id ?? STANDALONE_GROUP_ID);
+    await runWorktreeMutation(async () => {
+      await api.discardAllChanges(match.repo.path);
+      closeDiff();
+    });
   } catch (err) {
     message.value = String(err);
   }

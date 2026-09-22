@@ -2274,14 +2274,14 @@ pub fn discard_file_changes(
         return restore_worktree(git, repo, file);
     }
 
-    if !committed_in_head(git, repo, file) {
-        let source = staged_rename_source(git, repo, file)?;
-        return discard_staged_addition(git, repo, file, source);
-    }
-
     let has_unstaged = files
         .iter()
         .any(|entry| entry.path == file && !entry.staged);
+    if !committed_in_head(git, repo, file) {
+        let source = staged_rename_source(git, repo, file)?;
+        return discard_staged_addition(git, repo, file, source, has_unstaged);
+    }
+
     discard_staged_tracked(git, repo, file, has_unstaged)
 }
 
@@ -2335,25 +2335,143 @@ fn discard_staged_addition(
     repo: &Path,
     file: &str,
     rename_from: Option<String>,
+    has_unstaged: bool,
 ) -> Result<(), String> {
-    let removed = run_git(git, repo, &["rm", "-f", "--", file])?;
-    if !removed.success {
-        let cached = run_git(git, repo, &["rm", "-f", "--cached", "--", file])?;
-        if !cached.success {
-            return Err(or_fallback(
-                &combined_message(&removed),
-                "Failed to discard changes.",
-            ));
-        }
-        let path = repo_file_path(repo, file)?;
-        if path.is_file() {
-            fs::remove_file(&path).map_err(|err| format!("Could not discard the file: {err}"))?;
-        }
+    if let Some(old) = &rename_from {
+        ensure_rename_source_restorable(git, repo, old)?;
     }
-    if let Some(old) = rename_from {
-        restore_from_head(git, repo, &old, true)?;
+
+    let path = repo_file_path(repo, file)?;
+    let snapshot = if path.is_file() {
+        Some(fs::read(&path).map_err(|err| format!("Could not discard changes: {err}"))?)
+    } else {
+        None
+    };
+
+    if let Err(err) = discard_new_path(git, repo, file, has_unstaged, &path, snapshot.as_deref()) {
+        return Err(err);
+    }
+
+    if let Some(old) = &rename_from {
+        if let Err(err) = restore_from_head(git, repo, old, true) {
+            rollback_staged_new_file(git, repo, file, snapshot.as_deref());
+            return Err(err);
+        }
     }
     Ok(())
+}
+
+fn discard_new_path(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    has_unstaged: bool,
+    path: &Path,
+    snapshot: Option<&[u8]>,
+) -> Result<(), String> {
+    if has_unstaged && path.is_file() {
+        if let Err(err) = reverse_apply_cached_diff(git, repo, file) {
+            if let Some(bytes) = snapshot {
+                let _ = fs::write(path, bytes);
+            }
+            return Err(err);
+        }
+        if let Err(err) = remove_index_entry(git, repo, file) {
+            rollback_staged_new_file(git, repo, file, snapshot);
+            return Err(err);
+        }
+        return Ok(());
+    }
+    if has_unstaged {
+        return remove_index_entry(git, repo, file);
+    }
+    delete_staged_new_file(git, repo, file)
+}
+
+fn delete_staged_new_file(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    let removed = run_git(git, repo, &["rm", "-f", "--", file])?;
+    if removed.success {
+        return Ok(());
+    }
+    let cached = run_git(git, repo, &["rm", "-f", "--cached", "--", file])?;
+    if !cached.success {
+        return Err(or_fallback(
+            &combined_message(&removed),
+            "Failed to discard changes.",
+        ));
+    }
+    let path = repo_file_path(repo, file)?;
+    if path.is_file() {
+        fs::remove_file(&path).map_err(|err| format!("Could not discard the file: {err}"))?;
+    }
+    Ok(())
+}
+
+fn remove_index_entry(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    let output = run_git(git, repo, &["rm", "--cached", "-f", "--", file])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to discard changes.",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_rename_source_restorable(git: &Path, repo: &Path, old: &str) -> Result<(), String> {
+    let path = repo_file_path(repo, old)?;
+    let meta = match fs::symlink_metadata(&path) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(format!("Could not discard changes: {err}")),
+    };
+    if !meta.is_file() {
+        return Err(unstaged_overlap_error());
+    }
+    let current = fs::read(&path).map_err(|err| format!("Could not discard changes: {err}"))?;
+    let head = head_file_bytes(git, repo, old)?;
+    if current != head {
+        return Err(unstaged_overlap_error());
+    }
+    Ok(())
+}
+
+fn unstaged_overlap_error() -> String {
+    "Could not discard staged changes without losing unstaged edits to the same lines.".into()
+}
+
+fn head_file_bytes(git: &Path, repo: &Path, file: &str) -> Result<Vec<u8>, String> {
+    let dir = std::env::temp_dir().join(format!(
+        "shipyard-discard-head-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    fs::create_dir_all(&dir).map_err(|err| format!("Could not discard changes: {err}"))?;
+    let dest = dir.join("head");
+    let spec = format!("HEAD:{file}");
+    let result = run_git_to_file(git, repo, &["show", &spec], &dest).and_then(|_| {
+        fs::read(&dest).map_err(|err| format!("Could not discard changes: {err}"))
+    });
+    let _ = fs::remove_dir_all(&dir);
+    result
+}
+
+fn rollback_staged_new_file(git: &Path, repo: &Path, file: &str, snapshot: Option<&[u8]>) {
+    let Some(bytes) = snapshot else {
+        return;
+    };
+    let Ok(path) = repo_file_path(repo, file) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if fs::write(&path, bytes).is_ok() {
+        let _ = run_git(git, repo, &["add", "--", file]);
+    }
 }
 
 fn discard_staged_tracked(
@@ -2487,10 +2605,7 @@ fn reverse_apply_cached_diff_in(
         ],
     )?;
     if !check.success {
-        return Err(
-            "Could not discard staged changes without losing unstaged edits to the same lines."
-                .into(),
-        );
+        return Err(unstaged_overlap_error());
     }
     let applied = run_git(
         git,
@@ -5557,6 +5672,49 @@ filename README.md
             .any(|file| file.path == "README.md" && file.staged));
 
         assert!(discard_file_changes(&git_bin(), &repo, "../README.md", false).is_err());
+    }
+
+    #[test]
+    fn discard_refuses_to_lose_unstaged_adds_and_renames() {
+        let repo = init_repo();
+        fs::write(repo.join("new.txt"), "new\n").unwrap();
+        git(&repo, &["add", "new.txt"]);
+        fs::write(repo.join("new.txt"), "new\nextra\n").unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "new.txt", true).unwrap_err();
+        assert!(err.to_lowercase().contains("unstaged"));
+        assert_eq!(fs::read_to_string(repo.join("new.txt")).unwrap(), "new\nextra\n");
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "new.txt" && file.staged));
+
+        git(&repo, &["reset", "--hard"]);
+        git(&repo, &["clean", "-fd"]);
+        git(&repo, &["mv", "README.md", "guide.md"]);
+        fs::write(repo.join("guide.md"), "hello\nextra\n").unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "guide.md", true).unwrap_err();
+        assert!(err.to_lowercase().contains("unstaged"));
+        assert_eq!(
+            fs::read_to_string(repo.join("guide.md")).unwrap(),
+            "hello\nextra\n"
+        );
+        assert!(!repo.join("README.md").exists());
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "guide.md" && file.staged));
+
+        fs::write(repo.join("guide.md"), "hello\n").unwrap();
+        fs::write(repo.join("README.md"), "custom\n").unwrap();
+        let guide = fs::read(repo.join("guide.md")).unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "guide.md", true).unwrap_err();
+        assert!(err.to_lowercase().contains("unstaged"));
+        assert_eq!(fs::read(repo.join("guide.md")).unwrap(), guide);
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "custom\n");
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "guide.md" && file.staged));
     }
 
     #[test]

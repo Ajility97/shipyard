@@ -218,7 +218,7 @@ watch(
         :title="canDiscard ? undefined : 'Abort the merge or rebase instead of discarding changes.'"
         @click="emit('discard')"
       >
-        Discard Changes
+        Discard changes
       </button>
       <button
         class="context-menu-item danger"

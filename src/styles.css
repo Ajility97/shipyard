@@ -3009,6 +3009,16 @@ body.is-resizing-y * {
   background: var(--bg-active);
 }
 
+.branch-row.selected .branch-row-actions button,
+.branch-row.current .branch-row-actions button {
+  border-color: color-mix(in srgb, var(--text) 46%, var(--bg-active));
+}
+
+.branch-row.selected .branch-row-actions button.danger:hover:not(:disabled),
+.branch-row.current .branch-row-actions button.danger:hover:not(:disabled) {
+  border-color: var(--bad);
+}
+
 .branch-row-name {
   min-width: 0;
   overflow: hidden;

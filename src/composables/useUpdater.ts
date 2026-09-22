@@ -74,7 +74,7 @@ export function useUpdater() {
     try {
       currentVersion.value = await getVersion();
     } catch {
-      currentVersion.value = "1.2.0";
+      currentVersion.value = "1.3.0";
     }
   }
 

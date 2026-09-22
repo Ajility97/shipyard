@@ -6,6 +6,14 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.3.0",
+    date: "September 22, 2026",
+    notes: [
+      "The branch switcher always shows a search field, so the menu stays the same shape and long branch lists can be filtered.",
+      "Check for updates is back in Settings. A newer build uses the same install confirmation as launch.",
+    ],
+  },
+  {
     version: "1.2.0",
     date: "September 22, 2026",
     notes: [

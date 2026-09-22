@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import BranchIcon from "./BranchIcon.vue";
 import ChangesToggle from "./ChangesToggle.vue";
 import FileHistoryToggle from "./FileHistoryToggle.vue";
@@ -51,6 +51,12 @@ const emit = defineEmits<{
 
 const { statuses } = useApp();
 const { isOpen, toggle, close } = useOverflowMenu(() => `branch-${props.repoId}`);
+const branchQuery = ref("");
+const branchSearchInput = ref<HTMLInputElement | null>(null);
+const branchMenuEl = ref<HTMLElement | null>(null);
+const branchListEl = ref<HTMLElement | null>(null);
+const branchActiveIndex = ref(0);
+const branchSearchMoved = ref(false);
 
 const currentBranch = computed(
   () => statuses.value[props.repoId]?.branch || props.branch,
@@ -84,6 +90,14 @@ const branchItems = computed(() => {
   });
 });
 
+const filteredBranchItems = computed(() => {
+  const needle = branchQuery.value.trim().toLowerCase();
+  if (!needle) {
+    return branchItems.value;
+  }
+  return branchItems.value.filter((item) => item.name.toLowerCase().includes(needle));
+});
+
 const unpushedCount = computed(() => statuses.value[props.repoId]?.ahead ?? 0);
 const canUndoUnpushed = computed(
   () => unpushedCount.value > 0 && !statuses.value[props.repoId]?.operation,
@@ -104,6 +118,101 @@ function selectBranch(branch: string) {
   }
   emit("checkout", branch);
 }
+
+function currentBranchIndex() {
+  const index = branchItems.value.findIndex((item) => item.name === props.branch);
+  return index >= 0 ? index : 0;
+}
+
+function scrollBranchIntoView(selector: string) {
+  void nextTick(() => {
+    const list = branchListEl.value;
+    const item = list?.querySelector<HTMLElement>(selector);
+    if (!list || !item) {
+      return;
+    }
+    const listRect = list.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    if (itemRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - itemRect.top;
+    } else if (itemRect.bottom > listRect.bottom) {
+      list.scrollTop += itemRect.bottom - listRect.bottom;
+    }
+  });
+}
+
+function clearBranchQuery() {
+  branchQuery.value = "";
+  branchSearchInput.value?.focus();
+}
+
+function onBranchHover(index: number) {
+  branchSearchMoved.value = true;
+  branchActiveIndex.value = index;
+}
+
+function onBranchSearchKeydown(event: KeyboardEvent) {
+  const items = filteredBranchItems.value;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    if (!items.length) {
+      return;
+    }
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    branchSearchMoved.value = true;
+    branchActiveIndex.value = Math.min(items.length - 1, Math.max(0, branchActiveIndex.value + delta));
+    scrollBranchIntoView(`[data-branch-index="${branchActiveIndex.value}"]`);
+    return;
+  }
+  if (event.key === "Enter") {
+    const item = items[branchActiveIndex.value];
+    event.preventDefault();
+    if (!item || (!branchQuery.value.trim() && !branchSearchMoved.value)) {
+      close();
+      return;
+    }
+    selectBranch(item.name);
+    return;
+  }
+  if (event.key === "Escape" && branchQuery.value) {
+    event.stopPropagation();
+    event.preventDefault();
+    branchQuery.value = "";
+  }
+}
+
+watch(branchQuery, async (value) => {
+  if (!value.trim()) {
+    branchActiveIndex.value = currentBranchIndex();
+    return;
+  }
+  branchActiveIndex.value = 0;
+  await nextTick();
+  branchListEl.value?.scrollTo({ top: 0 });
+});
+
+watch(filteredBranchItems, (items) => {
+  if (branchActiveIndex.value >= items.length) {
+    branchActiveIndex.value = Math.max(0, items.length - 1);
+  }
+});
+
+watch(isOpen, async (open) => {
+  if (!open) {
+    branchQuery.value = "";
+    branchSearchMoved.value = false;
+    return;
+  }
+  branchSearchMoved.value = false;
+  branchActiveIndex.value = currentBranchIndex();
+  await nextTick();
+  const menu = branchMenuEl.value;
+  if (menu) {
+    menu.style.minWidth = `${menu.getBoundingClientRect().width}px`;
+  }
+  branchSearchInput.value?.focus();
+  scrollBranchIntoView(".branch-menu-branch.active");
+});
 
 function createBranch() {
   close();
@@ -147,6 +256,7 @@ async function toggleBranches() {
         </button>
         <div
           v-if="isOpen"
+          ref="branchMenuEl"
           class="overflow-menu-dropdown branch-menu-dropdown"
           role="menu"
           aria-label="Branch actions"
@@ -175,16 +285,54 @@ async function toggleBranches() {
             Merge into…
           </button>
           <div class="context-menu-sep" />
-          <p v-if="!branches.length" class="muted tiny empty-branches">No local branches.</p>
-          <button
-            v-for="item in branchItems"
-            :key="item.name"
-            class="overflow-menu-item branch-menu-branch"
-            :class="{ active: item.name === branch }"
-            type="button"
-            role="menuitem"
-            @click="selectBranch(item.name)"
-          >
+          <label class="branch-menu-search">
+            <span class="sr-only">Filter branches</span>
+            <svg class="branch-menu-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
+              />
+            </svg>
+            <input
+              ref="branchSearchInput"
+              v-model="branchQuery"
+              type="text"
+              placeholder="Filter branches"
+              autocomplete="off"
+              spellcheck="false"
+              @keydown="onBranchSearchKeydown"
+            />
+            <button
+              v-if="branchQuery"
+              class="branch-menu-search-clear"
+              type="button"
+              title="Clear search"
+              @mousedown.prevent
+              @click="clearBranchQuery"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </label>
+          <div ref="branchListEl" class="branch-menu-list">
+            <p v-if="!branches.length" class="muted tiny empty-branches">No local branches.</p>
+            <p v-else-if="!filteredBranchItems.length" class="muted tiny empty-branches">
+              No branches match that search.
+            </p>
+            <button
+              v-for="(item, index) in filteredBranchItems"
+              :key="item.name"
+              class="overflow-menu-item branch-menu-branch"
+              :class="{
+                active: item.name === branch,
+                highlighted: index === branchActiveIndex && item.name !== branch,
+              }"
+              :data-branch-index="index"
+              type="button"
+              role="menuitem"
+              @mouseenter="onBranchHover(index)"
+              @click="selectBranch(item.name)"
+            >
             <span class="branch-menu-name">{{ item.name }}</span>
             <span
               v-if="item.localOnly"
@@ -205,7 +353,8 @@ async function toggleBranches() {
                 ↑{{ item.ahead }}
               </span>
             </span>
-          </button>
+            </button>
+          </div>
         </div>
       </div>
       <span class="repo-path" :title="path">{{ path }}</span>

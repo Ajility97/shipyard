@@ -590,6 +590,19 @@ fn ahead_behind_for_ref(git: &Path, repo: &Path, other: &str) -> (u32, u32) {
     (ahead, behind)
 }
 
+fn head_branch_name(git: &Path, repo: &Path) -> Option<String> {
+    let output = run_git(git, repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).ok()?;
+    if !output.success {
+        return None;
+    }
+    let name = output.stdout.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
 pub fn current_branch(git: &Path, repo: &Path) -> Result<String, String> {
     let abbrev = run_git(git, repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;
     if !abbrev.success {
@@ -1358,12 +1371,31 @@ pub fn checkout_local_branch(git: &Path, repo: &Path, branch: &str) -> Result<St
     ))
 }
 
-pub fn create_and_checkout_branch(git: &Path, repo: &Path, branch: &str) -> Result<String, String> {
+pub fn create_and_checkout_branch(
+    git: &Path,
+    repo: &Path,
+    branch: &str,
+    base: Option<&str>,
+) -> Result<String, String> {
     validate_ref(branch)?;
     if ref_exists(git, repo, &format!("refs/heads/{branch}")) {
         return Err(format!("Branch {branch} already exists."));
     }
-    let output = run_git(git, repo, &["checkout", "-b", branch])?;
+    let start = base.map(str::trim).filter(|name| !name.is_empty());
+    let args: Vec<&str> = if let Some(start) = start {
+        validate_ref(start)?;
+        let on_start = head_branch_name(git, repo).as_deref() == Some(start);
+        if on_start {
+            vec!["checkout", "-b", branch]
+        } else if ref_exists(git, repo, &format!("refs/heads/{start}")) {
+            vec!["checkout", "-b", branch, start]
+        } else {
+            return Err(format!("Local branch {start} does not exist."));
+        }
+    } else {
+        vec!["checkout", "-b", branch]
+    };
+    let output = run_git(git, repo, &args)?;
     if !output.success {
         return Err(or_fallback(
             &combined_message(&output),
@@ -2789,13 +2821,13 @@ mod tests {
         assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "develop");
         assert!(checkout_local_branch(&git_bin(), &repo, "missing").is_err());
 
-        let created = create_and_checkout_branch(&git_bin(), &repo, "task/123").unwrap();
+        let created = create_and_checkout_branch(&git_bin(), &repo, "task/123", None).unwrap();
         assert!(created.contains("task/123"));
         assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "task/123");
         assert!(local_branches(&git_bin(), &repo)
             .unwrap()
             .contains(&"task/123".into()));
-        assert!(create_and_checkout_branch(&git_bin(), &repo, "task/123").is_err());
+        assert!(create_and_checkout_branch(&git_bin(), &repo, "task/123", None).is_err());
 
         let renamed = rename_local_branch(&git_bin(), &repo, "task/123", "task/456").unwrap();
         assert!(renamed.contains("task/456"));
@@ -2805,6 +2837,37 @@ mod tests {
         assert!(!after_rename.contains(&"task/123".into()));
         assert!(rename_local_branch(&git_bin(), &repo, "missing", "other").is_err());
         assert!(rename_local_branch(&git_bin(), &repo, "develop", "task/456").is_err());
+    }
+
+    #[test]
+    fn creates_branch_from_selected_base() {
+        let repo = init_repo();
+        let base_hash = git(&repo, &["rev-parse", "HEAD"]).stdout.trim().to_string();
+        git(&repo, &["checkout", "-b", "feature"]);
+        fs::write(repo.join("feature.txt"), "work\n").unwrap();
+        git(&repo, &["add", "feature.txt"]);
+        git(&repo, &["commit", "-m", "feature work"]);
+
+        let created =
+            create_and_checkout_branch(&git_bin(), &repo, "task/from-develop", Some("develop"))
+                .unwrap();
+        assert!(created.contains("task/from-develop"));
+        assert_eq!(current_branch(&git_bin(), &repo).unwrap(), "task/from-develop");
+        assert_eq!(git(&repo, &["rev-parse", "HEAD"]).stdout.trim(), base_hash);
+        assert!(
+            create_and_checkout_branch(&git_bin(), &repo, "task/missing-base", Some("nope"))
+                .is_err()
+        );
+
+        let empty = temp_dir();
+        git(&empty, &["init", "-b", "develop"]);
+        let from_current =
+            create_and_checkout_branch(&git_bin(), &empty, "feature", Some("develop")).unwrap();
+        assert!(from_current.contains("feature"));
+        assert_eq!(
+            git(&empty, &["symbolic-ref", "--short", "HEAD"]).stdout.trim(),
+            "feature"
+        );
     }
 
     #[test]

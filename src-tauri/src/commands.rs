@@ -1025,10 +1025,11 @@ pub async fn create_and_checkout_branch(
     state: State<'_, AppState>,
     path: String,
     branch: String,
+    base: Option<String>,
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
-        git::create_and_checkout_branch(&git, Path::new(&path), &branch)
+        git::create_and_checkout_branch(&git, Path::new(&path), &branch, base.as_deref())
     })
     .await
     .map_err(|err| err.to_string())?

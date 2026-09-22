@@ -273,8 +273,12 @@ export function checkoutLocalBranch(path: string, branch: string) {
   return invoke<string>("checkout_local_branch", { path, branch });
 }
 
-export function createAndCheckoutBranch(path: string, branch: string) {
-  return invoke<string>("create_and_checkout_branch", { path, branch });
+export function createAndCheckoutBranch(path: string, branch: string, base?: string) {
+  return invoke<string>("create_and_checkout_branch", {
+    path,
+    branch,
+    base: base?.trim() || null,
+  });
 }
 
 export function renameLocalBranch(path: string, branch: string, newName: string) {

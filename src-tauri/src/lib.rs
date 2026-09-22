@@ -90,6 +90,7 @@ pub fn run() {
             watcher::watch_repo,
             watcher::unwatch_repo,
             commands::discard_all_changes,
+            commands::discard_file_changes,
             commands::last_commit,
             commands::commit,
             commands::abort_operation,

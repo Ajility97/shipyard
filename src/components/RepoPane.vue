@@ -720,13 +720,15 @@ async function selectCommitFile(file: CommitFile) {
   }
 }
 
-async function selectFile(file: WorkingTreeFile) {
+async function selectFile(file: WorkingTreeFile, options?: { toggle?: boolean }) {
   const match = current.value;
   if (!match) {
     return;
   }
   if (sameFile(file, selectedFile.value)) {
-    closeDiff();
+    if (options?.toggle !== false) {
+      closeDiff();
+    }
     return;
   }
   closeCommitDetail();
@@ -2123,6 +2125,34 @@ async function copyFilePath(file: WorkingTreeFile) {
   }
 }
 
+async function discardFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const name = fileBasename(file.path);
+  const prompt = file.untracked
+    ? `Discard ${name}? This untracked file will be deleted.`
+    : `Discard changes to ${name}? This cannot be undone.`;
+  const ok = await confirm(prompt, {
+    title: "Discard changes",
+    kind: "warning",
+    okLabel: "Discard",
+    cancelLabel: "Cancel",
+  });
+  if (!ok) {
+    return;
+  }
+  try {
+    await runWorktreeMutation(() =>
+      api.discardFileChanges(match.repo.path, file.path, file.staged),
+    );
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
 async function deleteFile(file: WorkingTreeFile) {
   const match = current.value;
   if (!match) {
@@ -2532,6 +2562,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @ignore="ignoreFile"
         @reveal="revealFile"
         @copy-path="copyFilePath"
+        @discard-file="discardFile"
         @delete-file="deleteFile"
         @commit="openCommit"
         @open-editor="openInEditor"

@@ -222,6 +222,10 @@ export function discardAllChanges(path: string) {
   return invoke<void>("discard_all_changes", { path });
 }
 
+export function discardFileChanges(path: string, file: string, staged: boolean) {
+  return invoke<void>("discard_file_changes", { path, file, staged });
+}
+
 export function lastCommit(path: string) {
   return invoke<LastCommit>("last_commit", { path });
 }

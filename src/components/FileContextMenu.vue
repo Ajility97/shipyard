@@ -14,6 +14,7 @@ const props = defineProps<{
   y: number;
   editorLabel: string;
   canStash: boolean;
+  canDiscard: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   openEditor: [];
   reveal: [];
   copyPath: [];
+  discard: [];
   delete: [];
   close: [];
 }>();
@@ -208,6 +210,16 @@ watch(
         Copy file path
       </button>
       <div class="context-menu-sep" />
+      <button
+        class="context-menu-item danger"
+        type="button"
+        role="menuitem"
+        :disabled="!canDiscard"
+        :title="canDiscard ? undefined : 'Abort the merge or rebase instead of discarding changes.'"
+        @click="emit('discard')"
+      >
+        Discard Changes
+      </button>
       <button
         class="context-menu-item danger"
         type="button"

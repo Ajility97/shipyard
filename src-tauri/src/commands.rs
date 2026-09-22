@@ -936,6 +936,17 @@ pub fn discard_all_changes(state: State<AppState>, path: String) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn discard_file_changes(
+    state: State<AppState>,
+    path: String,
+    file: String,
+    staged: bool,
+) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::discard_file_changes(&git, Path::new(&path), &file, staged)
+}
+
+#[tauri::command]
 pub fn last_commit(state: State<AppState>, path: String) -> Result<LastCommit, String> {
     let git = require_git(&state)?;
     git::last_commit(&git, Path::new(&path))

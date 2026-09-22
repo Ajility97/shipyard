@@ -27,36 +27,19 @@ const {
   cancelRefresh,
   pullAll,
   cancelPullAll,
-  refreshIntervalSeconds,
   refreshingAll,
   refreshCancelled,
-  lastRefreshAt,
-  countdownLabel,
   refreshProgressLabel,
   pullingAll,
   pullAllCancelled,
   pullProgress,
   pullProgressLabel,
-  saveRefreshInterval,
   reorderGroups,
   reorderStandaloneRepos,
   repoDisplayName,
 } = useApp();
 const { hasTab, closeRepos } = useTabs();
 const creating = ref(false);
-const interval = computed({
-  get: () => refreshIntervalSeconds.value,
-  set: (value: number) => {
-    void saveRefreshInterval(value);
-  },
-});
-
-const lastRefreshLabel = computed(() => {
-  if (!lastRefreshAt.value) {
-    return "";
-  }
-  return lastRefreshAt.value.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-});
 
 const refreshAllProgress = computed(
   () => refreshProgressLabel.value.replace(/^Fetching\s+/, "") || "…",
@@ -367,22 +350,6 @@ async function removeStandalone(repoId: string) {
         <div class="brand">
           <img class="brand-icon" src="/app-icon.png" alt="" width="72" height="72" />
           Shipyard
-        </div>
-        <div class="refresh-area">
-          <label class="refresh-setting">
-            <span class="muted tiny">Auto-fetch</span>
-            <select v-model.number="interval">
-              <option :value="0">Off</option>
-              <option :value="60">1 minute</option>
-              <option :value="300">5 minutes</option>
-              <option :value="900">15 minutes</option>
-              <option :value="1800">30 minutes</option>
-            </select>
-          </label>
-          <div class="refresh-times">
-            <span v-if="countdownLabel" class="refresh-meta countdown">{{ countdownLabel }}</span>
-            <span class="refresh-last">Last fetch {{ lastRefreshLabel || "—" }}</span>
-          </div>
         </div>
       </div>
 

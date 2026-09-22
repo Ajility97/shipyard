@@ -155,6 +155,7 @@ button.commit.has-draft::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.75rem;
   flex: 0 0 auto;
   min-height: 1.55rem;
   padding: 0 0.7rem;
@@ -164,6 +165,21 @@ button.commit.has-draft::after {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+.status-bar-start {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.status-bar-fetch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
 }
 
 .status-bar-version,
@@ -194,6 +210,10 @@ button.commit.has-draft::after {
 
 .status-bar-version-prefix {
   opacity: 0.55;
+}
+
+.status-bar-version {
+  flex-shrink: 0;
 }
 
 .status-bar-version:hover:not(:disabled),
@@ -1475,49 +1495,6 @@ button.tab-tool.update:hover:not(:disabled) {
 .groups-display .standalone-list,
 .groups-display .muted {
   width: 100%;
-}
-
-.refresh-area {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.35rem;
-}
-
-.refresh-times {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.05rem;
-  line-height: 1.2;
-}
-
-.refresh-meta {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.refresh-last {
-  color: #6b7486;
-  font-size: 11px;
-}
-
-.refresh-setting {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.refresh-setting select {
-  border: 1px solid var(--border);
-  background: #0d1016;
-  color: var(--text);
-  border-radius: 6px;
-  padding: 0.3rem 0.45rem;
-}
-
-.countdown {
-  font-variant-numeric: tabular-nums;
 }
 
 button:has(.spinner) {

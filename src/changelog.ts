@@ -10,6 +10,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     date: "September 22, 2026",
     notes: [
       "The branch switcher always shows a search field, so the menu stays the same shape and long branch lists can be filtered.",
+      "Auto-fetch interval stays in Settings. The status bar shows the next fetch, and hovering it shows the last fetch.",
       "Check for updates is back in Settings. A newer build uses the same install confirmation as launch.",
     ],
   },

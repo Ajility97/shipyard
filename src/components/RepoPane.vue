@@ -133,6 +133,7 @@ const actionBranch = ref("");
 const message = ref("");
 const creatingBranch = ref(false);
 const newBranchName = ref("");
+const baseBranch = ref("");
 const newBranchStart = ref("");
 const newBranchInput = ref<HTMLInputElement | null>(null);
 const commitMenu = ref<{
@@ -169,7 +170,35 @@ const specifyBranch = ref("");
 
 const COMMIT_TITLE_MAX = 72;
 
-const canCreateBranch = computed(() => Boolean(newBranchName.value.trim()));
+function isDetachedBranch(name: string) {
+  return name === "HEAD" || name === "detached HEAD" || name.startsWith("detached ");
+}
+
+const checkedOutBranch = computed(() => {
+  const name = current.value?.status?.branch ?? "";
+  return name && !isDetachedBranch(name) ? name : "";
+});
+const baseBranchOptions = computed(() => {
+  const names = [...branches.value];
+  const currentName = checkedOutBranch.value;
+  if (currentName && !names.includes(currentName)) {
+    names.unshift(currentName);
+  }
+  return names;
+});
+const canCreateBranch = computed(() => {
+  if (!newBranchName.value.trim()) {
+    return false;
+  }
+  if (newBranchStart.value.trim()) {
+    return true;
+  }
+  return Boolean(baseBranch.value.trim());
+});
+
+function baseBranchLabel(name: string) {
+  return name === checkedOutBranch.value ? `${name} (current)` : name;
+}
 const commitMenuHasMerge = computed(() => {
   const menu = commitMenu.value;
   if (!menu) {
@@ -1039,6 +1068,12 @@ async function openCreateBranch(start = "") {
   }
   newBranchName.value = "";
   newBranchStart.value = start;
+  if (!start.trim()) {
+    await refreshBranches();
+    baseBranch.value = checkedOutBranch.value || branches.value[0] || "";
+  } else {
+    baseBranch.value = "";
+  }
   creatingBranch.value = true;
   await nextTick();
   newBranchInput.value?.focus();
@@ -1047,16 +1082,17 @@ async function openCreateBranch(start = "") {
 function closeCreateBranch() {
   creatingBranch.value = false;
   newBranchName.value = "";
+  baseBranch.value = "";
   newBranchStart.value = "";
 }
 
 function createBranch() {
   const match = current.value;
   const branch = newBranchName.value.trim();
-  if (!match || !branch) {
+  const start = newBranchStart.value.trim() || baseBranch.value.trim();
+  if (!match || !branch || !start) {
     return;
   }
-  const start = newBranchStart.value.trim();
   closeCreateBranch();
   return runRepoAction(
     "Creating branch…",
@@ -2658,7 +2694,17 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @keydown.enter="createBranch"
       />
     </label>
+    <label v-if="!newBranchStart" class="modal-label">
+      <span class="muted tiny">Base branch</span>
+      <select v-model="baseBranch" :disabled="!baseBranchOptions.length">
+        <option v-if="!baseBranchOptions.length" value="" disabled>No local branches</option>
+        <option v-for="item in baseBranchOptions" :key="item" :value="item">
+          {{ baseBranchLabel(item) }}
+        </option>
+      </select>
+    </label>
     <p v-if="newBranchStartShort" class="muted tiny">Starts at {{ newBranchStartShort }}.</p>
+    <p v-else class="muted tiny">The new branch starts at the tip of the base branch, then checks it out.</p>
     <template #actions>
       <button class="ghost" type="button" @click="closeCreateBranch">Cancel</button>
       <button class="primary" type="button" :disabled="!canCreateBranch" @click="createBranch">

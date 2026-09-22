@@ -98,8 +98,8 @@ input[type="text"] {
 input[type="text"]:focus,
 input[type="number"]:focus,
 input[type="time"]:focus,
-.modal-label select:focus,
-textarea:focus {
+textarea:focus,
+.modal-label select:focus {
   outline: 1px solid var(--accent);
 }
 
@@ -362,12 +362,20 @@ button.toast.error:hover:not(:disabled) {
 }
 
 .modal-label select {
+  box-sizing: border-box;
   width: 100%;
+  height: calc(1.45em + 0.7rem + 2px);
   border: 1px solid var(--border);
-  background: #0d1016;
+  background-color: #0d1016;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.2 6.2 8 10l3.8-3.8' fill='none' stroke='%238b95a8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.55rem center;
+  background-size: 0.85rem;
   color: var(--text);
   border-radius: 6px;
-  padding: 0.35rem 0.55rem;
+  padding: 0 1.75rem 0 0.55rem;
+  line-height: calc(1.45em + 0.7rem);
+  appearance: none;
 }
 
 .radio-list {
@@ -2999,6 +3007,16 @@ body.is-resizing-y * {
 
 .branch-row.selected {
   background: var(--bg-active);
+}
+
+.branch-row.selected .branch-row-actions button,
+.branch-row.current .branch-row-actions button {
+  border-color: color-mix(in srgb, var(--text) 46%, var(--bg-active));
+}
+
+.branch-row.selected .branch-row-actions button.danger:hover:not(:disabled),
+.branch-row.current .branch-row-actions button.danger:hover:not(:disabled) {
+  border-color: var(--bad);
 }
 
 .branch-row-name {

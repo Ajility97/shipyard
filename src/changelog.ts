@@ -6,6 +6,14 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.2.0",
+    date: "September 22, 2026",
+    notes: [
+      "New branch asks which local branch to start from. The current branch is selected by default, and the new branch is checked out from that tip.",
+      "Branch action buttons on the current or selected row use a stronger outline so they stay visible.",
+    ],
+  },
+  {
     version: "1.1.2",
     date: "September 21, 2026",
     notes: [

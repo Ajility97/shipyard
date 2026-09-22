@@ -57,6 +57,10 @@ export interface AppData {
   filesPaneWidth?: number;
   terminalPaneHeight?: number;
   diffMode?: DiffMode;
+  diffFontFamily?: string;
+  diffFontSize?: number;
+  terminalFontFamily?: string;
+  terminalFontSize?: number;
   editor?: string;
   refreshActiveHours?: RefreshActiveHours;
   window?: WindowState;
@@ -125,6 +129,20 @@ export interface CommitFile {
   status: string;
 }
 
+export interface BlameLine {
+  line: number;
+  hash: string;
+  author: string;
+  email: string;
+  timestamp: number;
+  summary: string;
+}
+
+export interface FileBlame {
+  current: BlameLine[];
+  previous: BlameLine[];
+}
+
 export interface LocalBranch {
   name: string;
   current: boolean;
@@ -132,6 +150,14 @@ export interface LocalBranch {
   partial: boolean;
   protected: boolean;
   pending: boolean;
+}
+
+export interface BranchTracking {
+  name: string;
+  localOnly: boolean;
+  ahead: number;
+  behind: number;
+  upstream: string | null;
 }
 
 export interface DeleteMergedResult {
@@ -150,6 +176,14 @@ export interface StashEntry {
   index: number;
   message: string;
   date: string;
+}
+
+export interface TagEntry {
+  name: string;
+  hash: string;
+  date: string;
+  message: string;
+  annotated: boolean;
 }
 
 export interface GitConfig {

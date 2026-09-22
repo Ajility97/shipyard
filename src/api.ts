@@ -2,11 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppData,
   BranchOverview,
+  BranchTracking,
   CommandLogEntry,
   CommitFile,
   CommitNode,
   DeleteMergedResult,
   DiffMode,
+  FileBlame,
   GitConfig,
   LastCommit,
   RefreshActiveHours,
@@ -15,6 +17,7 @@ import type {
   RepoGroup,
   RepoStatus,
   StashEntry,
+  TagEntry,
   WindowState,
   RepoFile,
   WorkingTreeFile,
@@ -116,6 +119,22 @@ export function updateTerminalPaneHeight(height: number) {
 
 export function updateDiffMode(mode: DiffMode) {
   return invoke<DiffMode>("update_diff_mode", { mode });
+}
+
+export function updateDiffFontFamily(fontFamily: string) {
+  return invoke<string>("update_diff_font_family", { fontFamily });
+}
+
+export function updateDiffFontSize(fontSize: number) {
+  return invoke<number>("update_diff_font_size", { fontSize });
+}
+
+export function updateTerminalFontFamily(fontFamily: string) {
+  return invoke<string>("update_terminal_font_family", { fontFamily });
+}
+
+export function updateTerminalFontSize(fontSize: number) {
+  return invoke<number>("update_terminal_font_size", { fontSize });
 }
 
 export function updateEditor(editor: string) {
@@ -223,6 +242,26 @@ export function openInEditor(path: string, file: string) {
   return invoke<void>("open_in_editor", { path, file });
 }
 
+export function repoRemoteUrl(path: string) {
+  return invoke<string>("repo_remote_url", { path });
+}
+
+export function openRepoInFinder(path: string) {
+  return invoke<void>("open_repo_in_finder", { path });
+}
+
+export function revealFileInFinder(path: string, file: string) {
+  return invoke<void>("reveal_file_in_finder", { path, file });
+}
+
+export function ignoreWorkingTreePath(path: string, file: string, kind: string) {
+  return invoke<void>("ignore_working_tree_path", { path, file, kind });
+}
+
+export function deleteWorkingTreeFile(path: string, file: string) {
+  return invoke<void>("delete_working_tree_file", { path, file });
+}
+
 export function stageFile(path: string, file: string) {
   return invoke<void>("stage_file", { path, file });
 }
@@ -241,6 +280,10 @@ export function unstageAll(path: string) {
 
 export function listLocalBranches(path: string) {
   return invoke<string[]>("list_local_branches", { path });
+}
+
+export function listBranchTracking(path: string) {
+  return invoke<BranchTracking[]>("list_branch_tracking", { path });
 }
 
 export function branchOverview(path: string, preferred?: string, classify = true) {
@@ -273,12 +316,32 @@ export function checkoutLocalBranch(path: string, branch: string) {
   return invoke<string>("checkout_local_branch", { path, branch });
 }
 
-export function createAndCheckoutBranch(path: string, branch: string, base?: string) {
+export function createAndCheckoutBranch(path: string, branch: string, start = "") {
   return invoke<string>("create_and_checkout_branch", {
     path,
     branch,
-    base: base?.trim() || null,
+    start: start.trim() || null,
   });
+}
+
+export function checkoutCommit(path: string, hash: string) {
+  return invoke<string>("checkout_commit", { path, hash });
+}
+
+export function cherryPickCommits(path: string, hashes: string[]) {
+  return invoke<string>("cherry_pick_commits", { path, hashes });
+}
+
+export function revertCommits(path: string, hashes: string[]) {
+  return invoke<string>("revert_commits", { path, hashes });
+}
+
+export function commitRemoteUrl(path: string, hash: string) {
+  return invoke<string>("commit_remote_url", { path, hash });
+}
+
+export function mergeLocalBranch(path: string, source: string, target: string) {
+  return invoke<string>("merge_local_branch", { path, source, target });
 }
 
 export function renameLocalBranch(path: string, branch: string, newName: string) {
@@ -309,12 +372,32 @@ export function commitFileDiff(path: string, hash: string, file: string) {
   return invoke<string>("commit_file_diff", { path, hash, file });
 }
 
+export function fileBlame(
+  path: string,
+  file: string,
+  rev?: string,
+  staged = false,
+  oldPath?: string,
+) {
+  return invoke<FileBlame>("file_blame", {
+    path,
+    file,
+    rev: rev?.trim() || null,
+    staged,
+    oldPath: oldPath?.trim() || null,
+  });
+}
+
 export function stashList(path: string) {
   return invoke<StashEntry[]>("stash_list", { path });
 }
 
 export function stashPush(path: string, message: string) {
   return invoke<string>("stash_push", { path, message });
+}
+
+export function stashFile(path: string, file: string) {
+  return invoke<string>("stash_file", { path, file });
 }
 
 export function stashApply(path: string, index: number) {
@@ -327,6 +410,23 @@ export function stashPop(path: string, index: number) {
 
 export function stashDrop(path: string, index: number) {
   return invoke<string>("stash_drop", { path, index });
+}
+
+export function tagList(path: string) {
+  return invoke<TagEntry[]>("tag_list", { path });
+}
+
+export function createTag(path: string, name: string, message = "", target = "") {
+  return invoke<string>("create_tag", {
+    path,
+    name,
+    message,
+    target: target.trim() || null,
+  });
+}
+
+export function deleteTag(path: string, name: string) {
+  return invoke<string>("delete_tag", { path, name });
 }
 
 export function writeTextFile(path: string, contents: string) {
@@ -363,6 +463,14 @@ export function revealSettingsFile() {
 
 export function commandHistory() {
   return invoke<CommandLogEntry[]>("command_history");
+}
+
+export function commandHistoryPaused() {
+  return invoke<boolean>("command_history_paused");
+}
+
+export function setCommandHistoryPaused(paused: boolean) {
+  return invoke<void>("set_command_history_paused", { paused });
 }
 
 export function clearCommandHistory() {

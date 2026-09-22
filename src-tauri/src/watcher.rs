@@ -10,6 +10,12 @@ use tauri::{AppHandle, Emitter, State};
 
 pub const REPO_FILES_CHANGED_EVENT: &str = "repo-files-changed";
 
+/// Collapse a burst of writes into one refresh.
+///
+/// macOS FSEvents is created with `kFSEventStreamCreateFlagNoDefer` and a
+/// latency of 0 inside notify 8.2, and neither is configurable. Kernel
+/// coalescing cannot be turned on from here. This debounce is the coalesce.
+/// A longer wait would only postpone the refresh.
 const DEBOUNCE: Duration = Duration::from_millis(200);
 
 const IGNORED_DIRS: &[&str] = &[
@@ -57,8 +63,16 @@ fn is_git_lock(name: &str) -> bool {
     name.ends_with(".lock")
 }
 
+/// `HEAD`, `refs/`, and `packed-refs` move history. The index and fetch
+/// bookkeeping only change the working tree, and reloading the graph for
+/// those was the multi-second stall after stage and unstage.
+fn tracks_history(git_entry: &str) -> bool {
+    matches!(git_entry, "HEAD" | "packed-refs" | "refs")
+}
+
 /// Classify a filesystem path relative to a repo.
-/// `Some(true)` is git metadata, `Some(false)` is a worktree change, `None` is noise.
+/// `Some(true)` is history metadata, `Some(false)` is a worktree or index
+/// change, `None` is noise.
 pub fn classify_change(repo: &Path, changed: &Path) -> Option<bool> {
     let relative = if changed == repo {
         return Some(false);
@@ -74,7 +88,7 @@ pub fn classify_change(repo: &Path, changed: &Path) -> Option<bool> {
 
     if first == ".git" {
         let Some(Component::Normal(second)) = components.next() else {
-            return Some(true);
+            return Some(false);
         };
         let second = second.to_str()?;
         if IGNORED_GIT_DIRS.contains(&second) {
@@ -88,7 +102,7 @@ pub fn classify_change(repo: &Path, changed: &Path) -> Option<bool> {
                 return None;
             }
         }
-        return Some(true);
+        return Some(tracks_history(second));
     }
 
     if IGNORED_DIRS.contains(&first) {
@@ -215,10 +229,19 @@ mod tests {
         );
         assert_eq!(
             classify_change(repo, Path::new("/repo/.git/index")),
+            Some(false)
+        );
+        assert_eq!(
+            classify_change(repo, Path::new("/repo/.git/FETCH_HEAD")),
+            Some(false)
+        );
+        assert_eq!(classify_change(repo, Path::new("/repo/.git")), Some(false));
+        assert_eq!(
+            classify_change(repo, Path::new("/repo/.git/HEAD")),
             Some(true)
         );
         assert_eq!(
-            classify_change(repo, Path::new("/repo/.git/HEAD")),
+            classify_change(repo, Path::new("/repo/.git/packed-refs")),
             Some(true)
         );
         assert_eq!(

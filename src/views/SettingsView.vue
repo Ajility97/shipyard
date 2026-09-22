@@ -6,10 +6,19 @@ import {
   useTabs,
 } from "../composables/useTabs";
 import GeneralSettingsView from "./settings/GeneralSettingsView.vue";
-import GitSettingsView from "./settings/GitSettingsView.vue";
 import ScheduleSettingsView from "./settings/ScheduleSettingsView.vue";
 import UpdatesSettingsView from "./settings/UpdatesSettingsView.vue";
 import WindowSettingsView from "./settings/WindowSettingsView.vue";
+
+const GitSettingsView = defineAsyncComponent({
+  loader: () => import("./settings/GitSettingsView.vue"),
+  errorComponent: {
+    setup() {
+      return () =>
+        h("p", { class: "settings-error settings-pane-error" }, "Could not open Git settings.");
+    },
+  },
+});
 
 const JsonSettingsView = defineAsyncComponent({
   loader: () => import("./settings/JsonSettingsView.vue"),
@@ -97,11 +106,11 @@ const current = computed(() =>
       </button>
     </nav>
     <div class="settings-content" :class="{ fill: current === 'json' || current === 'git' }">
-      <GeneralSettingsView v-show="current === 'general'" />
-      <GitSettingsView v-show="current === 'git'" />
-      <ScheduleSettingsView v-show="current === 'schedule'" />
-      <WindowSettingsView v-show="current === 'window'" />
-      <UpdatesSettingsView v-show="current === 'updates'" />
+      <GeneralSettingsView v-if="current === 'general'" />
+      <GitSettingsView v-if="current === 'git'" />
+      <ScheduleSettingsView v-if="current === 'schedule'" />
+      <WindowSettingsView v-if="current === 'window'" />
+      <UpdatesSettingsView v-if="current === 'updates'" />
       <JsonSettingsView v-if="current === 'json'" />
     </div>
   </div>

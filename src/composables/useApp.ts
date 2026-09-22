@@ -12,6 +12,13 @@ import type {
 } from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
 import {
+  DEFAULT_CODE_FONT,
+  DEFAULT_DIFF_FONT_SIZE,
+  DEFAULT_TERMINAL_FONT_SIZE,
+  clampFontSize,
+  sanitizeFontFamily,
+} from "../fonts";
+import {
   DEFAULT_REFRESH_ACTIVE_HOURS,
   formatClockLabel,
   isWithinActiveHours,
@@ -32,6 +39,10 @@ const refreshActiveHours = ref<RefreshActiveHours>({ ...DEFAULT_REFRESH_ACTIVE_H
 const filesPaneWidth = ref(320);
 const terminalPaneHeight = ref(280);
 const diffMode = ref<DiffMode>("split");
+const diffFontFamily = ref(DEFAULT_CODE_FONT);
+const diffFontSize = ref(DEFAULT_DIFF_FONT_SIZE);
+const terminalFontFamily = ref(DEFAULT_CODE_FONT);
+const terminalFontSize = ref(DEFAULT_TERMINAL_FONT_SIZE);
 const editor = ref("system");
 const windowState = ref<WindowState | null>(null);
 const FILES_PANE_MIN = 220;
@@ -92,6 +103,13 @@ export function useApp() {
     filesPaneWidth.value = clampFilesPaneWidth(data.filesPaneWidth ?? 320);
     terminalPaneHeight.value = clampTerminalPaneHeight(data.terminalPaneHeight ?? 280);
     diffMode.value = data.diffMode === "inline" ? "inline" : "split";
+    diffFontFamily.value = sanitizeFontFamily(data.diffFontFamily ?? DEFAULT_CODE_FONT);
+    diffFontSize.value = clampFontSize(data.diffFontSize ?? DEFAULT_DIFF_FONT_SIZE, DEFAULT_DIFF_FONT_SIZE);
+    terminalFontFamily.value = sanitizeFontFamily(data.terminalFontFamily ?? DEFAULT_CODE_FONT);
+    terminalFontSize.value = clampFontSize(
+      data.terminalFontSize ?? DEFAULT_TERMINAL_FONT_SIZE,
+      DEFAULT_TERMINAL_FONT_SIZE,
+    );
     editor.value = data.editor?.trim() || "system";
     windowState.value = data.window ?? null;
   }
@@ -495,6 +513,32 @@ export function useApp() {
 
   async function saveDiffMode(mode: DiffMode) {
     diffMode.value = await api.updateDiffMode(mode);
+  }
+
+  function setDiffFontSize(size: number) {
+    diffFontSize.value = clampFontSize(size, DEFAULT_DIFF_FONT_SIZE);
+  }
+
+  async function saveDiffFontSize(size: number) {
+    diffFontSize.value = await api.updateDiffFontSize(clampFontSize(size, DEFAULT_DIFF_FONT_SIZE));
+  }
+
+  async function saveDiffFontFamily(family: string) {
+    diffFontFamily.value = await api.updateDiffFontFamily(sanitizeFontFamily(family));
+  }
+
+  function setTerminalFontSize(size: number) {
+    terminalFontSize.value = clampFontSize(size, DEFAULT_TERMINAL_FONT_SIZE);
+  }
+
+  async function saveTerminalFontSize(size: number) {
+    terminalFontSize.value = await api.updateTerminalFontSize(
+      clampFontSize(size, DEFAULT_TERMINAL_FONT_SIZE),
+    );
+  }
+
+  async function saveTerminalFontFamily(family: string) {
+    terminalFontFamily.value = await api.updateTerminalFontFamily(sanitizeFontFamily(family));
   }
 
   async function saveEditor(next: string) {
@@ -1208,6 +1252,16 @@ export function useApp() {
     saveTerminalPaneHeight,
     diffMode,
     saveDiffMode,
+    diffFontFamily,
+    saveDiffFontFamily,
+    diffFontSize,
+    setDiffFontSize,
+    saveDiffFontSize,
+    terminalFontFamily,
+    saveTerminalFontFamily,
+    terminalFontSize,
+    setTerminalFontSize,
+    saveTerminalFontSize,
     editor,
     saveEditor,
     windowState,

@@ -6,11 +6,47 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.1.2",
+    date: "September 21, 2026",
+    notes: [
+      "Stage, unstage, and discard no longer freeze the window. File watching was reloading the commit graph for index updates, and status was writing the index again, so each click ran that work twice.",
+    ],
+  },
+  {
+    version: "1.1.1",
+    date: "September 19, 2026",
+    notes: [
+      "Branches view no longer marks a brand-new local branch as Merged just because it still points at origin/main. Delete merged uses that same leftover list.",
+    ],
+  },
+  {
+    version: "1.1.0",
+    date: "September 19, 2026",
+    notes: [
+      "1.0.1 through 1.0.8 were feature releases, not patches. From here on we follow semantic versioning: patch for fixes, minor for features, major for breaking changes.",
+      "General settings pick the font and size for file diffs and the repository terminal, including a custom family name.",
+      "History can pause recording so new git commands stay off the log until you resume.",
+      "Open-repo fetch, pull, and other progress sits on the name row so the toolbar buttons stay put.",
+      "Right-click a commit in the graph to check it out, create a branch or tag there, cherry-pick, revert, or copy its SHA or remote link. Command-click or Shift-click selects several commits for cherry-pick or revert.",
+      "Merge a local branch into another from the branch switcher or a row in Branches. Checkout switches to the target first when needed, and conflicts use the existing resolve, continue, and abort flow.",
+      "New branch and Merge into live in the branch switcher so the action bar stays Fetch, Pull, Push, and the view toggles.",
+      "The branch switcher marks local-only branches and shows ahead or behind counts when a branch is out of date with its remote.",
+    ],
+  },
+  {
     version: "1.0.8",
     date: "September 18, 2026",
     notes: [
       "Refresh is now Fetch on repository and group actions, with Auto-fetch and Last fetch matching that wording. The button uses a cloud-down icon and sits before Pull. Open repositories have Fetch on the toolbar too.",
+      "Repository rows can open the origin remote in a browser or open the folder in Finder.",
       "Open repositories watch the working tree and git metadata, so staged, unstaged, and File History lists update when files change in another app.",
+      "File History no longer keeps a renamed or deleted file under its old name.",
+      "Tags view on the repo toolbar lists local tags. New tag creates a lightweight or annotated tag on HEAD or a commit you specify; Delete removes it.",
+      "Hover a diff line in Changes or File History to highlight it and see git blame for that line.",
+      "Commit opens when the working tree has changes, even if nothing is staged. Close keeps the title and description for that repository until you commit; a mark on the button shows when a draft is waiting.",
+      "Right-click or Control-click a staged or unstaged file to stage or unstage it, ignore it, stash it, open it in the chosen editor, show it in Finder, copy its path, or delete it.",
+      "Hover a commit date in the graph to see the full date and time.",
+      "Command-click or Shift-click branches to select them, then Delete selected in the footer. Current, develop, main, and master stay unselected.",
     ],
   },
   {

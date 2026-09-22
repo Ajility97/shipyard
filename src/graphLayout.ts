@@ -215,8 +215,8 @@ export function formatCommitDate(value: string): string {
   if (!value) {
     return "";
   }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const date = parseCommitDate(value);
+  if (!date) {
     return value;
   }
   const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
@@ -230,4 +230,28 @@ export function formatCommitDate(value: string): string {
     return `${Math.floor(days / 30)}mo ago`;
   }
   return `${Math.floor(days / 365)}y ago`;
+}
+
+export function formatFullCommitDate(value: string): string {
+  if (!value) {
+    return "";
+  }
+  const date = parseCommitDate(value);
+  if (!date) {
+    return value;
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+}
+
+function parseCommitDate(value: string): Date | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

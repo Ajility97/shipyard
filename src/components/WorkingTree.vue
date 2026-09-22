@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import type { WorkingTreeFile } from "../types";
 import { useApp } from "../composables/useApp";
-import { isConflicted, openInEditorLabel } from "../gitOperation";
+import { isConflicted, openInEditorLabel, type IgnoreKind } from "../gitOperation";
+import FileContextMenu from "./FileContextMenu.vue";
 import FileStatusIcon from "./FileStatusIcon.vue";
 import PathLabel from "./PathLabel.vue";
 
@@ -11,10 +12,12 @@ const props = defineProps<{
   selectedPath: string;
   selectedStaged: boolean;
   operation?: string;
+  hasDraft?: boolean;
 }>();
 
 const { editor } = useApp();
 const openEditorLabel = computed(() => openInEditorLabel(editor.value));
+const menu = ref<{ file: WorkingTreeFile; x: number; y: number } | null>(null);
 
 const emit = defineEmits<{
   select: [file: WorkingTreeFile];
@@ -24,6 +27,11 @@ const emit = defineEmits<{
   unstageAll: [];
   discard: [];
   stash: [];
+  stashFile: [file: WorkingTreeFile];
+  ignore: [file: WorkingTreeFile, kind: IgnoreKind];
+  reveal: [file: WorkingTreeFile];
+  copyPath: [file: WorkingTreeFile];
+  deleteFile: [file: WorkingTreeFile];
   commit: [];
   openEditor: [file: WorkingTreeFile];
 }>();
@@ -37,12 +45,29 @@ const staged = computed(() =>
 );
 const resolving = computed(() => Boolean(props.operation || conflicted.value.length));
 const canCommit = computed(
-  () => staged.value.length > 0 && (!props.operation || props.operation === "merge"),
+  () => props.files.length > 0 && (!props.operation || props.operation === "merge"),
 );
 
 function isSelected(file: WorkingTreeFile) {
   return props.selectedPath === file.path && props.selectedStaged === file.staged;
 }
+
+function openFileMenu(event: MouseEvent, file: WorkingTreeFile) {
+  event.preventDefault();
+  emit("select", file);
+  menu.value = { file, x: event.clientX, y: event.clientY };
+}
+
+function closeFileMenu() {
+  menu.value = null;
+}
+
+watch(
+  () => props.files,
+  () => {
+    closeFileMenu();
+  },
+);
 </script>
 
 <template>
@@ -109,6 +134,8 @@ function isSelected(file: WorkingTreeFile) {
           :key="`unstaged:${file.path}`"
           class="file-item"
           :class="{ active: isSelected(file) }"
+          @contextmenu="openFileMenu($event, file)"
+          @click.ctrl.prevent="openFileMenu($event, file)"
         >
           <button class="file-item-main" type="button" @click="emit('select', file)">
             <FileStatusIcon :status="file.status" />
@@ -152,6 +179,8 @@ function isSelected(file: WorkingTreeFile) {
           :key="`staged:${file.path}`"
           class="file-item"
           :class="{ active: isSelected(file) }"
+          @contextmenu="openFileMenu($event, file)"
+          @click.ctrl.prevent="openFileMenu($event, file)"
         >
           <button class="file-item-main" type="button" @click="emit('select', file)">
             <FileStatusIcon :status="file.status" />
@@ -202,7 +231,9 @@ function isSelected(file: WorkingTreeFile) {
       <button
         class="ghost tiny commit"
         type="button"
+        :class="{ 'has-draft': hasDraft }"
         :disabled="!canCommit"
+        :title="hasDraft ? 'Draft commit message saved' : undefined"
         @click="emit('commit')"
       >
         <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -211,5 +242,22 @@ function isSelected(file: WorkingTreeFile) {
         Commit
       </button>
     </div>
+    <FileContextMenu
+      v-if="menu"
+      :file="menu.file"
+      :x="menu.x"
+      :y="menu.y"
+      :editor-label="openEditorLabel"
+      :can-stash="!resolving"
+      @stage="emit('stage', menu.file); closeFileMenu()"
+      @unstage="emit('unstage', menu.file); closeFileMenu()"
+      @ignore="emit('ignore', menu.file, $event); closeFileMenu()"
+      @stash="emit('stashFile', menu.file); closeFileMenu()"
+      @open-editor="emit('openEditor', menu.file); closeFileMenu()"
+      @reveal="emit('reveal', menu.file); closeFileMenu()"
+      @copy-path="emit('copyPath', menu.file); closeFileMenu()"
+      @delete="emit('deleteFile', menu.file); closeFileMenu()"
+      @close="closeFileMenu"
+    />
   </div>
 </template>

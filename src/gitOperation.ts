@@ -52,3 +52,35 @@ export function openInEditorLabel(editor: string) {
   const known = EDITOR_OPTIONS.find((option) => option.id === id);
   return `Open in ${known?.short ?? known?.label ?? id}`;
 }
+
+export type IgnoreKind = "file" | "extension" | "folder";
+
+export function fileBasename(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.slice(normalized.lastIndexOf("/") + 1) || path;
+}
+
+export function fileExtension(path: string) {
+  const name = fileBasename(path);
+  const rest = name.startsWith(".") ? name.slice(1) : name;
+  const dot = rest.lastIndexOf(".");
+  if (dot <= 0 || dot === rest.length - 1) {
+    return "";
+  }
+  return `.${rest.slice(dot + 1)}`;
+}
+
+export function fileParentFolder(path: string) {
+  const normalized = path.replace(/\\/g, "/");
+  const slash = normalized.lastIndexOf("/");
+  if (slash <= 0) {
+    return "";
+  }
+  const parent = normalized.slice(0, slash);
+  const name = parent.slice(parent.lastIndexOf("/") + 1);
+  return name ? `${name}/` : "";
+}
+
+export function absoluteFilePath(repoPath: string, file: string) {
+  return `${repoPath.replace(/\/+$/, "")}/${file.replace(/^\/+/, "")}`;
+}

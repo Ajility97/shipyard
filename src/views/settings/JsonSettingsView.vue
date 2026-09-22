@@ -17,6 +17,10 @@ const {
   refreshIntervalSeconds,
   refreshActiveHours,
   diffMode,
+  diffFontFamily,
+  diffFontSize,
+  terminalFontFamily,
+  terminalFontSize,
   editor,
   windowState,
   replaceSettings,
@@ -186,9 +190,24 @@ watch([activeId, settingsSection], ([id, section]) => {
   }
 });
 
-watch([groups, standaloneRepos, refreshIntervalSeconds, refreshActiveHours, diffMode, editor, windowState], () => {
-  void syncJsonIfClean();
-});
+watch(
+  [
+    groups,
+    standaloneRepos,
+    refreshIntervalSeconds,
+    refreshActiveHours,
+    diffMode,
+    diffFontFamily,
+    diffFontSize,
+    terminalFontFamily,
+    terminalFontSize,
+    editor,
+    windowState,
+  ],
+  () => {
+    void syncJsonIfClean();
+  },
+);
 
 async function copy() {
   try {

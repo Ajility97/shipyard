@@ -5,9 +5,10 @@ use tauri::{AppHandle, State};
 
 use crate::git;
 use crate::models::{
-    sanitize_editor, sanitize_refresh_active_hours, AppData, BranchOverview, CommitFile, CommitNode,
-    DeleteMergedResult, GitConfig, LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry,
-    RepoFile, RepoGroup, RepoStatus, StashEntry, WorkingTreeFile,
+    sanitize_editor, sanitize_font_family, sanitize_font_size, sanitize_refresh_active_hours,
+    AppData, BranchOverview, BranchTracking, CommitFile, CommitNode, DeleteMergedResult, FileBlame,
+    GitConfig, LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry, RepoFile, RepoGroup,
+    RepoStatus, StashEntry, TagEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -290,6 +291,58 @@ pub fn update_diff_mode(
 }
 
 #[tauri::command]
+pub fn update_diff_font_family(
+    app: AppHandle,
+    state: State<AppState>,
+    font_family: String,
+) -> Result<String, String> {
+    let font_family = sanitize_font_family(&font_family);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.diff_font_family = font_family.clone();
+    persist_data(&app, &data)?;
+    Ok(font_family)
+}
+
+#[tauri::command]
+pub fn update_diff_font_size(
+    app: AppHandle,
+    state: State<AppState>,
+    font_size: f64,
+) -> Result<f64, String> {
+    let font_size = sanitize_font_size(font_size, 13.0);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.diff_font_size = font_size;
+    persist_data(&app, &data)?;
+    Ok(font_size)
+}
+
+#[tauri::command]
+pub fn update_terminal_font_family(
+    app: AppHandle,
+    state: State<AppState>,
+    font_family: String,
+) -> Result<String, String> {
+    let font_family = sanitize_font_family(&font_family);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.terminal_font_family = font_family.clone();
+    persist_data(&app, &data)?;
+    Ok(font_family)
+}
+
+#[tauri::command]
+pub fn update_terminal_font_size(
+    app: AppHandle,
+    state: State<AppState>,
+    font_size: f64,
+) -> Result<f64, String> {
+    let font_size = sanitize_font_size(font_size, 14.0);
+    let mut data = state.data.lock().map_err(|err| err.to_string())?;
+    data.terminal_font_size = font_size;
+    persist_data(&app, &data)?;
+    Ok(font_size)
+}
+
+#[tauri::command]
 pub fn update_editor(
     app: AppHandle,
     state: State<AppState>,
@@ -344,6 +397,10 @@ fn sanitize_app_data(mut data: AppData) -> Result<AppData, String> {
     data.files_pane_width = data.files_pane_width.clamp(220, 800);
     data.terminal_pane_height = data.terminal_pane_height.clamp(160, 720);
     data.diff_mode = sanitize_diff_mode(&data.diff_mode)?;
+    data.diff_font_family = sanitize_font_family(&data.diff_font_family);
+    data.diff_font_size = sanitize_font_size(data.diff_font_size, 13.0);
+    data.terminal_font_family = sanitize_font_family(&data.terminal_font_family);
+    data.terminal_font_size = sanitize_font_size(data.terminal_font_size, 14.0);
     data.editor = sanitize_editor(&data.editor);
     data.refresh_active_hours = sanitize_refresh_active_hours(data.refresh_active_hours);
     if let Some(window) = &mut data.window {
@@ -924,6 +981,43 @@ pub fn open_in_editor(state: State<AppState>, path: String, file: String) -> Res
 }
 
 #[tauri::command]
+pub fn repo_remote_url(state: State<AppState>, path: String) -> Result<String, String> {
+    let git = require_git(&state)?;
+    git::repo_remote_browse_url(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub fn open_repo_in_finder(path: String) -> Result<(), String> {
+    git::open_repo_in_finder(Path::new(&path))
+}
+
+#[tauri::command]
+pub fn reveal_file_in_finder(path: String, file: String) -> Result<(), String> {
+    git::reveal_file_in_finder(Path::new(&path), &file)
+}
+
+#[tauri::command]
+pub fn ignore_working_tree_path(
+    state: State<AppState>,
+    path: String,
+    file: String,
+    kind: String,
+) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::ignore_working_tree_path(&git, Path::new(&path), &file, &kind)
+}
+
+#[tauri::command]
+pub fn delete_working_tree_file(
+    state: State<AppState>,
+    path: String,
+    file: String,
+) -> Result<(), String> {
+    let git = require_git(&state)?;
+    git::delete_working_tree_file(&git, Path::new(&path), &file)
+}
+
+#[tauri::command]
 pub fn stage_file(state: State<AppState>, path: String, file: String) -> Result<(), String> {
     let git = require_git(&state)?;
     git::stage_file(&git, Path::new(&path), &file)
@@ -951,6 +1045,17 @@ pub fn unstage_all(state: State<AppState>, path: String) -> Result<(), String> {
 pub fn list_local_branches(state: State<AppState>, path: String) -> Result<Vec<String>, String> {
     let git = require_git(&state)?;
     git::local_branches(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn list_branch_tracking(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Vec<BranchTracking>, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::local_branch_tracking(&git, Path::new(&path)))
+        .await
+        .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]
@@ -1025,11 +1130,83 @@ pub async fn create_and_checkout_branch(
     state: State<'_, AppState>,
     path: String,
     branch: String,
-    base: Option<String>,
+    start: Option<String>,
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
-        git::create_and_checkout_branch(&git, Path::new(&path), &branch, base.as_deref())
+        git::create_and_checkout_branch(
+            &git,
+            Path::new(&path),
+            &branch,
+            start.as_deref().unwrap_or(""),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn checkout_commit(
+    state: State<'_, AppState>,
+    path: String,
+    hash: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::checkout_commit(&git, Path::new(&path), &hash))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn cherry_pick_commits(
+    state: State<'_, AppState>,
+    path: String,
+    hashes: Vec<String>,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::cherry_pick_commits(&git, Path::new(&path), &hashes)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn revert_commits(
+    state: State<'_, AppState>,
+    path: String,
+    hashes: Vec<String>,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::revert_commits(&git, Path::new(&path), &hashes))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn commit_remote_url(
+    state: State<'_, AppState>,
+    path: String,
+    hash: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::commit_remote_url(&git, Path::new(&path), &hash)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn merge_local_branch(
+    state: State<'_, AppState>,
+    path: String,
+    source: String,
+    target: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::merge_local_branch(&git, Path::new(&path), &source, &target)
     })
     .await
     .map_err(|err| err.to_string())?
@@ -1141,6 +1318,18 @@ pub async fn stash_push(
 }
 
 #[tauri::command]
+pub async fn stash_file(
+    state: State<'_, AppState>,
+    path: String,
+    file: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::stash_file(&git, Path::new(&path), &file))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
 pub async fn stash_drop(
     state: State<'_, AppState>,
     path: String,
@@ -1148,6 +1337,46 @@ pub async fn stash_drop(
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || git::stash_drop(&git, Path::new(&path), index))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub fn tag_list(state: State<AppState>, path: String) -> Result<Vec<TagEntry>, String> {
+    let git = require_git(&state)?;
+    git::tag_list(&git, Path::new(&path))
+}
+
+#[tauri::command]
+pub async fn create_tag(
+    state: State<'_, AppState>,
+    path: String,
+    name: String,
+    message: String,
+    target: Option<String>,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::create_tag(
+            &git,
+            Path::new(&path),
+            &name,
+            &message,
+            target.as_deref().unwrap_or(""),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn delete_tag(
+    state: State<'_, AppState>,
+    path: String,
+    name: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::delete_tag(&git, Path::new(&path), &name))
         .await
         .map_err(|err| err.to_string())?
 }
@@ -1161,6 +1390,30 @@ pub fn commit_file_diff(
 ) -> Result<String, String> {
     let git = require_git(&state)?;
     git::commit_file_diff(&git, Path::new(&path), &hash, &file)
+}
+
+#[tauri::command]
+pub async fn file_blame(
+    state: State<'_, AppState>,
+    path: String,
+    file: String,
+    rev: Option<String>,
+    staged: bool,
+    old_path: Option<String>,
+) -> Result<FileBlame, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::file_blame(
+            &git,
+            Path::new(&path),
+            &file,
+            rev.as_deref(),
+            staged,
+            old_path.as_deref(),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 fn status_from_live(repo: &RepoEntry, live: Result<git::LiveStatus, String>) -> RepoStatus {
@@ -1297,6 +1550,16 @@ pub fn reveal_settings_file(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn command_history() -> Vec<crate::command_log::CommandLogEntry> {
     crate::command_log::list()
+}
+
+#[tauri::command]
+pub fn command_history_paused() -> bool {
+    crate::command_log::paused()
+}
+
+#[tauri::command]
+pub fn set_command_history_paused(paused: bool) -> Result<(), String> {
+    crate::command_log::set_paused(paused)
 }
 
 #[tauri::command]

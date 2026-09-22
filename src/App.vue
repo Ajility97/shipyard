@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, h, onMounted, onUnmounted, ref, watch } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -13,9 +13,18 @@ import Modal from "./components/Modal.vue";
 import GroupsView from "./views/GroupsView.vue";
 
 const HistoryView = defineAsyncComponent(() => import("./views/HistoryView.vue"));
-const SettingsView = defineAsyncComponent(() => import("./views/SettingsView.vue"));
+const SettingsView = defineAsyncComponent({
+  loader: () => import("./views/SettingsView.vue"),
+  errorComponent: {
+    setup() {
+      return () =>
+        h("p", { class: "settings-error settings-pane-error" }, "Could not open Settings.");
+    },
+  },
+});
 const ChangelogView = defineAsyncComponent(() => import("./views/ChangelogView.vue"));
 import { useApp } from "./composables/useApp";
+import { resolveFontStack } from "./fonts";
 import { useUpdater } from "./composables/useUpdater";
 import {
   CHANGELOG_TAB_ID,
@@ -38,7 +47,18 @@ const {
   dismissOutput,
   openOutput,
   showToast,
+  diffFontFamily,
+  diffFontSize,
+  terminalFontFamily,
+  terminalFontSize,
 } = useApp();
+
+const appStyle = computed(() => ({
+  "--diff-font-family": resolveFontStack(diffFontFamily.value),
+  "--diff-font-size": `${diffFontSize.value}px`,
+  "--terminal-font-family": resolveFontStack(terminalFontFamily.value),
+  "--terminal-font-size": `${terminalFontSize.value}px`,
+}));
 const {
   status,
   statusText,
@@ -59,7 +79,7 @@ function onToastDismiss() {
   dismissToast();
 }
 const GITHUB_URL = "https://github.com/fylzero/shipyard";
-const appVersion = ref("1.0.8");
+const appVersion = ref("1.1.0");
 const {
   repoTabs,
   historyTabOpen,
@@ -85,7 +105,6 @@ async function closeActiveTabOrWindow() {
 }
 
 async function onMenuCheckForUpdates() {
-  openSettings("updates");
   await checkForUpdates({ prompt: true });
   if (status.value === "up-to-date") {
     showToast("You're on the latest version.");
@@ -177,7 +196,7 @@ watch(statuses, () => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :style="appStyle">
     <TabBar />
     <main class="main">
       <p v-if="error" class="banner">{{ error }}</p>

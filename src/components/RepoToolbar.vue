@@ -6,6 +6,7 @@ import FileHistoryToggle from "./FileHistoryToggle.vue";
 import SplitAction from "./SplitAction.vue";
 import { useApp } from "../composables/useApp";
 import { useOverflowMenu } from "../composables/useOverflowMenu";
+import type { BranchTracking } from "../types";
 
 const props = defineProps<{
   repoId: string;
@@ -13,10 +14,13 @@ const props = defineProps<{
   branch: string;
   path: string;
   branches: string[];
+  branchTracking?: BranchTracking[];
   busy: boolean;
   busyLabel: string;
   busyBranch?: string;
   branchesView: boolean;
+  tagView: boolean;
+  tagCount: number;
   stashView: boolean;
   stashCount: number;
   filesOpen: boolean;
@@ -35,7 +39,9 @@ const emit = defineEmits<{
   undoUnpushed: [];
   checkout: [branch: string];
   create: [];
+  merge: [];
   branches: [];
+  tags: [];
   stash: [];
   files: [];
   history: [];
@@ -58,6 +64,26 @@ const pushTitle = computed(() =>
   currentBranch.value ? `Push to ${currentBranch.value}` : "Push current branch",
 );
 
+const branchItems = computed(() => {
+  const tracking = new Map((props.branchTracking ?? []).map((item) => [item.name, item]));
+  return props.branches.map((name) => {
+    const item = tracking.get(name);
+    const remote = item?.upstream?.trim() || "";
+    return {
+      name,
+      localOnly: item?.localOnly ?? false,
+      ahead: item?.ahead ?? 0,
+      behind: item?.behind ?? 0,
+      aheadTitle: remote
+        ? `${item?.ahead ?? 0} commits ahead of ${remote}`
+        : `${item?.ahead ?? 0} commits ahead`,
+      behindTitle: remote
+        ? `${item?.behind ?? 0} commits behind ${remote}`
+        : `${item?.behind ?? 0} commits behind`,
+    };
+  });
+});
+
 const unpushedCount = computed(() => statuses.value[props.repoId]?.ahead ?? 0);
 const canUndoUnpushed = computed(
   () => unpushedCount.value > 0 && !statuses.value[props.repoId]?.operation,
@@ -79,6 +105,19 @@ function selectBranch(branch: string) {
   emit("checkout", branch);
 }
 
+function createBranch() {
+  close();
+  emit("create");
+}
+
+function mergeBranch() {
+  close();
+  if (props.branches.length < 2) {
+    return;
+  }
+  emit("merge");
+}
+
 async function toggleBranches() {
   if (!isOpen.value) {
     emit("refreshBranches");
@@ -97,7 +136,7 @@ async function toggleBranches() {
           type="button"
           :disabled="busy"
           :aria-expanded="isOpen"
-          aria-haspopup="listbox"
+          aria-haspopup="menu"
           :title="branch ? `Switch branch from ${branch}` : 'Switch branch'"
           @click="toggleBranches"
         >
@@ -109,37 +148,78 @@ async function toggleBranches() {
         <div
           v-if="isOpen"
           class="overflow-menu-dropdown branch-menu-dropdown"
-          role="listbox"
-          aria-label="Local branches"
+          role="menu"
+          aria-label="Branch actions"
         >
+          <button
+            class="overflow-menu-item"
+            type="button"
+            role="menuitem"
+            :disabled="busy"
+            @click="createBranch"
+          >
+            New branch
+          </button>
+          <button
+            class="overflow-menu-item"
+            type="button"
+            role="menuitem"
+            :disabled="busy || branches.length < 2"
+            :title="
+              branches.length < 2
+                ? 'Need another local branch to merge into'
+                : 'Merge a local branch into another'
+            "
+            @click="mergeBranch"
+          >
+            Merge into…
+          </button>
+          <div class="context-menu-sep" />
           <p v-if="!branches.length" class="muted tiny empty-branches">No local branches.</p>
           <button
-            v-for="item in branches"
-            :key="item"
-            class="overflow-menu-item"
-            :class="{ active: item === branch }"
+            v-for="item in branchItems"
+            :key="item.name"
+            class="overflow-menu-item branch-menu-branch"
+            :class="{ active: item.name === branch }"
             type="button"
-            role="option"
-            :aria-selected="item === branch"
-            @click="selectBranch(item)"
+            role="menuitem"
+            @click="selectBranch(item.name)"
           >
-            {{ item }}
+            <span class="branch-menu-name">{{ item.name }}</span>
+            <span
+              v-if="item.localOnly"
+              class="branch-pill"
+              title="Local only — no remote counterpart"
+            >
+              Local
+            </span>
+            <span v-else-if="item.behind || item.ahead" class="sync-counts">
+              <span
+                v-if="item.behind"
+                class="sync-count behind"
+                :title="item.behindTitle"
+              >
+                ↓{{ item.behind }}
+              </span>
+              <span v-if="item.ahead" class="sync-count ahead" :title="item.aheadTitle">
+                ↑{{ item.ahead }}
+              </span>
+            </span>
           </button>
         </div>
       </div>
       <span class="repo-path" :title="path">{{ path }}</span>
+      <span v-if="busyLabel" class="action-progress repo-toolbar-progress">
+        {{ progressLabel }}
+        <span v-if="progressBranch" class="action-branch-badge" :title="progressBranch">
+          <BranchIcon />
+          <span class="action-branch-name">{{ progressBranch }}</span>
+        </span>
+        <span class="spinner" aria-hidden="true" />
+      </span>
     </div>
     <div class="repo-toolbar-bar repo-toolbar-actions">
       <div class="repo-toolbar-work">
-        <button class="ghost tiny" type="button" :disabled="busy" @click="emit('create')">
-          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M6 3v12a3 3 0 0 0 3 3h4.5" />
-            <circle cx="6" cy="5" r="2" />
-            <circle cx="6" cy="19" r="2" />
-            <path d="M15 6h6M18 3v6" />
-          </svg>
-          New branch
-        </button>
         <button
           class="ghost tiny"
           type="button"
@@ -196,14 +276,6 @@ async function toggleBranches() {
           Undo unpushed
           <span class="file-count-badge">{{ unpushedCount }}</span>
         </button>
-        <span v-if="busyLabel" class="action-progress">
-          {{ progressLabel }}
-          <span v-if="progressBranch" class="action-branch-badge" :title="progressBranch">
-            <BranchIcon />
-            <span class="action-branch-name">{{ progressBranch }}</span>
-          </span>
-          <span class="spinner" aria-hidden="true" />
-        </span>
       </div>
       <div class="repo-toolbar-views">
         <button
@@ -232,6 +304,23 @@ async function toggleBranches() {
           <BranchIcon />
           Branches
           <span v-if="branches.length" class="file-count-badge">{{ branches.length }}</span>
+        </button>
+        <button
+          class="ghost tiny"
+          :class="{ active: tagView }"
+          type="button"
+          :disabled="busy"
+          :aria-pressed="tagView"
+          @click="emit('tags')"
+        >
+          <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3Z"
+            />
+            <path d="M6 6h.01" />
+          </svg>
+          Tags
+          <span v-if="tagCount" class="file-count-badge">{{ tagCount }}</span>
         </button>
         <button
           class="ghost tiny"

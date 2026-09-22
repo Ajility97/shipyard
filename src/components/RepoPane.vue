@@ -8,18 +8,21 @@ import CommitFiles from "./CommitFiles.vue";
 import FileHistoryList from "./FileHistoryList.vue";
 import FileHistoryToggle from "./FileHistoryToggle.vue";
 import FileTree from "./FileTree.vue";
+import CommitContextMenu from "./CommitContextMenu.vue";
 import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
 import PathLabel from "./PathLabel.vue";
 import RepoToolbar from "./RepoToolbar.vue";
 import StashList from "./StashList.vue";
+import TagList from "./TagList.vue";
 import TerminalPane from "./TerminalPane.vue";
 import WorkingTree from "./WorkingTree.vue";
 import { useApp } from "../composables/useApp";
 import * as api from "../api";
 import type {
   BranchOverview,
+  BranchTracking,
   CommitFile,
   CommitNode,
   LastCommit,
@@ -27,16 +30,20 @@ import type {
   RepoFile,
   RepoFilesChanged,
   StashEntry,
+  TagEntry,
   WorkingTreeFile,
 } from "../types";
 import { STANDALONE_GROUP_ID } from "../types";
 import {
   abortLabel,
+  absoluteFilePath,
   continueLabel,
+  fileBasename,
   isConflicted,
   openInEditorLabel,
   operationNoun,
   operationTitle,
+  type IgnoreKind,
 } from "../gitOperation";
 
 const props = defineProps<{
@@ -55,7 +62,6 @@ const {
   diffMode,
   saveDiffMode,
   editor,
-  refreshStatus,
   refreshRepoStatus,
   patchRepoStatus,
   showToast,
@@ -66,10 +72,15 @@ const {
 const commits = ref<CommitNode[]>([]);
 const files = ref<WorkingTreeFile[]>([]);
 const branches = ref<string[]>([]);
+const branchTracking = ref<BranchTracking[]>([]);
+let trackingGeneration = 0;
+const trackingPath = ref("");
 const branchesView = ref(false);
 const graphStale = ref(false);
 const stashes = ref<StashEntry[]>([]);
 const stashView = ref(false);
+const tags = ref<TagEntry[]>([]);
+const tagView = ref(false);
 const terminalOpen = ref(false);
 const overview = ref<BranchOverview | null>(null);
 let overviewGeneration = 0;
@@ -95,6 +106,26 @@ const diff = ref("");
 const showingDiff = computed(
   () => Boolean(selectedFile.value || selectedCommitFile.value || selectedHistoryCommit.value),
 );
+const blameFile = computed(
+  () =>
+    selectedFile.value?.path ??
+    selectedCommitFile.value?.path ??
+    selectedHistoryCommit.value?.path ??
+    selectedHistoryFile.value,
+);
+const blameOldPath = computed(
+  () => selectedCommitFile.value?.oldPath ?? selectedHistoryCommit.value?.oldPath ?? "",
+);
+const blameRev = computed(() => {
+  if (selectedFile.value) {
+    return "";
+  }
+  if (selectedHistoryCommit.value) {
+    return selectedHistoryCommit.value.hash;
+  }
+  return selectedCommit.value?.hash ?? "";
+});
+const blameStaged = computed(() => selectedFile.value?.staged ?? false);
 const loading = ref(false);
 const actionBusy = ref(false);
 const actionLabel = ref("");
@@ -103,10 +134,20 @@ const message = ref("");
 const creatingBranch = ref(false);
 const newBranchName = ref("");
 const baseBranch = ref("");
+const newBranchStart = ref("");
 const newBranchInput = ref<HTMLInputElement | null>(null);
+const commitMenu = ref<{
+  commit: CommitNode;
+  hashes: string[];
+  x: number;
+  y: number;
+} | null>(null);
 const renamingBranch = ref<LocalBranch | null>(null);
 const renameBranchName = ref("");
 const renameBranchInput = ref<HTMLInputElement | null>(null);
+const mergingBranch = ref(false);
+const mergeSource = ref("");
+const mergeTarget = ref("");
 const committing = ref(false);
 const amending = ref(false);
 const lastCommit = ref<LastCommit | null>(null);
@@ -118,6 +159,11 @@ const commitTitleInput = ref<HTMLInputElement | null>(null);
 const stashing = ref(false);
 const stashMessage = ref("");
 const stashMessageInput = ref<HTMLInputElement | null>(null);
+const creatingTag = ref(false);
+const newTagName = ref("");
+const newTagMessage = ref("");
+const newTagTarget = ref("");
+const newTagInput = ref<HTMLInputElement | null>(null);
 const pullingOptions = ref(false);
 const pullSource = ref<"current" | "develop" | "master" | "main" | "specify">("current");
 const specifyBranch = ref("");
@@ -140,28 +186,66 @@ const baseBranchOptions = computed(() => {
   }
   return names;
 });
-const canCreateBranch = computed(
-  () => Boolean(newBranchName.value.trim()) && Boolean(baseBranch.value.trim()),
-);
+const canCreateBranch = computed(() => {
+  if (!newBranchName.value.trim()) {
+    return false;
+  }
+  if (newBranchStart.value.trim()) {
+    return true;
+  }
+  return Boolean(baseBranch.value.trim());
+});
 
 function baseBranchLabel(name: string) {
   return name === checkedOutBranch.value ? `${name} (current)` : name;
 }
+const commitMenuHasMerge = computed(() => {
+  const menu = commitMenu.value;
+  if (!menu) {
+    return false;
+  }
+  const selected = new Set(menu.hashes);
+  return commits.value.some((commit) => selected.has(commit.hash) && commit.parents.length > 1);
+});
+const newBranchStartShort = computed(() => {
+  const start = newBranchStart.value.trim();
+  return start ? start.slice(0, 7) : "";
+});
+const canCreateTag = computed(() => Boolean(newTagName.value.trim()));
 const canRenameBranch = computed(() => {
   const next = renameBranchName.value.trim();
   return Boolean(next) && next !== (renamingBranch.value?.name ?? "");
 });
+const localBranchNames = computed(() => {
+  const fromOverview = overview.value?.branches.map((branch) => branch.name) ?? [];
+  if (fromOverview.length) {
+    return fromOverview;
+  }
+  return branches.value;
+});
+const mergeTargetHint = computed(() => {
+  const raw = overview.value?.mergeTarget ?? preferredMergeTarget() ?? "";
+  return raw.replace(/^origin\//, "").trim();
+});
+const canConfirmMerge = computed(() => {
+  const source = mergeSource.value.trim();
+  const target = mergeTarget.value.trim();
+  return Boolean(source && target && source !== target);
+});
 const commitTitleLength = computed(() => [...commitTitle.value].length);
 const commitTitleLeft = computed(() => Math.max(0, COMMIT_TITLE_MAX - commitTitleLength.value));
-const canCommit = computed(
-  () => Boolean(commitTitle.value.trim()) && commitTitleLength.value <= COMMIT_TITLE_MAX,
-);
 const conflictedFiles = computed(() => files.value.filter(isConflicted));
 const unstagedCount = computed(
   () => files.value.filter((file) => !file.staged && !isConflicted(file)).length,
 );
 const stagedCount = computed(
   () => files.value.filter((file) => file.staged && !isConflicted(file)).length,
+);
+const canCommit = computed(
+  () =>
+    Boolean(commitTitle.value.trim()) &&
+    commitTitleLength.value <= COMMIT_TITLE_MAX &&
+    stagedCount.value > 0,
 );
 const conflictedCount = computed(() => conflictedFiles.value.length);
 const operation = computed(() => current.value?.status?.operation ?? "");
@@ -186,6 +270,11 @@ let resizeStartX = 0;
 let resizeStartWidth = 320;
 let resizePointerId: number | null = null;
 let loadGeneration = 0;
+let filesGeneration = 0;
+let worktreeMutation = 0;
+let watchRefresh: Promise<void> | null = null;
+let watchRefreshQueued = false;
+let watchRefreshRefs = false;
 let watchToken = 0;
 let watchClosed = false;
 let stopWatch: UnlistenFn | undefined;
@@ -308,20 +397,59 @@ async function refreshSelectedFileDiff(file: WorkingTreeFile) {
   }
 }
 
-async function onRepoFilesChanged(payload: RepoFilesChanged) {
-  const match = current.value;
-  if (!match || watchKey(match.repo.path) !== watchKey(payload.path) || actionBusy.value) {
+function scheduleWatchRefresh(refs: boolean) {
+  watchRefreshRefs ||= refs;
+  watchRefreshQueued = true;
+  if (watchRefresh || worktreeMutation > 0 || actionBusy.value) {
     return;
   }
-  await loadRepo({
-    silent: true,
-    graph: payload.git,
-    overview: payload.git && branchesView.value,
+  watchRefresh = drainWatchRefresh().finally(() => {
+    watchRefresh = null;
+    if (watchRefreshQueued && worktreeMutation === 0 && !actionBusy.value) {
+      scheduleWatchRefresh(false);
+    }
   });
-  void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
-  if (payload.git && selectedHistoryFile.value) {
+}
+
+async function drainWatchRefresh() {
+  while (watchRefreshQueued && worktreeMutation === 0 && !actionBusy.value) {
+    watchRefreshQueued = false;
+    const refs = watchRefreshRefs;
+    watchRefreshRefs = false;
+    await refreshFromWatch(refs);
+  }
+}
+
+async function refreshFromWatch(refs: boolean) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  if (refs) {
+    await loadRepo({
+      silent: true,
+      graph: true,
+      overview: branchesView.value,
+    });
+  } else {
+    await loadWorkingTree();
+  }
+  await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+  if (refs && selectedHistoryFile.value) {
     void refreshHistoryFile();
   }
+}
+
+async function onRepoFilesChanged(payload: RepoFilesChanged) {
+  const match = current.value;
+  if (!match || watchKey(match.repo.path) !== watchKey(payload.path)) {
+    return;
+  }
+  if (actionBusy.value) {
+    return;
+  }
+  scheduleWatchRefresh(payload.git);
+  await watchRefresh;
 }
 
 function mergeOverview(previous: BranchOverview | null, next: BranchOverview): BranchOverview {
@@ -383,15 +511,62 @@ async function loadOverview() {
   }
 }
 
+function applyWorkingTree(nextFiles: WorkingTreeFile[], silent: boolean) {
+  const match = current.value;
+  files.value = nextFiles;
+  if (match && nextFiles.some(isConflicted)) {
+    openChangesPane();
+    void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+  }
+  if (historyOpen.value) {
+    void loadRepoFiles({ silent });
+  }
+  const nextSelected = selectedFile.value
+    ? nextFiles.find((file) => sameFile(file, selectedFile.value))
+    : undefined;
+  if (selectedFile.value && !nextSelected) {
+    selectedFile.value = null;
+    if (!selectedCommitFile.value && !selectedHistoryCommit.value) {
+      diff.value = "";
+    }
+  } else if (nextSelected) {
+    selectedFile.value = nextSelected;
+    void refreshSelectedFileDiff(nextSelected);
+  }
+}
+
+async function loadWorkingTree() {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const path = match.repo.path;
+  const generation = ++filesGeneration;
+  try {
+    const nextFiles = await api.workingTree(path);
+    if (generation !== filesGeneration || current.value?.repo.path !== path) {
+      return;
+    }
+    applyWorkingTree(nextFiles, true);
+  } catch {
+    /* keep the list already on screen */
+  }
+}
+
 async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?: boolean }) {
   const match = current.value;
   const generation = ++loadGeneration;
+  const fileGeneration = ++filesGeneration;
   if (!match) {
     overviewGeneration += 1;
+    trackingGeneration += 1;
     commits.value = [];
     files.value = [];
     branches.value = [];
+    branchTracking.value = [];
+    trackingPath.value = "";
     stashes.value = [];
+    tags.value = [];
     overview.value = null;
     selectedFile.value = null;
     closeCommitDetail();
@@ -407,11 +582,12 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
   }
   message.value = "";
   try {
-    const [nextCommits, nextFiles, nextBranches, nextStashes, nextOverview] = await Promise.all([
+    const [nextCommits, nextFiles, nextBranches, nextStashes, nextTags, nextOverview] = await Promise.all([
       wantGraph ? api.logGraph(match.repo.path) : Promise.resolve(commits.value),
       api.workingTree(match.repo.path),
       api.listLocalBranches(match.repo.path).catch(() => [] as string[]),
       api.stashList(match.repo.path).catch(() => [] as StashEntry[]),
+      api.tagList(match.repo.path).catch(() => [] as TagEntry[]),
       wantOverview
         ? api.branchOverview(match.repo.path, preferredMergeTarget(), false).catch(() => null)
         : Promise.resolve(overview.value),
@@ -423,34 +599,20 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
       commits.value = nextCommits;
       graphStale.value = false;
     }
-    files.value = nextFiles;
-    if (nextFiles.some(isConflicted)) {
-      openChangesPane();
-      void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
-    }
-    if (historyOpen.value) {
-      void loadRepoFiles({ silent: options?.silent });
+    if (fileGeneration === filesGeneration) {
+      applyWorkingTree(nextFiles, Boolean(options?.silent));
     }
     branches.value = nextBranches;
+    rememberTrackingPath(match.repo.path);
+    void loadBranchTracking(match.repo.path);
     stashes.value = nextStashes;
+    tags.value = nextTags;
     if (wantOverview) {
       const needsClassify = nextOverview?.branches.some((branch) => branch.pending) ?? false;
       overview.value = nextOverview ? mergeOverview(overview.value, nextOverview) : nextOverview;
       if (needsClassify && overviewGen === overviewGeneration) {
         void classifyOverview(match.repo.path, preferredMergeTarget(), overviewGen);
       }
-    }
-    const nextSelected = selectedFile.value
-      ? nextFiles.find((file) => sameFile(file, selectedFile.value))
-      : undefined;
-    if (selectedFile.value && !nextSelected) {
-      selectedFile.value = null;
-      if (!selectedCommitFile.value && !selectedHistoryCommit.value) {
-        diff.value = "";
-      }
-    } else if (nextSelected) {
-      selectedFile.value = nextSelected;
-      void refreshSelectedFileDiff(nextSelected);
     }
     if (selectedCommit.value) {
       const nextCommit = nextCommits.find((commit) => commit.hash === selectedCommit.value?.hash);
@@ -576,13 +738,29 @@ async function selectFile(file: WorkingTreeFile) {
   }
 }
 
-async function reloadAfterIndexChange() {
-  const match = current.value;
-  if (!match) {
-    return;
+async function runWorktreeMutation(work: () => Promise<void>) {
+  worktreeMutation += 1;
+  let succeeded = false;
+  try {
+    await work();
+    succeeded = true;
+    await loadWorkingTree();
+    const match = current.value;
+    if (match) {
+      await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+    }
+  } finally {
+    worktreeMutation -= 1;
+    if (worktreeMutation > 0) {
+      return;
+    }
+    if (watchRefreshRefs || (!succeeded && watchRefreshQueued)) {
+      scheduleWatchRefresh(watchRefreshRefs);
+    } else {
+      watchRefreshQueued = false;
+      watchRefreshRefs = false;
+    }
   }
-  await loadRepo();
-  await refreshStatus(match.group?.id ?? STANDALONE_GROUP_ID);
 }
 
 async function stageFile(file: WorkingTreeFile) {
@@ -591,8 +769,7 @@ async function stageFile(file: WorkingTreeFile) {
     return;
   }
   try {
-    await api.stageFile(match.repo.path, file.path);
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(() => api.stageFile(match.repo.path, file.path));
   } catch (err) {
     message.value = String(err);
   }
@@ -604,8 +781,7 @@ async function stageAll() {
     return;
   }
   try {
-    await api.stageAll(match.repo.path);
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(() => api.stageAll(match.repo.path));
   } catch (err) {
     message.value = String(err);
   }
@@ -617,8 +793,7 @@ async function unstageFile(file: WorkingTreeFile) {
     return;
   }
   try {
-    await api.unstageFile(match.repo.path, file.path);
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(() => api.unstageFile(match.repo.path, file.path));
   } catch (err) {
     message.value = String(err);
   }
@@ -630,8 +805,7 @@ async function unstageAll() {
     return;
   }
   try {
-    await api.unstageAll(match.repo.path);
-    await reloadAfterIndexChange();
+    await runWorktreeMutation(() => api.unstageAll(match.repo.path));
   } catch (err) {
     message.value = String(err);
   }
@@ -888,13 +1062,18 @@ function checkoutListedBranch(branch: LocalBranch) {
   return checkoutBranch(branch.name);
 }
 
-async function openCreateBranch() {
+async function openCreateBranch(start = "") {
   if (actionBusy.value) {
     return;
   }
   newBranchName.value = "";
-  await refreshBranches();
-  baseBranch.value = checkedOutBranch.value || branches.value[0] || "";
+  newBranchStart.value = start;
+  if (!start.trim()) {
+    await refreshBranches();
+    baseBranch.value = checkedOutBranch.value || branches.value[0] || "";
+  } else {
+    baseBranch.value = "";
+  }
   creatingBranch.value = true;
   await nextTick();
   newBranchInput.value?.focus();
@@ -904,19 +1083,20 @@ function closeCreateBranch() {
   creatingBranch.value = false;
   newBranchName.value = "";
   baseBranch.value = "";
+  newBranchStart.value = "";
 }
 
 function createBranch() {
   const match = current.value;
   const branch = newBranchName.value.trim();
-  const base = baseBranch.value.trim();
-  if (!match || !branch || !base) {
+  const start = newBranchStart.value.trim() || baseBranch.value.trim();
+  if (!match || !branch || !start) {
     return;
   }
   closeCreateBranch();
   return runRepoAction(
     "Creating branch…",
-    () => api.createAndCheckoutBranch(match.repo.path, branch, base),
+    () => api.createAndCheckoutBranch(match.repo.path, branch, start),
     branch,
   );
 }
@@ -937,6 +1117,64 @@ function closeRenameBranch() {
   renameBranchName.value = "";
 }
 
+function pickMergeTarget() {
+  const names = localBranchNames.value;
+  const preferred = [mergeTargetHint.value, "develop", "main", "master"];
+  for (const name of preferred) {
+    if (name && names.includes(name)) {
+      return name;
+    }
+  }
+  return names[0] ?? "";
+}
+
+function pickMergeSource(preferred: string, target: string) {
+  const names = localBranchNames.value;
+  if (preferred && preferred !== target && names.includes(preferred)) {
+    return preferred;
+  }
+  const currentName = current.value?.status?.branch ?? "";
+  if (currentName && currentName !== target && names.includes(currentName)) {
+    return currentName;
+  }
+  return names.find((name) => name !== target) ?? "";
+}
+
+async function openMergeBranch(branch?: LocalBranch) {
+  if (actionBusy.value || localBranchNames.value.length < 2) {
+    return;
+  }
+  if (!overview.value) {
+    await loadOverview().catch(() => undefined);
+  }
+  const preferredSource = branch?.name ?? current.value?.status?.branch ?? "";
+  const target = pickMergeTarget();
+  mergeTarget.value = target;
+  mergeSource.value = pickMergeSource(preferredSource, target);
+  mergingBranch.value = true;
+}
+
+function closeMergeBranch() {
+  mergingBranch.value = false;
+  mergeSource.value = "";
+  mergeTarget.value = "";
+}
+
+function mergeLocalBranch() {
+  const match = current.value;
+  const source = mergeSource.value.trim();
+  const target = mergeTarget.value.trim();
+  if (!match || !canConfirmMerge.value) {
+    return;
+  }
+  closeMergeBranch();
+  return runRepoAction(
+    "Merging…",
+    () => api.mergeLocalBranch(match.repo.path, source, target),
+    target,
+  );
+}
+
 function renameBranch() {
   const match = current.value;
   const from = renamingBranch.value;
@@ -952,13 +1190,57 @@ function clipCommitTitle(value: string) {
   return [...value].slice(0, COMMIT_TITLE_MAX).join("");
 }
 
-function resetCommitForm() {
+type CommitDraft = { title: string; description: string };
+const commitDrafts = new Map<string, CommitDraft>();
+const hasCommitDraft = ref(false);
+
+function repoDraftKey() {
+  return current.value?.repo.path ?? "";
+}
+
+function isMeaningfulDraft(draft: CommitDraft | undefined) {
+  return Boolean(draft && (draft.title.trim() || draft.description.trim()));
+}
+
+function refreshHasCommitDraft() {
+  hasCommitDraft.value = isMeaningfulDraft(commitDrafts.get(repoDraftKey()));
+}
+
+function persistCommitDraft() {
+  const key = repoDraftKey();
+  if (!key) {
+    return;
+  }
+  const title = amending.value ? draftTitle.value : commitTitle.value;
+  const description = amending.value ? draftDescription.value : commitDescription.value;
+  const draft = { title, description };
+  if (isMeaningfulDraft(draft)) {
+    commitDrafts.set(key, draft);
+  } else {
+    commitDrafts.delete(key);
+  }
+  refreshHasCommitDraft();
+}
+
+function loadCommitDraft() {
+  const draft = commitDrafts.get(repoDraftKey());
+  commitTitle.value = draft?.title ?? "";
+  commitDescription.value = draft?.description ?? "";
+  refreshHasCommitDraft();
+}
+
+function clearCommitDraft() {
+  const key = repoDraftKey();
+  if (key) {
+    commitDrafts.delete(key);
+  }
   amending.value = false;
   lastCommit.value = null;
   draftTitle.value = "";
   draftDescription.value = "";
   commitTitle.value = "";
   commitDescription.value = "";
+  refreshHasCommitDraft();
 }
 
 function applyLastCommitMessage() {
@@ -971,25 +1253,30 @@ function applyLastCommitMessage() {
 }
 
 async function openCommit() {
-  if (actionBusy.value || !files.value.some((file) => file.staged)) {
+  if (actionBusy.value || !files.value.length) {
     return;
   }
-  resetCommitForm();
+  if (operation.value && operation.value !== "merge") {
+    return;
+  }
+  amending.value = false;
+  lastCommit.value = null;
+  loadCommitDraft();
   committing.value = true;
   const match = current.value;
   if (match) {
     lastCommit.value = await api.lastCommit(match.repo.path).catch(() => null);
-    if (amending.value) {
-      applyLastCommitMessage();
-    }
   }
   await nextTick();
   commitTitleInput.value?.focus();
 }
 
 function closeCommit() {
+  persistCommitDraft();
+  amending.value = false;
+  lastCommit.value = null;
   committing.value = false;
-  resetCommitForm();
+  loadCommitDraft();
 }
 
 function onAmendChange(event: Event) {
@@ -1009,7 +1296,7 @@ function onAmendChange(event: Event) {
 async function commitChanges() {
   const match = current.value;
   const title = commitTitle.value.trim();
-  if (!match || !title) {
+  if (!match || !title || stagedCount.value === 0) {
     return;
   }
   const description = commitDescription.value;
@@ -1029,9 +1316,11 @@ async function commitChanges() {
     }
   }
   closeCommit();
-  return runRepoAction(amend ? "Amending…" : "Committing…", () =>
-    api.commit(match.repo.path, title, description, amend),
-  );
+  return runRepoAction(amend ? "Amending…" : "Committing…", async () => {
+    const result = await api.commit(match.repo.path, title, description, amend);
+    clearCommitDraft();
+    return result;
+  });
 }
 
 async function openStash() {
@@ -1084,6 +1373,7 @@ async function toggleBranchesView() {
     return;
   }
   stashView.value = false;
+  tagView.value = false;
   await nextTick();
   try {
     await loadOverview();
@@ -1096,6 +1386,19 @@ function toggleStashView() {
   stashView.value = !stashView.value;
   if (stashView.value) {
     branchesView.value = false;
+    tagView.value = false;
+    return;
+  }
+  if (graphStale.value) {
+    void loadRepo({ overview: false, silent: true });
+  }
+}
+
+function toggleTagView() {
+  tagView.value = !tagView.value;
+  if (tagView.value) {
+    branchesView.value = false;
+    stashView.value = false;
     return;
   }
   if (graphStale.value) {
@@ -1300,6 +1603,150 @@ async function dropStash(stash: StashEntry) {
   return runRepoAction("Dropping stash…", () => api.stashDrop(match.repo.path, stash.index));
 }
 
+async function openCreateTag(target = "") {
+  if (actionBusy.value) {
+    return;
+  }
+  newTagName.value = "";
+  newTagMessage.value = "";
+    newTagTarget.value = target || selectedCommit.value?.hash.slice(0, 12) || "";
+  creatingTag.value = true;
+  await nextTick();
+  newTagInput.value?.focus();
+}
+
+function openCommitMenu(commit: CommitNode, hashes: string[], x: number, y: number) {
+  commitMenu.value = { commit, hashes, x, y };
+}
+
+function closeCommitMenu() {
+  commitMenu.value = null;
+}
+
+function menuHashes(oldestFirst: boolean) {
+  const hashes = commitMenu.value?.hashes ?? [];
+  const index = new Map(commits.value.map((commit, i) => [commit.hash, i]));
+  return [...hashes].sort((left, right) => {
+    const a = index.get(left) ?? 0;
+    const b = index.get(right) ?? 0;
+    return oldestFirst ? b - a : a - b;
+  });
+}
+
+function checkoutMenuCommit() {
+  const match = current.value;
+  const commit = commitMenu.value?.commit;
+  closeCommitMenu();
+  if (!match || !commit) {
+    return;
+  }
+  return runRepoAction("Checking out…", () => api.checkoutCommit(match.repo.path, commit.hash));
+}
+
+function createBranchFromMenu() {
+  const hash = commitMenu.value?.commit.hash ?? "";
+  closeCommitMenu();
+  if (!hash) {
+    return;
+  }
+  return openCreateBranch(hash);
+}
+
+function cherryPickMenuCommits() {
+  const match = current.value;
+  const hashes = menuHashes(true);
+  closeCommitMenu();
+  if (!match || !hashes.length) {
+    return;
+  }
+  return runRepoAction("Cherry-picking…", () => api.cherryPickCommits(match.repo.path, hashes));
+}
+
+function revertMenuCommits() {
+  const match = current.value;
+  const hashes = menuHashes(false);
+  closeCommitMenu();
+  if (!match || !hashes.length) {
+    return;
+  }
+  return runRepoAction("Reverting…", () => api.revertCommits(match.repo.path, hashes));
+}
+
+async function copyMenuShas() {
+  const hashes = commitMenu.value?.hashes ?? [];
+  closeCommitMenu();
+  if (!hashes.length) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(hashes.join("\n"));
+    showToast(hashes.length === 1 ? "Copied commit SHA" : `Copied ${hashes.length} commit SHAs`);
+  } catch (err) {
+    showToast(String(err), "error");
+  }
+}
+
+async function copyMenuLink() {
+  const match = current.value;
+  const hash = commitMenu.value?.commit.hash ?? "";
+  closeCommitMenu();
+  if (!match || !hash) {
+    return;
+  }
+  try {
+    const url = await api.commitRemoteUrl(match.repo.path, hash);
+    await navigator.clipboard.writeText(url);
+    showToast("Copied commit link");
+  } catch (err) {
+    showToast(String(err), "error");
+  }
+}
+
+function createTagFromMenu() {
+  const hash = commitMenu.value?.commit.hash ?? "";
+  closeCommitMenu();
+  if (!hash) {
+    return;
+  }
+  return openCreateTag(hash);
+}
+
+function closeCreateTag() {
+  creatingTag.value = false;
+  newTagName.value = "";
+  newTagMessage.value = "";
+  newTagTarget.value = "";
+}
+
+function createTag() {
+  const match = current.value;
+  const name = newTagName.value.trim();
+  if (!match || !name) {
+    return;
+  }
+  const message = newTagMessage.value;
+  const target = newTagTarget.value.trim();
+  closeCreateTag();
+  return runRepoAction("Creating tag…", () => api.createTag(match.repo.path, name, message, target));
+}
+
+async function deleteTag(tag: TagEntry) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const ok = await confirm(`Permanently delete tag ${tag.name}? This cannot be undone.`, {
+    title: "Delete tag",
+    kind: "warning",
+    okLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!ok) {
+    return;
+  }
+  return runRepoAction("Deleting tag…", () => api.deleteTag(match.repo.path, tag.name));
+}
+
 async function refreshBranches() {
   const match = current.value;
   if (!match) {
@@ -1307,6 +1754,30 @@ async function refreshBranches() {
   }
   try {
     branches.value = await api.listLocalBranches(match.repo.path);
+    rememberTrackingPath(match.repo.path);
+    void loadBranchTracking(match.repo.path);
+  } catch {
+    /* keep the last successful list */
+  }
+}
+
+function rememberTrackingPath(path: string) {
+  if (trackingPath.value === path) {
+    return;
+  }
+  trackingPath.value = path;
+  trackingGeneration += 1;
+  branchTracking.value = [];
+}
+
+async function loadBranchTracking(path: string) {
+  const generation = ++trackingGeneration;
+  try {
+    const next = await api.listBranchTracking(path);
+    if (generation !== trackingGeneration) {
+      return;
+    }
+    branchTracking.value = next;
   } catch {
     /* keep the last successful list */
   }
@@ -1367,6 +1838,133 @@ async function deleteBranch(branch: LocalBranch) {
       return api.deleteLocalBranch(match.repo.path, branch.name, true);
     }
   });
+}
+
+function selectedDeleteCopy(branches: LocalBranch[], target: string) {
+  const merged = branches.filter((branch) => branch.merged).length;
+  const partial = branches.filter((branch) => !branch.merged && branch.partial).length;
+  const unique = branches.filter((branch) => !branch.merged && !branch.partial).length;
+  const bits: string[] = [];
+  if (merged) {
+    bits.push(
+      `${merged} ${merged === 1 ? "is" : "are"} already merged into ${target}`,
+    );
+  }
+  if (partial) {
+    bits.push(`${partial} ${partial === 1 ? "is" : "are"} only partially merged`);
+  }
+  if (unique) {
+    bits.push(`${unique} ${unique === 1 ? "has" : "have"} unique work`);
+  }
+  const noun = branches.length === 1 ? "branch" : "branches";
+  return `Delete ${branches.length} local ${noun}?${bits.length ? ` ${bits.join(". ")}.` : ""}`;
+}
+
+async function deleteSelectedBranches(branches: LocalBranch[]) {
+  const match = current.value;
+  const victims = branches.filter((branch) => !branch.current && !branch.protected);
+  if (!match || !victims.length) {
+    return;
+  }
+  const target = overview.value?.mergeTarget ?? "the integration branch";
+  const ok = await confirm(selectedDeleteCopy(victims, target), {
+    title: "Delete selected branches",
+    kind: "warning",
+    okLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!ok) {
+    return;
+  }
+  if (actionBusy.value) {
+    return;
+  }
+  actionBusy.value = true;
+  actionLabel.value = "Deleting selected branches…";
+  message.value = "";
+  try {
+    const safe = victims.filter((branch) => branch.merged).map((branch) => branch.name);
+    const forced = victims.filter((branch) => !branch.merged).map((branch) => branch.name);
+    const deleted: string[] = [];
+    const errors: string[] = [];
+    const notes: string[] = [];
+
+    if (safe.length) {
+      let result = await api.deleteMergedBranches(
+        match.repo.path,
+        preferredMergeTarget(),
+        false,
+        safe,
+      );
+      deleted.push(...result.deleted);
+      errors.push(...result.errors);
+      if (result.message) {
+        notes.push(result.message);
+      }
+      if (result.refused.length) {
+        const refused = result.refused.join(", ");
+        const forceOk = await confirm(
+          result.deleted.length
+            ? `Deleted ${result.deleted.length}. Git would not safely delete ${refused}. Those branches are already contained in ${target}, but not fully merged into the branch you're on (squash merges and unmerged remotes do this). Force delete them?`
+            : `Git would not safely delete ${refused}. Those leftover branches are already contained in ${target}, but not fully merged into the branch you're on (squash merges and unmerged remotes do this). Force delete them?`,
+          {
+            title: "Force delete leftover branches",
+            kind: "warning",
+            okLabel: "Force delete",
+            cancelLabel: "Keep",
+          },
+        );
+        if (forceOk) {
+          const extra = await api.deleteMergedBranches(
+            match.repo.path,
+            preferredMergeTarget(),
+            true,
+            result.refused,
+          );
+          deleted.push(...extra.deleted);
+          errors.push(...extra.errors);
+          if (extra.message) {
+            notes.push(extra.message);
+          }
+        }
+      }
+    }
+
+    if (forced.length) {
+      const result = await api.deleteMergedBranches(
+        match.repo.path,
+        preferredMergeTarget(),
+        true,
+        forced,
+      );
+      deleted.push(...result.deleted);
+      errors.push(...result.errors);
+      if (result.message) {
+        notes.push(result.message);
+      }
+    }
+
+    const text = notes.filter(Boolean).join(" ") || `Deleted ${deleted.length} local branches.`;
+    const failed = deleted.length === 0 && errors.length > 0;
+    if (failed) {
+      message.value = text;
+    }
+    showToast(text, failed ? "error" : "success");
+    overviewGeneration += 1;
+    removeOverviewBranches(deleted);
+    await loadRepo({ overview: false, graph: !branchesView.value, silent: true });
+    if (branchesView.value && overview.value?.branches.some((branch) => branch.pending)) {
+      void loadOverview();
+    }
+    await refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+  } catch (err) {
+    const text = String(err);
+    message.value = text;
+    showToast(text, "error");
+  } finally {
+    actionBusy.value = false;
+    actionLabel.value = "";
+  }
 }
 
 async function deleteMerged() {
@@ -1472,6 +2070,86 @@ async function openInEditor(file: WorkingTreeFile) {
   }
 }
 
+async function ignoreFile(file: WorkingTreeFile, kind: IgnoreKind) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await runWorktreeMutation(async () => {
+      await api.ignoreWorkingTreePath(match.repo.path, file.path, kind);
+      if (selectedFile.value?.path === file.path) {
+        closeDiff();
+      }
+    });
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
+function stashFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match || actionBusy.value) {
+    return;
+  }
+  closeDiff();
+  return runRepoAction("Stashing…", () => api.stashFile(match.repo.path, file.path));
+}
+
+async function revealFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await api.revealFileInFinder(match.repo.path, file.path);
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
+async function copyFilePath(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(absoluteFilePath(match.repo.path, file.path));
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
+async function deleteFile(file: WorkingTreeFile) {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  const ok = await confirm(`Delete ${fileBasename(file.path)}? This cannot be undone.`, {
+    title: "Delete file",
+    kind: "warning",
+    okLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!ok) {
+    return;
+  }
+  try {
+    await runWorktreeMutation(async () => {
+      await api.deleteWorkingTreeFile(match.repo.path, file.path);
+      if (selectedFile.value?.path === file.path) {
+        closeDiff();
+      }
+    });
+  } catch (err) {
+    message.value = String(err);
+    showToast(String(err), "error");
+  }
+}
+
 async function abortCurrentOperation() {
   const match = current.value;
   if (!match || !operation.value || actionBusy.value) {
@@ -1521,10 +2199,10 @@ async function discardAll() {
     return;
   }
   try {
-    await api.discardAllChanges(match.repo.path);
-    closeDiff();
-    await loadRepo();
-    await refreshStatus(match.group?.id ?? STANDALONE_GROUP_ID);
+    await runWorktreeMutation(async () => {
+      await api.discardAllChanges(match.repo.path);
+      closeDiff();
+    });
   } catch (err) {
     message.value = String(err);
   }
@@ -1535,6 +2213,7 @@ watch(
   () => {
     branchesView.value = false;
     stashView.value = false;
+    tagView.value = false;
     historyOpen.value = false;
     repoFiles.value = [];
     repoFilesError.value = "";
@@ -1545,8 +2224,12 @@ watch(
     graphStale.value = false;
     overviewGeneration += 1;
     overview.value = null;
+    trackingGeneration += 1;
+    branchTracking.value = [];
+    trackingPath.value = "";
     closeCommitDetail();
     closeDiff();
+    closeCommitMenu();
   },
 );
 
@@ -1562,8 +2245,18 @@ watch(
   () => current.value?.repo.path ?? "",
   (path) => {
     void startWatching(path);
+    refreshHasCommitDraft();
   },
   { immediate: true },
+);
+
+watch(
+  () => files.value.length,
+  (count, previous) => {
+    if (count === 0 && (previous ?? 0) > 0 && !committing.value) {
+      clearCommitDraft();
+    }
+  },
 );
 
 void listen<RepoFilesChanged>("repo-files-changed", (event) => {
@@ -1595,10 +2288,13 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         :branch="current.status?.branch ?? ''"
         :path="current.repo.path"
         :branches="branches"
+        :branch-tracking="branchTracking"
         :busy="actionBusy"
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
         :busy-branch="actionBranch"
         :branches-view="branchesView"
+        :tag-view="tagView"
+        :tag-count="tags.length"
         :stash-view="stashView"
         :stash-count="stashes.length"
         :files-open="!filesCollapsed && !historyOpen"
@@ -1614,7 +2310,9 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @undo-unpushed="undoUnpushedCommits"
         @checkout="checkoutBranch"
         @create="openCreateBranch"
+        @merge="openMergeBranch()"
         @branches="toggleBranchesView"
+        @tags="toggleTagView"
         @stash="toggleStashView"
         @files="toggleChangesPane"
         @history="toggleHistoryPane"
@@ -1655,9 +2353,18 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
           :overview="overview"
           :busy="actionBusy"
           @checkout="checkoutListedBranch"
+          @merge="openMergeBranch"
           @rename="openRenameBranch"
           @delete="deleteBranch"
           @delete-merged="deleteMerged"
+          @delete-selected="deleteSelectedBranches"
+        />
+        <TagList
+          v-else-if="tagView"
+          :tags="tags"
+          :busy="actionBusy"
+          @create="openCreateTag"
+          @delete="deleteTag"
         />
         <StashList
           v-else-if="stashView"
@@ -1674,6 +2381,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
             :commits="commits"
             :selected-hash="selectedCommit?.hash ?? ''"
             @select="selectCommit"
+            @menu="openCommitMenu"
           />
         </div>
         <TerminalPane
@@ -1757,7 +2465,15 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         </div>
       </div>
       <div class="diff-scroll">
-        <DiffViewer :raw="diff" :mode="diffMode" />
+        <DiffViewer
+          :raw="diff"
+          :mode="diffMode"
+          :repo-path="current.repo.path"
+          :file="blameFile"
+          :rev="blameRev"
+          :staged="blameStaged"
+          :old-path="blameOldPath"
+        />
       </div>
     </section>
     <aside v-if="!filesCollapsed" class="changes-pane">
@@ -1804,6 +2520,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         :selected-path="selectedFile?.path ?? ''"
         :selected-staged="selectedFile?.staged ?? false"
         :operation="operation"
+        :has-draft="hasCommitDraft"
         @select="selectFile"
         @stage="stageFile"
         @unstage="unstageFile"
@@ -1811,6 +2528,11 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @unstage-all="unstageAll"
         @discard="discardAll"
         @stash="openStash"
+        @stash-file="stashFile"
+        @ignore="ignoreFile"
+        @reveal="revealFile"
+        @copy-path="copyFilePath"
+        @delete-file="deleteFile"
         @commit="openCommit"
         @open-editor="openInEditor"
       />
@@ -1898,8 +2620,9 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
     <p v-if="amending && lastCommit?.published" class="muted tiny">
       This commit is already on the remote. Amending rewrites it, and you will need to force-push.
     </p>
+    <p v-if="!stagedCount" class="muted tiny">Stage a file to commit.</p>
     <template #actions>
-      <button class="ghost" type="button" @click="closeCommit">Cancel</button>
+      <button class="ghost" type="button" @click="closeCommit">Close</button>
       <button class="ghost commit" type="button" :disabled="!canCommit" @click="commitChanges">
         {{ amending ? "Amend" : "Commit" }}
       </button>
@@ -1924,6 +2647,42 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
       </button>
     </template>
   </Modal>
+  <Modal v-if="creatingTag" title="New tag" @close="closeCreateTag">
+    <label class="modal-label">
+      <span class="muted tiny">Tag name</span>
+      <input
+        ref="newTagInput"
+        v-model="newTagName"
+        type="text"
+        placeholder="v1.0.0"
+        @keydown.enter.prevent="createTag"
+      />
+    </label>
+    <label class="modal-label">
+      <span class="muted tiny">Message</span>
+      <input
+        v-model="newTagMessage"
+        type="text"
+        placeholder="Optional. Makes an annotated tag"
+      />
+    </label>
+    <label class="modal-label">
+      <span class="muted tiny">Commit</span>
+      <input
+        v-model="newTagTarget"
+        type="text"
+        placeholder="Current commit (HEAD)"
+        @keydown.enter.prevent="createTag"
+      />
+    </label>
+    <p class="muted tiny">Leave commit blank to tag HEAD. A message makes an annotated tag.</p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeCreateTag">Cancel</button>
+      <button class="primary" type="button" :disabled="!canCreateTag" @click="createTag">
+        Create tag
+      </button>
+    </template>
+  </Modal>
   <Modal v-if="creatingBranch" title="New branch" @close="closeCreateBranch">
     <label class="modal-label">
       <span class="muted tiny">Branch name</span>
@@ -1935,7 +2694,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @keydown.enter="createBranch"
       />
     </label>
-    <label class="modal-label">
+    <label v-if="!newBranchStart" class="modal-label">
       <span class="muted tiny">Base branch</span>
       <select v-model="baseBranch" :disabled="!baseBranchOptions.length">
         <option v-if="!baseBranchOptions.length" value="" disabled>No local branches</option>
@@ -1944,7 +2703,8 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         </option>
       </select>
     </label>
-    <p class="muted tiny">The new branch starts at the tip of the base branch, then checks it out.</p>
+    <p v-if="newBranchStartShort" class="muted tiny">Starts at {{ newBranchStartShort }}.</p>
+    <p v-else class="muted tiny">The new branch starts at the tip of the base branch, then checks it out.</p>
     <template #actions>
       <button class="ghost" type="button" @click="closeCreateBranch">Cancel</button>
       <button class="primary" type="button" :disabled="!canCreateBranch" @click="createBranch">
@@ -1970,5 +2730,54 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
       </button>
     </template>
   </Modal>
+  <Modal v-if="mergingBranch" title="Merge local branch" @close="closeMergeBranch">
+    <p class="pull-summary">
+      Merges <code>{{ mergeSource || "…" }}</code> into <code>{{ mergeTarget || "…" }}</code>.
+      Checkout switches to the target first if needed.
+    </p>
+    <label class="modal-label">
+      <span class="muted tiny">From</span>
+      <select v-model="mergeSource">
+        <option v-for="name in localBranchNames" :key="`from-${name}`" :value="name">
+          {{ name }}
+        </option>
+      </select>
+    </label>
+    <label class="modal-label">
+      <span class="muted tiny">Into</span>
+      <select v-model="mergeTarget">
+        <option v-for="name in localBranchNames" :key="`into-${name}`" :value="name">
+          {{ name }}
+        </option>
+      </select>
+    </label>
+    <p class="muted tiny pull-hint">
+      Conflicts appear in the files list so you can open them, mark them resolved, or abort.
+    </p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeMergeBranch">Cancel</button>
+      <button class="primary" type="button" :disabled="!canConfirmMerge" @click="mergeLocalBranch">
+        Merge
+      </button>
+    </template>
+  </Modal>
+  <CommitContextMenu
+    v-if="commitMenu"
+    :commit="commitMenu.commit"
+    :hashes="commitMenu.hashes"
+    :x="commitMenu.x"
+    :y="commitMenu.y"
+    :busy="actionBusy"
+    :operation="operation"
+    :has-merge="commitMenuHasMerge"
+    @checkout="checkoutMenuCommit"
+    @create-branch="createBranchFromMenu"
+    @cherry-pick="cherryPickMenuCommits"
+    @revert="revertMenuCommits"
+    @copy-sha="copyMenuShas"
+    @copy-link="copyMenuLink"
+    @create-tag="createTagFromMenu"
+    @close="closeCommitMenu"
+  />
   </div>
 </template>

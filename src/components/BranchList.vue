@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import BranchIcon from "./BranchIcon.vue";
+import { rangeIds, toggleId } from "../selection";
 import type { BranchOverview, LocalBranch } from "../types";
 
 const props = defineProps<{
@@ -10,10 +11,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   checkout: [branch: LocalBranch];
+  merge: [branch: LocalBranch];
   rename: [branch: LocalBranch];
   delete: [branch: LocalBranch];
   deleteMerged: [];
+  deleteSelected: [branches: LocalBranch[]];
 }>();
+
+const selected = ref<string[]>([]);
+const anchor = ref<string | null>(null);
 
 const leftoverCount = computed(
   () =>
@@ -22,17 +28,94 @@ const leftoverCount = computed(
     ).length ?? 0,
 );
 
+const canMerge = computed(() => (props.overview?.branches.length ?? 0) >= 2);
+
 const classifying = computed(
   () => props.overview?.branches.some((branch) => branch.pending) ?? false,
 );
 
+const selectableNames = computed(
+  () =>
+    props.overview?.branches
+      .filter((branch) => canSelect(branch))
+      .map((branch) => branch.name) ?? [],
+);
+
+const selectedBranches = computed(
+  () =>
+    props.overview?.branches.filter(
+      (branch) => selected.value.includes(branch.name) && canSelect(branch),
+    ) ?? [],
+);
+
+function canSelect(branch: LocalBranch) {
+  return !branch.current && !branch.protected;
+}
+
 function isLeftover(branch: LocalBranch) {
-  return branch.merged && !branch.protected && !branch.pending;
+  return branch.merged && !branch.current && !branch.protected && !branch.pending;
 }
 
 function isPartial(branch: LocalBranch) {
   return branch.partial && !branch.protected && !branch.pending;
 }
+
+function isSelected(branch: LocalBranch) {
+  return selected.value.includes(branch.name);
+}
+
+function onRowClick(event: MouseEvent, branch: LocalBranch) {
+  const target = event.target;
+  if (target instanceof Element && target.closest("button")) {
+    return;
+  }
+  if (!canSelect(branch)) {
+    return;
+  }
+  if (event.shiftKey && anchor.value) {
+    selected.value = rangeIds(selectableNames.value, anchor.value, branch.name);
+    return;
+  }
+  if (event.metaKey || event.ctrlKey) {
+    selected.value = toggleId(selected.value, branch.name);
+    anchor.value = branch.name;
+    return;
+  }
+  selected.value = [branch.name];
+  anchor.value = branch.name;
+}
+
+function deleteSelected() {
+  if (!selectedBranches.value.length) {
+    return;
+  }
+  emit("deleteSelected", selectedBranches.value);
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && selected.value.length) {
+    selected.value = [];
+  }
+}
+
+watch(
+  selectableNames,
+  (names) => {
+    const live = new Set(names);
+    selected.value = selected.value.filter((name) => live.has(name));
+    if (anchor.value && !live.has(anchor.value)) {
+      anchor.value = selected.value[selected.value.length - 1] ?? null;
+    }
+  },
+);
+
+onMounted(() => {
+  window.addEventListener("keydown", onKeydown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("keydown", onKeydown);
+});
 </script>
 
 <template>
@@ -51,8 +134,9 @@ function isPartial(branch: LocalBranch) {
       </p>
       <p v-else-if="overview.mergeTarget" class="muted tiny branch-list-hint">
         Merged marks leftover local work already contained in
-        <strong>{{ overview.mergeTarget }}</strong>. Partial means some commits are in that
-        branch and some are still unique. Pull first if you want the latest remote picture.
+        <strong>{{ overview.mergeTarget }}</strong>. A new branch that still points there is
+        not leftover. Partial means some commits are in that branch and some are still unique.
+        Pull first if you want the latest remote picture.
       </p>
       <p v-else class="muted tiny branch-list-hint">
         Couldn’t find origin/develop, develop, main, or master to compare against.
@@ -68,7 +152,10 @@ function isPartial(branch: LocalBranch) {
           current: branch.current,
           leftover: isLeftover(branch),
           partial: isPartial(branch),
+          selected: isSelected(branch),
         }"
+        :aria-selected="isSelected(branch)"
+        @click="onRowClick($event, branch)"
       >
         <BranchIcon />
         <span class="branch-row-name">{{ branch.name }}</span>
@@ -125,6 +212,19 @@ function isPartial(branch: LocalBranch) {
           <button
             class="ghost tiny"
             type="button"
+            :disabled="busy || !canMerge"
+            :title="
+              canMerge
+                ? `Merge ${branch.name} into another local branch`
+                : 'Need another local branch to merge into'
+            "
+            @click="emit('merge', branch)"
+          >
+            Merge
+          </button>
+          <button
+            class="ghost tiny"
+            type="button"
             :disabled="busy"
             :title="`Rename ${branch.name}`"
             @click="emit('rename', branch)"
@@ -147,6 +247,22 @@ function isPartial(branch: LocalBranch) {
       <button
         class="ghost tiny danger"
         type="button"
+        :disabled="busy || !selectedBranches.length"
+        :title="
+          selectedBranches.length
+            ? `Delete ${selectedBranches.length} selected branches`
+            : 'Command-click or Shift-click branches to select them'
+        "
+        @click="deleteSelected"
+      >
+        Delete selected
+        <span v-if="selectedBranches.length" class="file-count-badge">{{
+          selectedBranches.length
+        }}</span>
+      </button>
+      <button
+        class="ghost tiny danger"
+        type="button"
         :disabled="busy || leftoverCount === 0"
         @click="emit('deleteMerged')"
       >
@@ -154,8 +270,8 @@ function isPartial(branch: LocalBranch) {
         <span v-if="leftoverCount" class="file-count-badge">{{ leftoverCount }}</span>
       </button>
       <p class="muted tiny branch-footer-hint">
-        Only leftover merged branches. Partial and unique work stay. Keeps develop, main, master,
-        and the branch you’re on.
+        Delete merged only removes leftover merged branches. Partial and unique work stay. Keeps
+        develop, main, master, and the branch you’re on.
       </p>
     </div>
   </div>

@@ -10,6 +10,7 @@ const message = ref("");
 const clearing = ref(false);
 const showDetail = ref(false);
 const hideStatus = ref(true);
+const paused = ref(false);
 const terminal = ref<HTMLDivElement | null>(null);
 let stopLog: (() => void) | undefined;
 let stopCleared: (() => void) | undefined;
@@ -63,13 +64,18 @@ async function scrollIfNeeded() {
 
 onMounted(async () => {
   try {
-    entries.value = await api.commandHistory();
+    const [history, isPaused] = await Promise.all([
+      api.commandHistory(),
+      api.commandHistoryPaused(),
+    ]);
+    entries.value = history;
+    paused.value = isPaused;
     await scrollIfNeeded();
   } catch (err) {
     message.value = String(err);
   }
   void listen<CommandLogEntry>("command-log", (event) => {
-    if (entries.value.some((entry) => entry.id === event.payload.id)) {
+    if (paused.value || entries.value.some((entry) => entry.id === event.payload.id)) {
       return;
     }
     entries.value = [...entries.value, event.payload];
@@ -88,6 +94,17 @@ onUnmounted(() => {
   stopLog?.();
   stopCleared?.();
 });
+
+async function togglePaused() {
+  const next = !paused.value;
+  message.value = "";
+  try {
+    await api.setCommandHistoryPaused(next);
+    paused.value = next;
+  } catch (err) {
+    message.value = String(err);
+  }
+}
 
 async function clearLogs() {
   if (!entries.value.length || clearing.value) {
@@ -122,8 +139,11 @@ async function clearLogs() {
         <div>
           <div class="brand">History</div>
           <p class="muted tiny">
-            Every git command Shipyard runs is recorded here, including fetch, pull, push, and
-            commit.
+            {{
+              paused
+                ? "Recording paused. Git commands are not written here until you resume."
+                : "Every git command Shipyard runs is recorded here, including fetch, pull, push, and commit."
+            }}
           </p>
         </div>
         <div class="history-header-actions">
@@ -160,6 +180,26 @@ async function clearLogs() {
             Hide status
           </button>
           <button
+            class="ghost"
+            type="button"
+            :aria-pressed="paused"
+            :title="
+              paused
+                ? 'Start recording git commands again'
+                : 'Stop recording git commands until you resume'
+            "
+            @click="togglePaused"
+          >
+            <svg v-if="paused" class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 7.2v9.6l8.2-4.8Z" stroke-linejoin="round" />
+            </svg>
+            <svg v-else class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="7" y="6" width="3" height="12" rx="0.75" />
+              <rect x="14" y="6" width="3" height="12" rx="0.75" />
+            </svg>
+            {{ paused ? "Resume" : "Pause" }}
+          </button>
+          <button
             class="ghost danger"
             type="button"
             :disabled="clearing || !entries.length"
@@ -170,8 +210,13 @@ async function clearLogs() {
         </div>
       </div>
       <div ref="terminal" class="history-terminal" @scroll="onScroll">
+        <p v-if="paused" class="history-paused-banner">Recording paused</p>
         <p v-if="!entries.length" class="muted tiny history-empty">
-          No commands yet. Fetch a group or open a repo to see each git invocation.
+          {{
+            paused
+              ? "Resume to capture git commands again."
+              : "No commands yet. Fetch a group or open a repo to see each git invocation."
+          }}
         </p>
         <p v-else-if="!visibleEntries.length" class="muted tiny history-empty">
           Only status checks are in this log. Turn off Hide status to see them.

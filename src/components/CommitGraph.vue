@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { rangeIds, toggleId } from "../selection";
 import type { CommitNode } from "../types";
 import {
   GRAPH_COLORS,
   GRAPH_ROW_HEIGHT,
   formatCommitDate,
+  formatFullCommitDate,
   laneX,
   layoutGraph,
   parseRefs,
@@ -18,10 +20,77 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: [commit: CommitNode];
+  menu: [commit: CommitNode, hashes: string[], x: number, y: number];
 }>();
+
+const selected = ref<string[]>([]);
+const anchor = ref<string | null>(null);
+const hashes = computed(() => props.commits.map((commit) => commit.hash));
+
+function isMac() {
+  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+}
+
+function isSelected(hash: string) {
+  return selected.value.includes(hash);
+}
+
+function onRowClick(event: MouseEvent, commit: CommitNode) {
+  if (event.button !== 0) {
+    return;
+  }
+  if (event.ctrlKey && !event.metaKey && isMac()) {
+    return;
+  }
+  if (event.shiftKey && anchor.value) {
+    selected.value = rangeIds(hashes.value, anchor.value, commit.hash);
+    return;
+  }
+  if (event.metaKey || (event.ctrlKey && !isMac())) {
+    selected.value = toggleId(selected.value, commit.hash);
+    anchor.value = commit.hash;
+    return;
+  }
+  selected.value = [commit.hash];
+  anchor.value = commit.hash;
+  emit("select", commit);
+}
+
+function onRowMenu(event: MouseEvent, commit: CommitNode) {
+  event.preventDefault();
+  if (!selected.value.includes(commit.hash)) {
+    selected.value = [commit.hash];
+    anchor.value = commit.hash;
+  }
+  emit("menu", commit, [...selected.value], event.clientX, event.clientY);
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && selected.value.length) {
+    selected.value = [];
+    anchor.value = null;
+  }
+}
+
+watch(hashes, (next) => {
+  const live = new Set(next);
+  selected.value = selected.value.filter((hash) => live.has(hash));
+  if (anchor.value && !live.has(anchor.value)) {
+    anchor.value = selected.value[selected.value.length - 1] ?? null;
+  }
+});
 
 const layout = computed(() => layoutGraph(props.commits));
 const midY = GRAPH_ROW_HEIGHT / 2;
+
+type DatePopover = {
+  text: string;
+  right: number;
+  y: number;
+  below: boolean;
+};
+
+const datePopover = ref<DatePopover | null>(null);
 
 function color(column: number) {
   return GRAPH_COLORS[column % GRAPH_COLORS.length];
@@ -30,6 +99,42 @@ function color(column: number) {
 function linkPath(from: number, y1: number, to: number, y2: number) {
   return pipePath(from, y1, to, y2, layout.value.colWidth, layout.value.padX);
 }
+
+function hideDatePopover() {
+  datePopover.value = null;
+}
+
+function showDatePopover(event: MouseEvent, value: string) {
+  const target = event.currentTarget;
+  const text = formatFullCommitDate(value);
+  if (!(target instanceof HTMLElement) || !text) {
+    hideDatePopover();
+    return;
+  }
+  const rect = target.getBoundingClientRect();
+  const gap = 8;
+  const below = rect.top < 72;
+  datePopover.value = {
+    text,
+    right: Math.max(gap, window.innerWidth - rect.right),
+    y: below ? rect.bottom + gap : rect.top - gap,
+    below,
+  };
+}
+
+watch(() => [props.commits, props.selectedHash], hideDatePopover);
+
+onMounted(() => {
+  window.addEventListener("scroll", hideDatePopover, true);
+  window.addEventListener("resize", hideDatePopover);
+  window.addEventListener("keydown", onKeydown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("scroll", hideDatePopover, true);
+  window.removeEventListener("resize", hideDatePopover);
+  window.removeEventListener("keydown", onKeydown);
+});
 </script>
 
 <template>
@@ -39,12 +144,15 @@ function linkPath(from: number, y1: number, to: number, y2: number) {
       v-for="row in layout.rows"
       :key="row.commit.hash"
       class="commit-graph-row"
-      :class="{ active: selectedHash === row.commit.hash }"
+      :class="{
+        active: selectedHash === row.commit.hash,
+        selected: isSelected(row.commit.hash),
+      }"
       role="button"
       tabindex="0"
-      :aria-pressed="selectedHash === row.commit.hash"
-      :title="row.commit.subject"
-      @click="emit('select', row.commit)"
+      :aria-pressed="selectedHash === row.commit.hash || isSelected(row.commit.hash)"
+      @click="onRowClick($event, row.commit)"
+      @contextmenu="onRowMenu($event, row.commit)"
       @keydown.enter.prevent="emit('select', row.commit)"
       @keydown.space.prevent="emit('select', row.commit)"
     >
@@ -87,7 +195,7 @@ function linkPath(from: number, y1: number, to: number, y2: number) {
           />
         </svg>
       </div>
-      <div class="commit-subject">
+      <div class="commit-subject" :title="row.commit.subject">
         <span
           v-for="chip in parseRefs(row.commit.refs)"
           :key="`${chip.kind}-${chip.name}`"
@@ -97,7 +205,23 @@ function linkPath(from: number, y1: number, to: number, y2: number) {
         {{ row.commit.subject }}
       </div>
       <div class="commit-author">{{ row.commit.author }}</div>
-      <div class="commit-date">{{ formatCommitDate(row.commit.date) }}</div>
+      <div
+        class="commit-date"
+        :aria-label="formatFullCommitDate(row.commit.date)"
+        @mouseenter="showDatePopover($event, row.commit.date)"
+        @mouseleave="hideDatePopover"
+      >{{ formatCommitDate(row.commit.date) }}</div>
     </div>
+    <Teleport to="body">
+      <div
+        v-if="datePopover"
+        class="date-popover"
+        :class="{ below: datePopover.below }"
+        role="tooltip"
+        :style="{ right: `${datePopover.right}px`, top: `${datePopover.y}px` }"
+      >
+        {{ datePopover.text }}
+      </div>
+    </Teleport>
   </div>
 </template>

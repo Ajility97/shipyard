@@ -111,6 +111,11 @@ When the build finishes:
 
 To run it locally, open the `.app` (or drag it to `/Applications`). macOS Gatekeeper may warn that an unsigned local build is unidentified: right-click the app, choose **Open**, then confirm.
 
+## Publishing signed releases
+
+See [macOS release setup](docs/macos-releases.md) for Apple enrollment, repository
+secrets, and the signing and notarization checks required by the Release workflow.
+
 ## Troubleshooting
 
 **`failed to run 'cargo metadata' ... No such file or directory (os error 2)`**  

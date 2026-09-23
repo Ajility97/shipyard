@@ -34,7 +34,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "hardenedRuntime": true
     },
     "createUpdaterArtifacts": true
   },

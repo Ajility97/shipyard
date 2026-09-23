@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.3.1",
+    date: "September 23, 2026",
+    notes: [
+      "macOS downloads are signed with a Developer ID and notarized by Apple, so installing Shipyard no longer shows the unidentified developer warning.",
+    ],
+  },
+  {
     version: "1.3.0",
     date: "September 22, 2026",
     notes: [

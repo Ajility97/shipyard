@@ -6,6 +6,15 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.4.0",
+    date: "September 24, 2026",
+    notes: [
+      "Discard changes is in the right-click menu for unstaged and staged files. Discarding a staged file keeps its unstaged edits, and Shipyard refuses instead of overwriting edits that sit next to the staged ones.",
+      "Right-clicking a file in the unstaged or staged list selects it and opens its diff, without closing a diff that is already open.",
+      "Right-clicking a file name no longer highlights the word under the cursor.",
+    ],
+  },
+  {
     version: "1.3.1",
     date: "September 23, 2026",
     notes: [

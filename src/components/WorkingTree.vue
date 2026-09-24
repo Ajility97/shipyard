@@ -20,7 +20,7 @@ const openEditorLabel = computed(() => openInEditorLabel(editor.value));
 const menu = ref<{ file: WorkingTreeFile; x: number; y: number } | null>(null);
 
 const emit = defineEmits<{
-  select: [file: WorkingTreeFile];
+  select: [file: WorkingTreeFile, options?: { toggle?: boolean }];
   stage: [file: WorkingTreeFile];
   unstage: [file: WorkingTreeFile];
   stageAll: [];
@@ -31,6 +31,7 @@ const emit = defineEmits<{
   ignore: [file: WorkingTreeFile, kind: IgnoreKind];
   reveal: [file: WorkingTreeFile];
   copyPath: [file: WorkingTreeFile];
+  discardFile: [file: WorkingTreeFile];
   deleteFile: [file: WorkingTreeFile];
   commit: [];
   openEditor: [file: WorkingTreeFile];
@@ -54,8 +55,16 @@ function isSelected(file: WorkingTreeFile) {
 
 function openFileMenu(event: MouseEvent, file: WorkingTreeFile) {
   event.preventDefault();
-  emit("select", file);
+  emit("select", file, { toggle: false });
   menu.value = { file, x: event.clientX, y: event.clientY };
+}
+
+function onFileClick(event: MouseEvent, file: WorkingTreeFile) {
+  // Ctrl-click opens the menu from the row handler; toggling here would close the diff it selects.
+  if (event.ctrlKey) {
+    return;
+  }
+  emit("select", file);
 }
 
 function closeFileMenu() {
@@ -137,7 +146,7 @@ watch(
           @contextmenu="openFileMenu($event, file)"
           @click.ctrl.prevent="openFileMenu($event, file)"
         >
-          <button class="file-item-main" type="button" @click="emit('select', file)">
+          <button class="file-item-main" type="button" @click="onFileClick($event, file)">
             <FileStatusIcon :status="file.status" />
             <PathLabel class="file-item-path" :path="file.path" />
           </button>
@@ -182,7 +191,7 @@ watch(
           @contextmenu="openFileMenu($event, file)"
           @click.ctrl.prevent="openFileMenu($event, file)"
         >
-          <button class="file-item-main" type="button" @click="emit('select', file)">
+          <button class="file-item-main" type="button" @click="onFileClick($event, file)">
             <FileStatusIcon :status="file.status" />
             <PathLabel class="file-item-path" :path="file.path" />
           </button>
@@ -249,6 +258,7 @@ watch(
       :y="menu.y"
       :editor-label="openEditorLabel"
       :can-stash="!resolving"
+      :can-discard="!resolving"
       @stage="emit('stage', menu.file); closeFileMenu()"
       @unstage="emit('unstage', menu.file); closeFileMenu()"
       @ignore="emit('ignore', menu.file, $event); closeFileMenu()"
@@ -256,6 +266,7 @@ watch(
       @open-editor="emit('openEditor', menu.file); closeFileMenu()"
       @reveal="emit('reveal', menu.file); closeFileMenu()"
       @copy-path="emit('copyPath', menu.file); closeFileMenu()"
+      @discard="emit('discardFile', menu.file); closeFileMenu()"
       @delete="emit('deleteFile', menu.file); closeFileMenu()"
       @close="closeFileMenu"
     />

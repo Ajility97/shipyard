@@ -2244,6 +2244,381 @@ pub fn discard_all_changes(git: &Path, repo: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn discard_file_changes(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    staged: bool,
+) -> Result<(), String> {
+    require_file_path(file)?;
+    if is_git_internal(file) {
+        return Err("Cannot discard git internals.".into());
+    }
+    if current_operation(repo).is_some() {
+        return Err(
+            "Cannot discard changes while a merge or rebase is in progress. Abort it instead."
+                .into(),
+        );
+    }
+
+    let files = working_tree(git, repo)?;
+    let entry = files
+        .iter()
+        .find(|entry| entry.path == file && entry.staged == staged)
+        .ok_or_else(|| "Nothing to discard for that file.".to_string())?;
+
+    if !staged {
+        if entry.untracked {
+            return remove_worktree_file(repo, file);
+        }
+        return restore_worktree(git, repo, file);
+    }
+
+    let has_unstaged = files
+        .iter()
+        .any(|entry| entry.path == file && !entry.staged);
+    if !committed_in_head(git, repo, file) {
+        let source = staged_rename_source(git, repo, file)?;
+        return discard_staged_addition(git, repo, file, source, has_unstaged);
+    }
+
+    discard_staged_tracked(git, repo, file, has_unstaged)
+}
+
+fn remove_worktree_file(repo: &Path, file: &str) -> Result<(), String> {
+    let path = repo_file_path(repo, file)?;
+    if path.is_dir() {
+        return Err("That path is a folder.".into());
+    }
+    if !path.exists() {
+        return Err("That file is not on disk.".into());
+    }
+    fs::remove_file(&path).map_err(|err| format!("Could not discard the file: {err}"))
+}
+
+fn restore_worktree(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    let output = run_git(git, repo, &["restore", "--worktree", "--", file])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to discard changes.",
+        ));
+    }
+    Ok(())
+}
+
+fn restore_from_head(git: &Path, repo: &Path, file: &str, worktree: bool) -> Result<(), String> {
+    let output = if worktree {
+        run_git(
+            git,
+            repo,
+            &["restore", "--source=HEAD", "--staged", "--worktree", "--", file],
+        )?
+    } else {
+        run_git(
+            git,
+            repo,
+            &["restore", "--source=HEAD", "--staged", "--", file],
+        )?
+    };
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to discard changes.",
+        ));
+    }
+    Ok(())
+}
+
+fn discard_staged_addition(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    rename_from: Option<String>,
+    has_unstaged: bool,
+) -> Result<(), String> {
+    let path = repo_file_path(repo, file)?;
+    if has_unstaged && path.is_file() {
+        return Err(unstaged_edits_error());
+    }
+    if let Some(old) = &rename_from {
+        ensure_rename_source_restorable(git, repo, old)?;
+    }
+
+    let snapshot = if path.is_file() {
+        Some(fs::read(&path).map_err(discard_io_error)?)
+    } else {
+        None
+    };
+
+    if has_unstaged {
+        remove_index_entry(git, repo, file)?;
+    } else {
+        delete_staged_new_file(git, repo, file)?;
+    }
+
+    if let Some(old) = &rename_from {
+        if let Err(err) = restore_from_head(git, repo, old, true) {
+            rollback_staged_new_file(git, repo, file, snapshot.as_deref());
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
+fn delete_staged_new_file(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    let removed = run_git(git, repo, &["rm", "-f", "--", file])?;
+    if removed.success {
+        return Ok(());
+    }
+    let cached = run_git(git, repo, &["rm", "-f", "--cached", "--", file])?;
+    if !cached.success {
+        return Err(or_fallback(
+            &combined_message(&removed),
+            "Failed to discard changes.",
+        ));
+    }
+    let path = repo_file_path(repo, file)?;
+    if path.is_file() {
+        fs::remove_file(&path).map_err(|err| format!("Could not discard the file: {err}"))?;
+    }
+    Ok(())
+}
+
+fn remove_index_entry(git: &Path, repo: &Path, file: &str) -> Result<(), String> {
+    let output = run_git(git, repo, &["rm", "--cached", "-f", "--", file])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Failed to discard changes.",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_rename_source_restorable(git: &Path, repo: &Path, old: &str) -> Result<(), String> {
+    let path = repo_file_path(repo, old)?;
+    let meta = match fs::symlink_metadata(&path) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(discard_io_error(err)),
+    };
+    let spec = format!("HEAD:{old}");
+    if !meta.is_file()
+        || git_object_id(git, repo, &["hash-object", "--", old])?
+            != git_object_id(git, repo, &["rev-parse", "--verify", &spec])?
+    {
+        return Err(format!(
+            "Could not discard the rename because {old} has changes that would be overwritten."
+        ));
+    }
+    Ok(())
+}
+
+fn git_object_id(git: &Path, repo: &Path, args: &[&str]) -> Result<String, String> {
+    let output = run_git(git, repo, args)?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not discard changes.",
+        ));
+    }
+    Ok(output.stdout.trim().to_string())
+}
+
+fn unstaged_overlap_error() -> String {
+    "Could not discard staged changes without losing nearby unstaged edits. Stage or discard those edits first.".into()
+}
+
+fn unstaged_edits_error() -> String {
+    "This file has unstaged edits. Stage or discard them before discarding the staged file.".into()
+}
+
+fn discard_io_error(err: std::io::Error) -> String {
+    format!("Could not discard changes: {err}")
+}
+
+fn rollback_staged_new_file(git: &Path, repo: &Path, file: &str, snapshot: Option<&[u8]>) {
+    let Some(bytes) = snapshot else {
+        return;
+    };
+    let Ok(path) = repo_file_path(repo, file) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if fs::write(&path, bytes).is_ok() {
+        let _ = run_git(git, repo, &["add", "--", file]);
+    }
+}
+
+fn discard_staged_tracked(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    has_unstaged: bool,
+) -> Result<(), String> {
+    if !has_unstaged {
+        return restore_from_head(git, repo, file, true);
+    }
+    let path = repo_file_path(repo, file)?;
+    if !path.is_file() || is_staged_deletion(git, repo, file)? {
+        return restore_from_head(git, repo, file, false);
+    }
+
+    let snapshot = fs::read(&path).map_err(discard_io_error)?;
+    let merged = merge_out_staged_changes(git, repo, file, &snapshot)?;
+    fs::write(&path, &merged).map_err(discard_io_error)?;
+    if let Err(err) = restore_from_head(git, repo, file, false) {
+        let _ = fs::write(&path, snapshot);
+        return Err(err);
+    }
+    Ok(())
+}
+
+fn is_staged_deletion(git: &Path, repo: &Path, file: &str) -> Result<bool, String> {
+    let output = run_git(
+        git,
+        repo,
+        &[
+            "diff",
+            "--cached",
+            "--name-only",
+            "--diff-filter=D",
+            "-z",
+            "--",
+            file,
+        ],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not discard changes.",
+        ));
+    }
+    Ok(output.stdout.split('\0').any(|path| path == file))
+}
+
+fn staged_rename_source(git: &Path, repo: &Path, file: &str) -> Result<Option<String>, String> {
+    let output = run_git(
+        git,
+        repo,
+        &["diff", "--cached", "--name-status", "-M", "-z"],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            "Could not discard changes.",
+        ));
+    }
+    let parts: Vec<&str> = output.stdout.split('\0').collect();
+    let mut index = 0;
+    while index < parts.len() {
+        let status = parts[index];
+        if status.is_empty() {
+            break;
+        }
+        let renamed = status.starts_with('R') || status.starts_with('C');
+        if renamed {
+            let old = parts.get(index + 1).copied().unwrap_or("");
+            let new = parts.get(index + 2).copied().unwrap_or("");
+            if status.starts_with('R') && new == file {
+                return Ok(Some(old.to_string()));
+            }
+            index += 3;
+        } else {
+            index += 2;
+        }
+    }
+    Ok(None)
+}
+
+fn merge_out_staged_changes(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    worktree: &[u8],
+) -> Result<Vec<u8>, String> {
+    let dir = std::env::temp_dir().join(format!(
+        "shipyard-discard-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    fs::create_dir_all(&dir).map_err(discard_io_error)?;
+    let result = merge_out_staged_changes_in(git, repo, file, worktree, &dir);
+    let _ = fs::remove_dir_all(&dir);
+    result
+}
+
+fn merge_out_staged_changes_in(
+    git: &Path,
+    repo: &Path,
+    file: &str,
+    worktree: &[u8],
+    dir: &Path,
+) -> Result<Vec<u8>, String> {
+    let current = dir.join("worktree");
+    let base = dir.join("index");
+    let other = dir.join("head");
+    fs::write(&current, worktree).map_err(discard_io_error)?;
+    let index_spec = format!(":{file}");
+    let head_spec = format!("HEAD:{file}");
+    run_git_to_file(git, repo, &["cat-file", "--filters", &index_spec], &base)?;
+    run_git_to_file(git, repo, &["cat-file", "--filters", &head_spec], &other)?;
+
+    let [current_arg, base_arg, other_arg] = [&current, &base, &other].map(|path| path.to_str());
+    let (Some(current_arg), Some(base_arg), Some(other_arg)) = (current_arg, base_arg, other_arg)
+    else {
+        return Err("Could not discard changes.".into());
+    };
+    // Replays the index -> HEAD change onto the worktree copy; conflicts and binary files exit non-zero.
+    let merged = run_git(
+        git,
+        repo,
+        &["merge-file", "-q", current_arg, base_arg, other_arg],
+    )?;
+    if !merged.success {
+        return Err(unstaged_overlap_error());
+    }
+    fs::read(&current).map_err(discard_io_error)
+}
+
+fn run_git_to_file(git: &Path, repo: &Path, args: &[&str], dest: &Path) -> Result<(), String> {
+    let started = Instant::now();
+    let file = fs::File::create(dest).map_err(discard_io_error)?;
+    let result = Command::new(git)
+        .args(args)
+        .current_dir(repo)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .stdout(Stdio::from(file))
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| format!("Failed to run git: {err}"));
+    match &result {
+        Ok(output) => command_log::record(
+            repo,
+            git,
+            args,
+            output.status.success(),
+            started.elapsed(),
+            "",
+            &String::from_utf8_lossy(&output.stderr),
+        ),
+        Err(err) => command_log::record(repo, git, args, false, started.elapsed(), "", err),
+    }
+    let output = result?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(or_fallback(stderr.trim(), "Could not discard changes."));
+    }
+    Ok(())
+}
+
 pub fn last_commit(git: &Path, repo: &Path) -> Result<LastCommit, String> {
     let output = run_git(git, repo, &["log", "-1", "--pretty=format:%s%x1f%b"])?;
     if !output.success {
@@ -5185,6 +5560,184 @@ filename README.md
         assert_eq!(conflicted[0].path, "README.md");
         assert!(!conflicted[0].staged);
         assert!(discard_all_changes(&git_bin(), &repo).is_err());
+        assert!(discard_file_changes(&git_bin(), &repo, "README.md", false).is_err());
+    }
+
+    #[test]
+    fn discards_changes_for_one_file() {
+        let repo = init_repo();
+        fs::write(repo.join("README.md"), "changed\n").unwrap();
+        fs::write(repo.join("other.txt"), "other\n").unwrap();
+        discard_file_changes(&git_bin(), &repo, "README.md", false).unwrap();
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "hello\n");
+        assert_eq!(fs::read_to_string(repo.join("other.txt")).unwrap(), "other\n");
+
+        discard_file_changes(&git_bin(), &repo, "other.txt", false).unwrap();
+        assert!(!repo.join("other.txt").exists());
+
+        fs::remove_file(repo.join("README.md")).unwrap();
+        discard_file_changes(&git_bin(), &repo, "README.md", false).unwrap();
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "hello\n");
+
+        fs::write(repo.join("README.md"), "staged\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        discard_file_changes(&git_bin(), &repo, "README.md", true).unwrap();
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "hello\n");
+        assert!(working_tree(&git_bin(), &repo).unwrap().is_empty());
+
+        fs::write(repo.join("new.txt"), "new\n").unwrap();
+        git(&repo, &["add", "new.txt"]);
+        discard_file_changes(&git_bin(), &repo, "new.txt", true).unwrap();
+        assert!(!repo.join("new.txt").exists());
+
+        fs::write(repo.join("README.md"), "staged\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        fs::write(repo.join("README.md"), "staged\nunstaged\n").unwrap();
+        discard_file_changes(&git_bin(), &repo, "README.md", false).unwrap();
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "staged\n");
+        let staged_only = working_tree(&git_bin(), &repo).unwrap();
+        assert!(staged_only
+            .iter()
+            .any(|file| file.path == "README.md" && file.staged));
+        assert!(!staged_only
+            .iter()
+            .any(|file| file.path == "README.md" && !file.staged));
+
+        fs::write(repo.join("README.md"), "staged\nunstaged\n").unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "README.md", true).unwrap_err();
+        assert!(err.to_lowercase().contains("unstaged"));
+        assert_eq!(
+            fs::read_to_string(repo.join("README.md")).unwrap(),
+            "staged\nunstaged\n"
+        );
+
+        fs::write(repo.join("README.md"), "staged\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        fs::remove_file(repo.join("README.md")).unwrap();
+        discard_file_changes(&git_bin(), &repo, "README.md", true).unwrap();
+        assert!(!repo.join("README.md").exists());
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "README.md" && !file.staged && file.status == "Deleted"));
+
+        git(&repo, &["reset", "--hard"]);
+        git(&repo, &["clean", "-fd"]);
+        git(&repo, &["mv", "README.md", "guide.md"]);
+        discard_file_changes(&git_bin(), &repo, "guide.md", true).unwrap();
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "hello\n");
+        assert!(!repo.join("guide.md").exists());
+        assert!(working_tree(&git_bin(), &repo).unwrap().is_empty());
+
+        git(&repo, &["mv", "README.md", "my file.md"]);
+        discard_file_changes(&git_bin(), &repo, "my file.md", true).unwrap();
+        assert!(repo.join("README.md").is_file());
+        assert!(!repo.join("my file.md").exists());
+
+        git(&repo, &["reset", "--hard"]);
+        fs::write(repo.join("README.md"), "hello\nstaged\n").unwrap();
+        git(&repo, &["add", "README.md"]);
+        fs::write(repo.join("README.md"), "hello\nSTAGED\n").unwrap();
+        let before = fs::read(repo.join("README.md")).unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "README.md", true).unwrap_err();
+        assert!(err.to_lowercase().contains("unstaged"));
+        assert_eq!(fs::read(repo.join("README.md")).unwrap(), before);
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "README.md" && file.staged));
+
+        assert!(discard_file_changes(&git_bin(), &repo, "../README.md", false).is_err());
+    }
+
+    #[test]
+    fn discard_refuses_to_lose_unstaged_adds_and_renames() {
+        let repo = init_repo();
+        fs::write(repo.join("new.txt"), "new\n").unwrap();
+        git(&repo, &["add", "new.txt"]);
+        fs::write(repo.join("new.txt"), "new\nextra\n").unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "new.txt", true).unwrap_err();
+        assert!(err.to_lowercase().contains("unstaged"));
+        assert_eq!(fs::read_to_string(repo.join("new.txt")).unwrap(), "new\nextra\n");
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "new.txt" && file.staged));
+
+        git(&repo, &["reset", "--hard"]);
+        git(&repo, &["clean", "-fd"]);
+        git(&repo, &["mv", "README.md", "guide.md"]);
+        fs::write(repo.join("guide.md"), "hello\nextra\n").unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "guide.md", true).unwrap_err();
+        assert!(err.to_lowercase().contains("unstaged"));
+        assert_eq!(
+            fs::read_to_string(repo.join("guide.md")).unwrap(),
+            "hello\nextra\n"
+        );
+        assert!(!repo.join("README.md").exists());
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "guide.md" && file.staged));
+
+        fs::write(repo.join("guide.md"), "hello\n").unwrap();
+        fs::write(repo.join("README.md"), "custom\n").unwrap();
+        let guide = fs::read(repo.join("guide.md")).unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "guide.md", true).unwrap_err();
+        assert!(err.contains("README.md"));
+        assert_eq!(fs::read(repo.join("guide.md")).unwrap(), guide);
+        assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "custom\n");
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "guide.md" && file.staged));
+    }
+
+    #[test]
+    fn discard_staged_keeps_unstaged_edits_in_place() {
+        let repo = init_repo();
+        fs::write(repo.join("list.txt"), "a\nb\nc\nd\ne\nf\ng\nh\n").unwrap();
+        git(&repo, &["add", "list.txt"]);
+        git(&repo, &["commit", "-qm", "list"]);
+
+        fs::write(repo.join("list.txt"), "a\nb\nc\nd\nf\ng\nh\n").unwrap();
+        git(&repo, &["add", "list.txt"]);
+        fs::write(repo.join("list.txt"), "X\nY\nZ\na\nb\nc\nd\nf\ng\nh\n").unwrap();
+        discard_file_changes(&git_bin(), &repo, "list.txt", true).unwrap();
+        assert_eq!(
+            fs::read_to_string(repo.join("list.txt")).unwrap(),
+            "X\nY\nZ\na\nb\nc\nd\ne\nf\ng\nh\n"
+        );
+        let files = working_tree(&git_bin(), &repo).unwrap();
+        assert!(!files.iter().any(|file| file.staged));
+        assert!(files
+            .iter()
+            .any(|file| file.path == "list.txt" && !file.staged));
+
+        git(&repo, &["checkout", "--", "list.txt"]);
+        fs::write(repo.join("list.txt"), "A\nb\nc\nd\ne\nf\ng\nh\n").unwrap();
+        git(&repo, &["add", "list.txt"]);
+        fs::write(repo.join("list.txt"), "A\nb\nc\nd\ne\nf\ng\nH\n").unwrap();
+        discard_file_changes(&git_bin(), &repo, "list.txt", true).unwrap();
+        assert_eq!(
+            fs::read_to_string(repo.join("list.txt")).unwrap(),
+            "a\nb\nc\nd\ne\nf\ng\nH\n"
+        );
+
+        git(&repo, &["checkout", "--", "list.txt"]);
+        fs::write(repo.join("list.txt"), "A\nb\nc\nd\ne\nf\ng\nh\n").unwrap();
+        git(&repo, &["add", "list.txt"]);
+        fs::write(repo.join("list.txt"), "A\nB\nc\nd\ne\nf\ng\nh\n").unwrap();
+        let err = discard_file_changes(&git_bin(), &repo, "list.txt", true).unwrap_err();
+        assert!(err.to_lowercase().contains("unstaged"));
+        assert_eq!(
+            fs::read_to_string(repo.join("list.txt")).unwrap(),
+            "A\nB\nc\nd\ne\nf\ng\nh\n"
+        );
+        assert!(working_tree(&git_bin(), &repo)
+            .unwrap()
+            .iter()
+            .any(|file| file.path == "list.txt" && file.staged));
     }
 
     #[test]

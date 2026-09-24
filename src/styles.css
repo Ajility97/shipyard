@@ -3365,6 +3365,8 @@ svg.file-tree-twist.open {
   background: transparent;
   text-align: left;
   padding: 0.25rem 0.55rem 0.25rem 0.85rem;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .file-item.file-tree-row {

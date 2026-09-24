@@ -2131,9 +2131,14 @@ async function discardFile(file: WorkingTreeFile) {
     return;
   }
   const name = fileBasename(file.path);
-  const prompt = file.untracked
-    ? `Discard ${name}? This untracked file will be deleted.`
-    : `Discard changes to ${name}? This cannot be undone.`;
+  let prompt = `Discard changes to ${name}? This cannot be undone.`;
+  if (file.untracked) {
+    prompt = `Discard ${name}? This untracked file will be deleted.`;
+  } else if (file.staged && file.status === "Added") {
+    prompt = `Discard ${name}? This new file will be deleted.`;
+  } else if (file.staged && file.status === "Renamed") {
+    prompt = `Discard the rename of ${name}? It will go back to its original name and its staged edits will be lost.`;
+  }
   const ok = await confirm(prompt, {
     title: "Discard changes",
     kind: "warning",

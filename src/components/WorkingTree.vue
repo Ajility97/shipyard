@@ -18,7 +18,6 @@ const props = defineProps<{
 const { editor } = useApp();
 const openEditorLabel = computed(() => openInEditorLabel(editor.value));
 const menu = ref<{ file: WorkingTreeFile; x: number; y: number } | null>(null);
-let contextMenuAt = 0;
 
 const emit = defineEmits<{
   select: [file: WorkingTreeFile, options?: { toggle?: boolean }];
@@ -56,20 +55,13 @@ function isSelected(file: WorkingTreeFile) {
 
 function openFileMenu(event: MouseEvent, file: WorkingTreeFile) {
   event.preventDefault();
-  contextMenuAt = Date.now();
   emit("select", file, { toggle: false });
   menu.value = { file, x: event.clientX, y: event.clientY };
 }
 
-function onFilePointerDown(event: PointerEvent, file: WorkingTreeFile) {
-  if (event.button !== 2) {
-    return;
-  }
-  emit("select", file, { toggle: false });
-}
-
 function onFileClick(event: MouseEvent, file: WorkingTreeFile) {
-  if (event.ctrlKey || event.metaKey || Date.now() - contextMenuAt < 400) {
+  // Ctrl-click opens the menu from the row handler; toggling here would close the diff it selects.
+  if (event.ctrlKey) {
     return;
   }
   emit("select", file);
@@ -151,7 +143,6 @@ watch(
           :key="`unstaged:${file.path}`"
           class="file-item"
           :class="{ active: isSelected(file) }"
-          @pointerdown="onFilePointerDown($event, file)"
           @contextmenu="openFileMenu($event, file)"
           @click.ctrl.prevent="openFileMenu($event, file)"
         >
@@ -197,7 +188,6 @@ watch(
           :key="`staged:${file.path}`"
           class="file-item"
           :class="{ active: isSelected(file) }"
-          @pointerdown="onFilePointerDown($event, file)"
           @contextmenu="openFileMenu($event, file)"
           @click.ctrl.prevent="openFileMenu($event, file)"
         >

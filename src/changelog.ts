@@ -6,6 +6,22 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.3.1",
+    date: "September 23, 2026",
+    notes: [
+      "macOS downloads are signed with a Developer ID and notarized by Apple, so installing Shipyard no longer shows the unidentified developer warning.",
+    ],
+  },
+  {
+    version: "1.3.0",
+    date: "September 22, 2026",
+    notes: [
+      "The branch switcher always shows a search field, so the menu stays the same shape and long branch lists can be filtered.",
+      "Auto-fetch interval stays in Settings. The status bar shows the next fetch, and hovering it shows the last fetch.",
+      "Check for updates is back in Settings. A newer build uses the same install confirmation as launch.",
+    ],
+  },
+  {
     version: "1.2.0",
     date: "September 22, 2026",
     notes: [

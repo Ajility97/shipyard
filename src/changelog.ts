@@ -6,6 +6,15 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.6.2",
+    date: "September 25, 2026",
+    notes: [
+      "The diff viewer hides git's header lines like diff --git, index, and the @@ ranges. Chunks of a file are separated by a thin bar instead.",
+      "Renames, file mode changes, and binary files are shown as a short note above the diff, since those details used to live in the hidden header lines.",
+      "Deleted or added lines that start with -- or ++, like SQL comments, now show up correctly in the diff instead of being mistaken for header lines.",
+    ],
+  },
+  {
     version: "1.6.1",
     date: "September 24, 2026",
     notes: [

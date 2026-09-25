@@ -4006,8 +4006,16 @@ svg.file-tree-twist.open {
 }
 
 .diff-hunk {
+  height: 0.5rem;
   background: #243044;
-  color: #9ec1ff;
+}
+
+.diff-notes {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85em;
 }
 
 .diff-line.is-hovered:not(.side) {

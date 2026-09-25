@@ -12,6 +12,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "The dashboard updates as soon as git changes a repo outside Shipyard. Checking out a branch, committing, tagging, or fetching from the terminal shows up right away instead of at the next auto-fetch.",
       "Tags and branch switches made outside Shipyard show up in an open repo tab again. Repos added through a symlinked path, like /tmp, were missing every change.",
       "Linked git worktrees pick up branch, tag, and commit changes. Their HEAD and refs live in the main repo's git folder, which Shipyard was not watching.",
+      "The Branches page has a search field. Type part of a name to filter the list, or press Command-F to jump to it. Delete selected only removes branches that match the search.",
     ],
   },
   {

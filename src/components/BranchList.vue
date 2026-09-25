@@ -20,6 +20,19 @@ const emit = defineEmits<{
 
 const selected = ref<string[]>([]);
 const anchor = ref<string | null>(null);
+const query = ref("");
+const searchInput = ref<HTMLInputElement | null>(null);
+
+const searching = computed(() => Boolean(query.value.trim()));
+
+const visibleBranches = computed(() => {
+  const branches = props.overview?.branches ?? [];
+  const needle = query.value.trim().toLowerCase();
+  if (!needle) {
+    return branches;
+  }
+  return branches.filter((branch) => branch.name.toLowerCase().includes(needle));
+});
 
 const leftoverCount = computed(
   () =>
@@ -34,18 +47,14 @@ const classifying = computed(
   () => props.overview?.branches.some((branch) => branch.pending) ?? false,
 );
 
-const selectableNames = computed(
-  () =>
-    props.overview?.branches
-      .filter((branch) => canSelect(branch))
-      .map((branch) => branch.name) ?? [],
+const selectableNames = computed(() =>
+  visibleBranches.value.filter((branch) => canSelect(branch)).map((branch) => branch.name),
 );
 
-const selectedBranches = computed(
-  () =>
-    props.overview?.branches.filter(
-      (branch) => selected.value.includes(branch.name) && canSelect(branch),
-    ) ?? [],
+const selectedBranches = computed(() =>
+  visibleBranches.value.filter(
+    (branch) => selected.value.includes(branch.name) && canSelect(branch),
+  ),
 );
 
 function canSelect(branch: LocalBranch) {
@@ -92,7 +101,41 @@ function deleteSelected() {
   emit("deleteSelected", selectedBranches.value);
 }
 
+function clearSearch() {
+  query.value = "";
+  searchInput.value?.focus();
+}
+
+function onSearchKeydown(event: KeyboardEvent) {
+  if (event.key !== "Escape") {
+    return;
+  }
+  event.stopPropagation();
+  if (query.value) {
+    query.value = "";
+    return;
+  }
+  searchInput.value?.blur();
+}
+
+function typingElsewhere(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement) || target === searchInput.value) {
+    return false;
+  }
+  return target.isContentEditable || target.closest("input, textarea, select") !== null;
+}
+
 function onKeydown(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+    // Repo tabs stay mounted while hidden; only the visible list should respond.
+    if (!searchInput.value?.offsetParent || typingElsewhere(event.target)) {
+      return;
+    }
+    event.preventDefault();
+    searchInput.value?.focus();
+    searchInput.value?.select();
+    return;
+  }
   if (event.key === "Escape" && selected.value.length) {
     selected.value = [];
   }
@@ -120,6 +163,38 @@ onUnmounted(() => {
 
 <template>
   <div class="branch-pane">
+    <div v-if="overview?.branches.length" class="branch-search">
+      <label class="branch-search-field">
+        <span class="sr-only">Filter branches</span>
+        <svg class="branch-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+        </svg>
+        <input
+          ref="searchInput"
+          v-model="query"
+          type="text"
+          class="branch-search-query"
+          placeholder="Filter branches"
+          autocomplete="off"
+          spellcheck="false"
+          @keydown="onSearchKeydown"
+        />
+        <button
+          v-if="query"
+          class="file-tree-clear"
+          type="button"
+          title="Clear search"
+          @click="clearSearch"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 18 18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </label>
+      <span v-if="searching" class="muted tiny branch-search-count">
+        {{ visibleBranches.length }} of {{ overview.branches.length }}
+      </span>
+    </div>
     <div class="graph-scroll branch-list">
       <p v-if="!overview" class="muted tiny branch-list-hint">
         <span class="spinner" aria-hidden="true" />
@@ -132,20 +207,17 @@ onUnmounted(() => {
           <strong>{{ overview.mergeTarget }}</strong>…
         </span>
       </p>
-      <p v-else-if="overview.mergeTarget" class="muted tiny branch-list-hint">
-        Merged marks leftover local work already contained in
-        <strong>{{ overview.mergeTarget }}</strong>. A new branch that still points there is
-        not leftover. Partial means some commits are in that branch and some are still unique.
-        Pull first if you want the latest remote picture.
-      </p>
-      <p v-else class="muted tiny branch-list-hint">
+      <p v-else-if="!overview.mergeTarget" class="muted tiny branch-list-hint">
         Couldn’t find origin/develop, develop, main, or master to compare against.
       </p>
       <p v-if="overview && !overview.branches.length" class="muted tiny empty-files">
         No local branches.
       </p>
+      <p v-else-if="overview && !visibleBranches.length" class="muted tiny empty-files">
+        No branches match that search.
+      </p>
       <div
-        v-for="branch in overview?.branches ?? []"
+        v-for="branch in visibleBranches"
         :key="branch.name"
         class="branch-row"
         :class="{

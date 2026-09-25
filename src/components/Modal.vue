@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from "vue";
+import { useBackdropClose } from "../composables/useBackdropClose";
 
 defineProps<{
   title: string;
@@ -10,6 +11,8 @@ defineProps<{
 const emit = defineEmits<{
   close: [];
 }>();
+
+const backdrop = useBackdropClose(() => emit("close"));
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") {
@@ -29,7 +32,11 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <div class="modal-layer" @click.self="emit('close')">
+    <div
+      class="modal-layer"
+      @pointerdown="backdrop.onPointerdown"
+      @click="backdrop.onClick"
+    >
       <div class="modal" :class="{ wide, medium }" role="dialog" aria-modal="true">
         <div class="modal-title">{{ title }}</div>
         <div class="modal-body">

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
 import type { RepoActionResult } from "../types";
+import { useBackdropClose } from "../composables/useBackdropClose";
 
 const props = defineProps<{
   title: string;
@@ -10,6 +11,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
 }>();
+
+const backdrop = useBackdropClose(() => emit("close"));
 
 const failed = computed(() => props.results.filter((item) => !item.ok).length);
 
@@ -40,7 +43,11 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <div class="output-layer" @click.self="emit('close')">
+    <div
+      class="output-layer"
+      @pointerdown="backdrop.onPointerdown"
+      @click="backdrop.onClick"
+    >
       <div class="output-modal" role="dialog" aria-modal="true" :aria-label="title">
         <div class="output-chrome">
           <div class="output-dots" aria-hidden="true">

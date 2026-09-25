@@ -241,13 +241,16 @@ const unstagedCount = computed(
 const stagedCount = computed(
   () => files.value.filter((file) => file.staged && !isConflicted(file)).length,
 );
-const canCommit = computed(
-  () =>
-    Boolean(commitTitle.value.trim()) &&
-    commitTitleLength.value <= COMMIT_TITLE_MAX &&
-    stagedCount.value > 0,
-);
 const conflictedCount = computed(() => conflictedFiles.value.length);
+const commitTitleValid = computed(
+  () => Boolean(commitTitle.value.trim()) && commitTitleLength.value <= COMMIT_TITLE_MAX,
+);
+const canCommit = computed(() => commitTitleValid.value && stagedCount.value > 0);
+// Staging everything would mark conflicted files resolved.
+const commitAllAvailable = computed(
+  () => unstagedCount.value > 0 && conflictedCount.value === 0,
+);
+const canCommitAll = computed(() => commitTitleValid.value && commitAllAvailable.value);
 const operation = computed(() => current.value?.status?.operation ?? "");
 const conflictActive = computed(() => Boolean(operation.value || conflictedCount.value));
 const openEditorLabel = computed(() => openInEditorLabel(editor.value));
@@ -1295,10 +1298,11 @@ function onAmendChange(event: Event) {
   amending.value = false;
 }
 
-async function commitChanges() {
+async function commitChanges(options?: { all?: boolean }) {
   const match = current.value;
   const title = commitTitle.value.trim();
-  if (!match || !title || stagedCount.value === 0) {
+  const all = Boolean(options?.all);
+  if (!match || !title || !(all ? canCommitAll.value : canCommit.value)) {
     return;
   }
   const description = commitDescription.value;
@@ -1319,6 +1323,9 @@ async function commitChanges() {
   }
   closeCommit();
   return runRepoAction(amend ? "Amending…" : "Committing…", async () => {
+    if (all) {
+      await api.stageAll(match.repo.path);
+    }
     const result = await api.commit(match.repo.path, title, description, amend);
     clearCommitDraft();
     return result;
@@ -2638,7 +2645,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         type="text"
         :maxlength="COMMIT_TITLE_MAX"
         placeholder="Short summary of the change"
-        @keydown.enter.prevent="commitChanges"
+        @keydown.enter.prevent="commitChanges({ all: !stagedCount && commitAllAvailable })"
       />
     </label>
     <label class="modal-label">
@@ -2656,10 +2663,30 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
     <p v-if="amending && lastCommit?.published" class="muted tiny">
       This commit is already on the remote. Amending rewrites it, and you will need to force-push.
     </p>
-    <p v-if="!stagedCount" class="muted tiny">Stage a file to commit.</p>
+    <p v-if="!stagedCount && commitAllAvailable" class="muted tiny">
+      Nothing is staged. {{ amending ? "Amend all" : "Commit all" }} stages every changed file,
+      including untracked files.
+    </p>
+    <p v-else-if="!stagedCount" class="muted tiny">Stage a file to commit.</p>
     <template #actions>
       <button class="ghost" type="button" @click="closeCommit">Close</button>
-      <button class="ghost commit" type="button" :disabled="!canCommit" @click="commitChanges">
+      <button
+        v-if="commitAllAvailable"
+        class="ghost commit"
+        type="button"
+        :disabled="!canCommitAll"
+        title="Stage every changed file, including untracked files, and commit."
+        @click="commitChanges({ all: true })"
+      >
+        {{ amending ? "Amend all" : "Commit all" }}
+      </button>
+      <button
+        v-if="stagedCount || !commitAllAvailable"
+        class="ghost commit"
+        type="button"
+        :disabled="!canCommit"
+        @click="commitChanges()"
+      >
         {{ amending ? "Amend" : "Commit" }}
       </button>
     </template>

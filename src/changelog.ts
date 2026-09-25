@@ -14,6 +14,8 @@ export const CHANGELOG: ChangelogRelease[] = [
       "Linked git worktrees pick up branch, tag, and commit changes. Their HEAD and refs live in the main repo's git folder, which Shipyard was not watching.",
       "The Branches page has a search field. Type part of a name to filter the list, or press Command-F to jump to it. Delete selected only removes branches that match the search.",
       "A pull where every repo succeeds no longer pops open the output window. The toast has a View details button when there is output to read. The window still opens by itself when a pull fails.",
+      "The commit window has a Commit all button that stages every changed file, including untracked files, and commits in one step. With nothing staged it replaces the old Stage a file to commit dead end. It is hidden while any file has conflicts.",
+      "Dragging to select text in a dialog or the output window no longer closes it when the mouse is released outside. Clicking outside still closes it.",
     ],
   },
   {

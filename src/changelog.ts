@@ -6,6 +6,15 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.5.0",
+    date: "September 24, 2026",
+    notes: [
+      "The dashboard updates as soon as git changes a repo outside Shipyard. Checking out a branch, committing, tagging, or fetching from the terminal shows up right away instead of at the next auto-fetch.",
+      "Tags and branch switches made outside Shipyard show up in an open repo tab again. Repos added through a symlinked path, like /tmp, were missing every change.",
+      "Linked git worktrees pick up branch, tag, and commit changes. Their HEAD and refs live in the main repo's git folder, which Shipyard was not watching.",
+    ],
+  },
+  {
     version: "1.4.0",
     date: "September 24, 2026",
     notes: [

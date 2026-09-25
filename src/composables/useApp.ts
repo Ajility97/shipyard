@@ -1,4 +1,5 @@
 import { computed, nextTick, ref, watch } from "vue";
+import { listen } from "@tauri-apps/api/event";
 import * as api from "../api";
 import type {
   AppData,
@@ -6,6 +7,7 @@ import type {
   RefreshActiveHours,
   RepoActionResult,
   RepoEntry,
+  RepoFilesChanged,
   RepoGroup,
   RepoStatus,
   WindowState,
@@ -76,6 +78,14 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let autoRefreshStarted = false;
+const gitWatches = new Set<string>();
+let gitWatchSync: Promise<void> = Promise.resolve();
+const statusInFlight = new Map<string, Promise<void>>();
+const statusQueued = new Set<string>();
+
+function repoWatchKey(path: string) {
+  return path.trim().replace(/\/+$/, "");
+}
 
 const statusById = computed(() => statuses.value);
 
@@ -127,11 +137,83 @@ export function useApp() {
     applyStatus({ ...current, ...patch });
   }
 
-  async function refreshRepoStatus(groupId: string, repoId: string) {
-    try {
-      applyStatus(await api.refreshRepo(groupId, repoId, false));
-    } catch (err) {
-      error.value = String(err);
+  /**
+   * The open repo tab and the dashboard watcher both ask for a status after
+   * the same git change. Share one in-flight read and rerun once if another
+   * request lands mid-read.
+   */
+  function refreshRepoStatus(groupId: string, repoId: string) {
+    const key = `${groupId}:${repoId}`;
+    const running = statusInFlight.get(key);
+    if (running) {
+      statusQueued.add(key);
+      return running;
+    }
+    const run = (async () => {
+      do {
+        statusQueued.delete(key);
+        try {
+          applyStatus(await api.refreshRepo(groupId, repoId, false));
+        } catch (err) {
+          error.value = String(err);
+        }
+      } while (statusQueued.has(key));
+    })().finally(() => {
+      statusInFlight.delete(key);
+    });
+    statusInFlight.set(key, run);
+    return run;
+  }
+
+  /** Repos whose status the dashboard shows, keyed by watch path. */
+  function dashboardWatchTargets() {
+    const targets = new Map<string, { groupId: string; repoId: string }[]>();
+    const add = (groupId: string, repo: RepoEntry) => {
+      const key = repoWatchKey(repo.path);
+      if (!key) {
+        return;
+      }
+      targets.set(key, [...(targets.get(key) ?? []), { groupId, repoId: repo.id }]);
+    };
+    for (const group of groups.value) {
+      if (group.expanded) {
+        group.repos.forEach((repo) => add(group.id, repo));
+      }
+    }
+    standaloneRepos.value.forEach((repo) => add(STANDALONE_GROUP_ID, repo));
+    return targets;
+  }
+
+  function syncGitWatches() {
+    gitWatchSync = gitWatchSync.then(async () => {
+      const wanted = new Set(dashboardWatchTargets().keys());
+      for (const path of [...gitWatches]) {
+        if (!wanted.has(path)) {
+          gitWatches.delete(path);
+          await api.unwatchRepoGit(path).catch(() => undefined);
+        }
+      }
+      for (const path of wanted) {
+        if (gitWatches.has(path)) {
+          continue;
+        }
+        try {
+          await api.watchRepoGit(path);
+          gitWatches.add(path);
+        } catch {
+          /* missing or not a repo; retried on the next sync */
+        }
+      }
+    });
+  }
+
+  function onRepoGitChanged(payload: RepoFilesChanged) {
+    const targets = dashboardWatchTargets().get(repoWatchKey(payload.path)) ?? [];
+    for (const { groupId, repoId } of targets) {
+      if (refreshingRepos.value[repoId]) {
+        continue;
+      }
+      void refreshRepoStatus(groupId, repoId);
     }
   }
 
@@ -1225,6 +1307,16 @@ export function useApp() {
     autoRefreshStarted = true;
     watch([refreshIntervalSeconds, refreshActiveHours], () => {
       startAutoRefresh();
+    });
+    watch(
+      () => [...dashboardWatchTargets().keys()].sort().join("\n"),
+      () => {
+        syncGitWatches();
+      },
+      { immediate: true },
+    );
+    void listen<RepoFilesChanged>("repo-git-changed", (event) => {
+      onRepoGitChanged(event.payload);
     });
     if (!tickTimer) {
       tickTimer = setInterval(() => {

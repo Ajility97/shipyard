@@ -89,6 +89,8 @@ pub fn run() {
             commands::repo_files,
             watcher::watch_repo,
             watcher::unwatch_repo,
+            watcher::watch_repo_git,
+            watcher::unwatch_repo_git,
             commands::discard_all_changes,
             commands::discard_file_changes,
             commands::last_commit,

@@ -218,6 +218,14 @@ export function unwatchRepo(path: string) {
   return invoke<void>("unwatch_repo", { path });
 }
 
+export function watchRepoGit(path: string) {
+  return invoke<void>("watch_repo_git", { path });
+}
+
+export function unwatchRepoGit(path: string) {
+  return invoke<void>("unwatch_repo_git", { path });
+}
+
 export function discardAllChanges(path: string) {
   return invoke<void>("discard_all_changes", { path });
 }

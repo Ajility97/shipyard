@@ -13,6 +13,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       "Tags and branch switches made outside Shipyard show up in an open repo tab again. Repos added through a symlinked path, like /tmp, were missing every change.",
       "Linked git worktrees pick up branch, tag, and commit changes. Their HEAD and refs live in the main repo's git folder, which Shipyard was not watching.",
       "The Branches page has a search field. Type part of a name to filter the list, or press Command-F to jump to it. Delete selected only removes branches that match the search.",
+      "A pull where every repo succeeds no longer pops open the output window. The toast has a View details button when there is output to read. The window still opens by itself when a pull fails.",
     ],
   },
   {

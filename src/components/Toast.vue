@@ -2,6 +2,7 @@
 defineProps<{
   message: string;
   kind?: "success" | "error";
+  hasDetails?: boolean;
 }>();
 const emit = defineEmits<{ dismiss: [] }>();
 </script>
@@ -22,6 +23,7 @@ const emit = defineEmits<{ dismiss: [] }>();
         </svg>
       </span>
       <span class="toast-copy">{{ message }}</span>
+      <span v-if="hasDetails" class="toast-action">View details</span>
     </button>
   </div>
 </template>

@@ -316,6 +316,21 @@ button.toast.error:hover:not(:disabled) {
   overflow-wrap: anywhere;
 }
 
+.toast-action {
+  flex: 0 0 auto;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid rgba(141, 230, 180, 0.38);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.8em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+button.toast:hover .toast-action {
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .modal-layer {
   position: fixed;
   inset: 0;

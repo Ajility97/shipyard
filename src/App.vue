@@ -41,6 +41,7 @@ const {
   statuses,
   toastMessage,
   toastKind,
+  toastHasDetails,
   actionOutput,
   actionOutputOpen,
   dismissToast,
@@ -83,7 +84,7 @@ const {
 } = useUpdater();
 
 function onToastDismiss() {
-  if (toastKind.value === "error" && !actionOutputOpen.value) {
+  if ((toastKind.value === "error" || toastHasDetails.value) && !actionOutputOpen.value) {
     openOutput();
   }
   dismissToast();
@@ -264,6 +265,7 @@ watch(statuses, () => {
         v-if="toastMessage"
         :message="toastMessage"
         :kind="toastKind"
+        :has-details="toastHasDetails"
         @dismiss="onToastDismiss"
       />
     </Transition>

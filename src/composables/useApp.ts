@@ -63,6 +63,7 @@ const refreshCancelled = ref(false);
 const refreshProgress = ref<Record<string, string>>({});
 const toastMessage = ref("");
 const toastKind = ref<"success" | "error">("success");
+const toastHasDetails = ref(false);
 const actionOutput = ref<{ title: string; results: RepoActionResult[] } | null>(null);
 const actionOutputOpen = ref(false);
 const pullingAll = ref(false);
@@ -258,16 +259,21 @@ export function useApp() {
     toastMessage.value = "";
   }
 
-  function showToast(message: string, kind: "success" | "error" = "success") {
+  function showToast(
+    message: string,
+    kind: "success" | "error" = "success",
+    hasDetails = false,
+  ) {
     dismissToast();
     toastKind.value = kind;
+    toastHasDetails.value = hasDetails;
     toastMessage.value = message;
     toastTimer = setTimeout(
       () => {
         toastMessage.value = "";
         toastTimer = null;
       },
-      kind === "error" ? 5600 : 3200,
+      kind === "error" || hasDetails ? 5600 : 3200,
     );
   }
 
@@ -292,14 +298,12 @@ export function useApp() {
   ) {
     actionOutput.value = { title, results: outcomes };
     const failed = outcomes.filter((item) => !item.ok).length;
-    if (failed || hasDetailedOutput(outcomes)) {
-      actionOutputOpen.value = true;
-    }
     if (failed) {
+      actionOutputOpen.value = true;
       showToast(messages.error, "error");
       return;
     }
-    showToast(messages.success);
+    showToast(messages.success, "success", hasDetailedOutput(outcomes));
   }
 
   function refreshDoneMessage(count: number, groupName?: string) {
@@ -1367,6 +1371,7 @@ export function useApp() {
     refreshProgress,
     toastMessage,
     toastKind,
+    toastHasDetails,
     actionOutput,
     actionOutputOpen,
     showToast,

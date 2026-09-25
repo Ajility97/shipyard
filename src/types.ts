@@ -172,6 +172,34 @@ export interface BranchOverview {
   branches: LocalBranch[];
 }
 
+export interface RemoteEntry {
+  name: string;
+  fetchUrl: string;
+  pushUrl: string;
+  browseUrl: string | null;
+  branchCount: number;
+}
+
+export interface RemoteBranch {
+  name: string;
+  remote: string;
+  hash: string;
+  date: string;
+  subject: string;
+  isDefault: boolean;
+  local: string | null;
+  tracked: boolean;
+  current: boolean;
+  ahead: number;
+  behind: number;
+}
+
+export interface RemoteOverview {
+  remote: string;
+  defaultBranch: string | null;
+  branches: RemoteBranch[];
+}
+
 export interface StashEntry {
   index: number;
   message: string;

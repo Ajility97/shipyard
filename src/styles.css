@@ -3244,6 +3244,51 @@ input[type="text"].branch-search-query {
   background: color-mix(in srgb, var(--warn) 18%, var(--chip));
 }
 
+.branch-pill.tracked {
+  color: var(--good);
+  background: color-mix(in srgb, var(--accent) 22%, var(--chip));
+}
+
+.remote-header {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.remote-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+}
+
+.remote-header-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.remote-header-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.remote-row .sync-counts {
+  flex-shrink: 0;
+}
+
+.remote-row .tag-row-message {
+  flex: 1;
+}
+
 .branch-footer {
   display: flex;
   align-items: center;

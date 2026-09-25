@@ -12,6 +12,8 @@ import type {
   GitConfig,
   LastCommit,
   RefreshActiveHours,
+  RemoteEntry,
+  RemoteOverview,
   RepoActionResult,
   RepoEntry,
   RepoGroup,
@@ -354,6 +356,74 @@ export function commitRemoteUrl(path: string, hash: string) {
 
 export function mergeLocalBranch(path: string, source: string, target: string) {
   return invoke<string>("merge_local_branch", { path, source, target });
+}
+
+/** Matches `git::NOT_FAST_FORWARD_PREFIX`: syncing would need a merge commit. */
+export const NOT_FAST_FORWARD_PREFIX = "Not a fast-forward:";
+
+/** Matches `git::LOCAL_BRANCH_EXISTS_PREFIX`: checkout needs a different local name. */
+export const LOCAL_BRANCH_EXISTS_PREFIX = "Local branch exists:";
+
+export function listRemotes(path: string) {
+  return invoke<RemoteEntry[]>("list_remotes", { path });
+}
+
+export function fetchNamedRemote(path: string, remote: string) {
+  return invoke<string>("fetch_named_remote", { path, remote });
+}
+
+export function addRemote(path: string, name: string, url: string) {
+  return invoke<string>("add_remote", { path, name, url });
+}
+
+export function updateRemote(path: string, name: string, newName: string, url: string) {
+  return invoke<string>("update_remote", { path, name, newName, url });
+}
+
+export function removeRemote(path: string, name: string) {
+  return invoke<string>("remove_remote", { path, name });
+}
+
+export function remoteBranches(path: string, remote: string) {
+  return invoke<RemoteOverview>("remote_branches", { path, remote });
+}
+
+export function checkoutRemoteBranch(
+  path: string,
+  remote: string,
+  branch: string,
+  localName?: string,
+) {
+  return invoke<string>("checkout_remote_branch", {
+    path,
+    remote,
+    branch,
+    localName: localName?.trim() || null,
+  });
+}
+
+export function mergeRemoteBranch(
+  path: string,
+  remote: string,
+  branch: string,
+  target: string,
+  allowMergeCommit: boolean,
+) {
+  return invoke<string>("merge_remote_branch", {
+    path,
+    remote,
+    branch,
+    target,
+    allowMergeCommit,
+  });
+}
+
+export function pushLocalBranch(path: string, branch: string) {
+  return invoke<string>("push_local_branch", { path, branch });
+}
+
+export function deleteRemoteBranch(path: string, remote: string, branch: string) {
+  return invoke<string>("delete_remote_branch", { path, remote, branch });
 }
 
 export function renameLocalBranch(path: string, branch: string, newName: string) {

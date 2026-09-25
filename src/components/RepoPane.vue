@@ -2,6 +2,7 @@
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import BranchList from "./BranchList.vue";
 import ChangesToggle from "./ChangesToggle.vue";
 import CommitFiles from "./CommitFiles.vue";
@@ -13,6 +14,7 @@ import CommitGraph from "./CommitGraph.vue";
 import DiffViewer from "./DiffViewer.vue";
 import Modal from "./Modal.vue";
 import PathLabel from "./PathLabel.vue";
+import RemoteList from "./RemoteList.vue";
 import RepoToolbar from "./RepoToolbar.vue";
 import StashList from "./StashList.vue";
 import TagList from "./TagList.vue";
@@ -27,6 +29,9 @@ import type {
   CommitNode,
   LastCommit,
   LocalBranch,
+  RemoteBranch,
+  RemoteEntry,
+  RemoteOverview,
   RepoFile,
   RepoFilesChanged,
   StashEntry,
@@ -81,6 +86,24 @@ const stashes = ref<StashEntry[]>([]);
 const stashView = ref(false);
 const tags = ref<TagEntry[]>([]);
 const tagView = ref(false);
+const remotesView = ref(false);
+const remotes = ref<RemoteEntry[]>([]);
+const selectedRemote = ref("");
+const remoteOverview = ref<RemoteOverview | null>(null);
+const remoteLoading = ref(false);
+const remoteFetching = ref(false);
+let remoteGeneration = 0;
+const remoteForm = ref<{ mode: "add" | "edit"; original: string } | null>(null);
+const remoteFormName = ref("");
+const remoteFormUrl = ref("");
+const remoteFormNameInput = ref<HTMLInputElement | null>(null);
+const namingCheckout = ref<RemoteBranch | null>(null);
+const checkoutLocalName = ref("");
+const checkoutLocalNameInput = ref<HTMLInputElement | null>(null);
+const syncingBranch = ref<RemoteBranch | null>(null);
+const syncTarget = ref("");
+const syncAllowMerge = ref(false);
+const syncPush = ref(true);
 const terminalOpen = ref(false);
 const overview = ref<BranchOverview | null>(null);
 let overviewGeneration = 0;
@@ -570,6 +593,8 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
     trackingPath.value = "";
     stashes.value = [];
     tags.value = [];
+    remotes.value = [];
+    remoteOverview.value = null;
     overview.value = null;
     selectedFile.value = null;
     closeCommitDetail();
@@ -608,6 +633,11 @@ async function loadRepo(options?: { overview?: boolean; graph?: boolean; silent?
     branches.value = nextBranches;
     rememberTrackingPath(match.repo.path);
     void loadBranchTracking(match.repo.path);
+    void refreshRemoteList(match.repo.path).then(() => {
+      if (remotesView.value) {
+        void loadRemoteOverview();
+      }
+    });
     stashes.value = nextStashes;
     tags.value = nextTags;
     if (wantOverview) {
@@ -1417,6 +1447,7 @@ async function toggleBranchesView() {
   }
   stashView.value = false;
   tagView.value = false;
+  remotesView.value = false;
   await nextTick();
   try {
     await loadOverview();
@@ -1425,11 +1456,32 @@ async function toggleBranchesView() {
   }
 }
 
+async function toggleRemotesView() {
+  remotesView.value = !remotesView.value;
+  if (!remotesView.value) {
+    if (graphStale.value) {
+      void loadRepo({ overview: false, silent: true });
+    }
+    return;
+  }
+  branchesView.value = false;
+  stashView.value = false;
+  tagView.value = false;
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  await refreshRemoteList(match.repo.path);
+  await loadRemoteOverview();
+  void fetchSelectedRemote({ quiet: true });
+}
+
 function toggleStashView() {
   stashView.value = !stashView.value;
   if (stashView.value) {
     branchesView.value = false;
     tagView.value = false;
+    remotesView.value = false;
     return;
   }
   if (graphStale.value) {
@@ -1442,6 +1494,7 @@ function toggleTagView() {
   if (tagView.value) {
     branchesView.value = false;
     stashView.value = false;
+    remotesView.value = false;
     return;
   }
   if (graphStale.value) {
@@ -1788,6 +1841,397 @@ async function deleteTag(tag: TagEntry) {
     return;
   }
   return runRepoAction("Deleting tag…", () => api.deleteTag(match.repo.path, tag.name));
+}
+
+function remoteStorageKey(path: string) {
+  return `shipyard:remote:${path}`;
+}
+
+function rememberedRemote(path: string) {
+  try {
+    return localStorage.getItem(remoteStorageKey(path)) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberRemote(path: string, name: string) {
+  try {
+    localStorage.setItem(remoteStorageKey(path), name);
+  } catch {
+    /* selection just won't persist */
+  }
+}
+
+function pickRemote(list: RemoteEntry[], path: string) {
+  const names = list.map((remote) => remote.name);
+  for (const name of [selectedRemote.value, rememberedRemote(path), "origin"]) {
+    if (name && names.includes(name)) {
+      return name;
+    }
+  }
+  return names[0] ?? "";
+}
+
+async function refreshRemoteList(path: string) {
+  try {
+    const list = await api.listRemotes(path);
+    if (current.value?.repo.path !== path) {
+      return;
+    }
+    remotes.value = list;
+    selectedRemote.value = pickRemote(list, path);
+  } catch {
+    /* keep the last successful list */
+  }
+}
+
+async function loadRemoteOverview() {
+  const match = current.value;
+  const remote = selectedRemote.value;
+  const generation = ++remoteGeneration;
+  if (!match || !remote) {
+    remoteOverview.value = null;
+    remoteLoading.value = false;
+    return;
+  }
+  remoteLoading.value = true;
+  try {
+    const next = await api.remoteBranches(match.repo.path, remote);
+    if (generation === remoteGeneration) {
+      remoteOverview.value = next;
+    }
+  } catch (err) {
+    if (generation === remoteGeneration) {
+      remoteOverview.value = null;
+      message.value = String(err);
+    }
+  } finally {
+    if (generation === remoteGeneration) {
+      remoteLoading.value = false;
+    }
+  }
+}
+
+async function fetchSelectedRemote(options?: { quiet?: boolean }) {
+  const match = current.value;
+  const remote = selectedRemote.value;
+  if (!match || !remote || remoteFetching.value) {
+    return;
+  }
+  const path = match.repo.path;
+  remoteFetching.value = true;
+  try {
+    const result = await api.fetchNamedRemote(path, remote);
+    if (!options?.quiet) {
+      showToast(result);
+    }
+  } catch (err) {
+    showToast(String(err), "error");
+  } finally {
+    remoteFetching.value = false;
+  }
+  if (current.value?.repo.path !== path) {
+    return;
+  }
+  graphStale.value = true;
+  await refreshRemoteList(path);
+  if (selectedRemote.value === remote) {
+    await loadRemoteOverview();
+  }
+  void refreshRepoStatus(match.group?.id ?? STANDALONE_GROUP_ID, match.repo.id);
+}
+
+function selectRemote(name: string) {
+  const match = current.value;
+  if (!match || name === selectedRemote.value) {
+    return;
+  }
+  selectedRemote.value = name;
+  rememberRemote(match.repo.path, name);
+  void loadRemoteOverview().then(() => fetchSelectedRemote({ quiet: true }));
+}
+
+async function runRemoteAction(label: string, work: () => Promise<string>, branch = "") {
+  const match = current.value;
+  if (!match) {
+    return;
+  }
+  await runRepoAction(label, work, branch);
+  await refreshRemoteList(match.repo.path);
+  await loadRemoteOverview();
+}
+
+async function openRemoteUrl(url: string) {
+  try {
+    await openUrl(url);
+  } catch (err) {
+    showToast(String(err), "error");
+  }
+}
+
+function suggestedRemoteName() {
+  const names = new Set(remotes.value.map((remote) => remote.name));
+  if (!names.has("origin")) {
+    return "origin";
+  }
+  return names.has("upstream") ? "" : "upstream";
+}
+
+async function openAddRemote() {
+  if (actionBusy.value) {
+    return;
+  }
+  remoteForm.value = { mode: "add", original: "" };
+  remoteFormName.value = suggestedRemoteName();
+  remoteFormUrl.value = "";
+  await nextTick();
+  remoteFormNameInput.value?.focus();
+  remoteFormNameInput.value?.select();
+}
+
+async function openEditRemote(remote: RemoteEntry) {
+  if (actionBusy.value) {
+    return;
+  }
+  remoteForm.value = { mode: "edit", original: remote.name };
+  remoteFormName.value = remote.name;
+  remoteFormUrl.value = remote.fetchUrl;
+  await nextTick();
+  remoteFormNameInput.value?.focus();
+}
+
+function closeRemoteForm() {
+  remoteForm.value = null;
+  remoteFormName.value = "";
+  remoteFormUrl.value = "";
+}
+
+const canSubmitRemoteForm = computed(() => {
+  const name = remoteFormName.value.trim();
+  const url = remoteFormUrl.value.trim();
+  if (!name || !url) {
+    return false;
+  }
+  const form = remoteForm.value;
+  const taken = remotes.value.some((remote) => remote.name === name);
+  return form?.mode === "edit" ? name === form.original || !taken : !taken;
+});
+
+function submitRemoteForm() {
+  const match = current.value;
+  const form = remoteForm.value;
+  const name = remoteFormName.value.trim();
+  const url = remoteFormUrl.value.trim();
+  if (!match || !form || !canSubmitRemoteForm.value) {
+    return;
+  }
+  closeRemoteForm();
+  const path = match.repo.path;
+  if (form.mode === "add") {
+    return runRemoteAction("Adding remote…", async () => {
+      const result = await api.addRemote(path, name, url);
+      selectedRemote.value = name;
+      rememberRemote(path, name);
+      return result;
+    });
+  }
+  return runRemoteAction("Updating remote…", async () => {
+    const result = await api.updateRemote(path, form.original, name, url);
+    if (selectedRemote.value === form.original) {
+      selectedRemote.value = name;
+      rememberRemote(path, name);
+    }
+    return result;
+  });
+}
+
+async function removeRemote(remote: RemoteEntry) {
+  const match = current.value;
+  if (!match || actionBusy.value) {
+    return;
+  }
+  const trackers =
+    remoteOverview.value?.remote === remote.name
+      ? remoteOverview.value.branches.filter((branch) => branch.tracked && branch.local)
+      : [];
+  const trackerNote = trackers.length
+    ? ` Local branches that track it stop tracking anything: ${trackers.map((branch) => branch.local).join(", ")}.`
+    : "";
+  const ok = await confirm(
+    `Remove ${remote.name} from this repository? Its remote-tracking branches are deleted here.${trackerNote} Nothing on the server changes, and you can add it again later.`,
+    {
+      title: "Remove remote",
+      kind: "warning",
+      okLabel: "Remove",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  return runRemoteAction("Removing remote…", () => api.removeRemote(match.repo.path, remote.name));
+}
+
+async function checkoutRemote(branch: RemoteBranch) {
+  const match = current.value;
+  if (!match || actionBusy.value || branch.current) {
+    return;
+  }
+  if (branch.local && !branch.tracked) {
+    namingCheckout.value = branch;
+    checkoutLocalName.value = `${branch.remote}-${branch.name}`;
+    await nextTick();
+    checkoutLocalNameInput.value?.focus();
+    checkoutLocalNameInput.value?.select();
+    return;
+  }
+  return runRemoteAction(
+    "Checking out…",
+    () => api.checkoutRemoteBranch(match.repo.path, branch.remote, branch.name),
+    branch.local ?? branch.name,
+  );
+}
+
+function closeCheckoutNaming() {
+  namingCheckout.value = null;
+  checkoutLocalName.value = "";
+}
+
+const canConfirmCheckoutNaming = computed(() => {
+  const name = checkoutLocalName.value.trim();
+  return Boolean(name) && !branches.value.includes(name);
+});
+
+function confirmCheckoutNaming() {
+  const match = current.value;
+  const branch = namingCheckout.value;
+  const localName = checkoutLocalName.value.trim();
+  if (!match || !branch || !canConfirmCheckoutNaming.value) {
+    return;
+  }
+  closeCheckoutNaming();
+  return runRemoteAction(
+    "Checking out…",
+    () => api.checkoutRemoteBranch(match.repo.path, branch.remote, branch.name, localName),
+    localName,
+  );
+}
+
+const syncSourceLabel = computed(() => {
+  const branch = syncingBranch.value;
+  return branch ? `${branch.remote}/${branch.name}` : "";
+});
+
+const syncTargetUpstream = computed(
+  () => branchTracking.value.find((item) => item.name === syncTarget.value)?.upstream ?? "",
+);
+
+const showSyncPush = computed(
+  () => Boolean(syncTarget.value) && syncTargetUpstream.value !== syncSourceLabel.value,
+);
+
+const syncPushLabel = computed(() => {
+  const upstream = syncTargetUpstream.value;
+  return upstream
+    ? `Push ${syncTarget.value} to ${upstream} afterward`
+    : `Push ${syncTarget.value} to origin afterward and track it there`;
+});
+
+async function openSyncBranch(branch: RemoteBranch) {
+  if (actionBusy.value) {
+    return;
+  }
+  await refreshBranches();
+  const names = branches.value;
+  const preferred = [branch.local, checkedOutBranch.value, names[0]];
+  syncTarget.value = preferred.find((name) => name && names.includes(name)) ?? "";
+  syncAllowMerge.value = false;
+  syncPush.value = true;
+  syncingBranch.value = branch;
+}
+
+function closeSync() {
+  syncingBranch.value = null;
+  syncTarget.value = "";
+}
+
+async function confirmSync() {
+  const match = current.value;
+  const source = syncingBranch.value;
+  const target = syncTarget.value.trim();
+  if (!match || !source || !target) {
+    return;
+  }
+  const path = match.repo.path;
+  const push = showSyncPush.value && syncPush.value;
+  let allowMerge = syncAllowMerge.value;
+  closeSync();
+
+  const attempt = async (): Promise<{ merged: boolean; needsMergeCommit: boolean }> => {
+    let merged = false;
+    let needsMergeCommit = false;
+    await runRepoAction(
+      allowMerge ? "Merging…" : "Syncing…",
+      async () => {
+        try {
+          const result = await api.mergeRemoteBranch(path, source.remote, source.name, target, allowMerge);
+          merged = true;
+          return result;
+        } catch (err) {
+          needsMergeCommit = String(err).startsWith(api.NOT_FAST_FORWARD_PREFIX);
+          throw err;
+        }
+      },
+      target,
+    );
+    return { merged, needsMergeCommit };
+  };
+
+  let outcome = await attempt();
+  if (!outcome.merged && outcome.needsMergeCommit && !allowMerge) {
+    const ok = await confirm(
+      `${target} has commits that aren't on ${source.remote}/${source.name}, so it can't just fast-forward. Merge anyway? That makes a merge commit on ${target}. If the changes conflict, you'll resolve them before anything is pushed.`,
+      {
+        title: "Can't fast-forward",
+        kind: "warning",
+        okLabel: "Merge",
+        cancelLabel: "Cancel",
+      },
+    );
+    if (ok) {
+      allowMerge = true;
+      outcome = await attempt();
+    }
+  }
+  if (outcome.merged && push && !conflictActive.value) {
+    await runRepoAction("Pushing…", () => api.pushLocalBranch(path, target), target);
+  }
+  await refreshRemoteList(path);
+  await loadRemoteOverview();
+}
+
+async function deleteRemoteBranch(branch: RemoteBranch) {
+  const match = current.value;
+  if (!match || actionBusy.value || branch.isDefault) {
+    return;
+  }
+  const ok = await confirm(
+    `Delete ${branch.name} on ${branch.remote}? This removes the branch from the server for everyone who uses ${branch.remote}. Local branches are not touched.`,
+    {
+      title: "Delete remote branch",
+      kind: "warning",
+      okLabel: "Delete on server",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok) {
+    return;
+  }
+  return runRemoteAction(
+    "Deleting remote branch…",
+    () => api.deleteRemoteBranch(match.repo.path, branch.remote, branch.name),
+  );
 }
 
 async function refreshBranches() {
@@ -2290,6 +2734,13 @@ watch(
     branchesView.value = false;
     stashView.value = false;
     tagView.value = false;
+    remotesView.value = false;
+    remoteGeneration += 1;
+    remotes.value = [];
+    selectedRemote.value = "";
+    remoteOverview.value = null;
+    remoteLoading.value = false;
+    remoteFetching.value = false;
     historyOpen.value = false;
     repoFiles.value = [];
     repoFilesError.value = "";
@@ -2369,6 +2820,8 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
         :busy-branch="actionBranch"
         :branches-view="branchesView"
+        :remotes-view="remotesView"
+        :remote-count="remotes.length"
         :tag-view="tagView"
         :tag-count="tags.length"
         :stash-view="stashView"
@@ -2388,6 +2841,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @create="openCreateBranch"
         @merge="openMergeBranch()"
         @branches="toggleBranchesView"
+        @remotes="toggleRemotesView"
         @tags="toggleTagView"
         @stash="toggleStashView"
         @files="toggleChangesPane"
@@ -2434,6 +2888,24 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
           @delete="deleteBranch"
           @delete-merged="deleteMerged"
           @delete-selected="deleteSelectedBranches"
+        />
+        <RemoteList
+          v-else-if="remotesView"
+          :remotes="remotes"
+          :selected="selectedRemote"
+          :overview="remoteOverview"
+          :busy="actionBusy"
+          :loading="remoteLoading"
+          :fetching="remoteFetching"
+          @select="selectRemote"
+          @fetch="fetchSelectedRemote()"
+          @add="openAddRemote"
+          @edit="openEditRemote"
+          @remove="removeRemote"
+          @open="openRemoteUrl"
+          @checkout="checkoutRemote"
+          @merge="openSyncBranch"
+          @delete="deleteRemoteBranch"
         />
         <TagList
           v-else-if="tagView"
@@ -2824,6 +3296,131 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
       <button class="ghost" type="button" @click="closeRenameBranch">Cancel</button>
       <button class="primary" type="button" :disabled="!canRenameBranch" @click="renameBranch">
         Rename
+      </button>
+    </template>
+  </Modal>
+  <Modal
+    v-if="remoteForm"
+    :title="remoteForm.mode === 'add' ? 'Add remote' : `Edit ${remoteForm.original}`"
+    @close="closeRemoteForm"
+  >
+    <label class="modal-label">
+      <span class="muted tiny">Name</span>
+      <input
+        ref="remoteFormNameInput"
+        v-model="remoteFormName"
+        type="text"
+        placeholder="upstream"
+        autocomplete="off"
+        spellcheck="false"
+        @keydown.enter.prevent="submitRemoteForm"
+      />
+    </label>
+    <label class="modal-label">
+      <span class="muted tiny">URL</span>
+      <input
+        v-model="remoteFormUrl"
+        type="text"
+        placeholder="git@github.com:owner/repo.git"
+        autocomplete="off"
+        spellcheck="false"
+        @keydown.enter.prevent="submitRemoteForm"
+      />
+    </label>
+    <p v-if="remoteForm.mode === 'add'" class="muted tiny">
+      For a fork, name the original project <strong>upstream</strong>. Shipyard fetches its
+      branches after adding it.
+    </p>
+    <p v-else class="muted tiny">
+      Renaming keeps every local branch that tracks this remote pointed at it.
+    </p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeRemoteForm">Cancel</button>
+      <button
+        class="primary"
+        type="button"
+        :disabled="!canSubmitRemoteForm"
+        @click="submitRemoteForm"
+      >
+        {{ remoteForm.mode === "add" ? "Add remote" : "Save" }}
+      </button>
+    </template>
+  </Modal>
+  <Modal v-if="namingCheckout" title="Check out remote branch" @close="closeCheckoutNaming">
+    <p class="pull-summary">
+      You already have a local <code>{{ namingCheckout.local }}</code> that doesn't track
+      <code>{{ namingCheckout.remote }}/{{ namingCheckout.name }}</code>. Pick a name for a new local
+      branch that does.
+    </p>
+    <label class="modal-label">
+      <span class="muted tiny">Local branch name</span>
+      <input
+        ref="checkoutLocalNameInput"
+        v-model="checkoutLocalName"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        @keydown.enter.prevent="confirmCheckoutNaming"
+      />
+    </label>
+    <p v-if="branches.includes(checkoutLocalName.trim())" class="muted tiny">
+      A local branch with that name already exists.
+    </p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeCheckoutNaming">Cancel</button>
+      <button
+        class="primary"
+        type="button"
+        :disabled="!canConfirmCheckoutNaming"
+        @click="confirmCheckoutNaming"
+      >
+        Create and switch
+      </button>
+    </template>
+  </Modal>
+  <Modal v-if="syncingBranch" :title="`Merge ${syncSourceLabel}`" @close="closeSync">
+    <p class="pull-summary">
+      Brings <code>{{ syncSourceLabel }}</code> into your local
+      <code>{{ syncTarget || "…" }}</code>.
+    </p>
+    <label class="modal-label">
+      <span class="muted tiny">Into</span>
+      <select v-model="syncTarget" :disabled="!branches.length">
+        <option v-if="!branches.length" value="" disabled>No local branches</option>
+        <option v-for="name in branches" :key="`sync-${name}`" :value="name">
+          {{ baseBranchLabel(name) }}
+        </option>
+      </select>
+    </label>
+    <fieldset class="radio-list">
+      <legend class="muted tiny">How</legend>
+      <label class="radio-option">
+        <input v-model="syncAllowMerge" type="radio" :value="false" />
+        Fast-forward only (recommended)
+      </label>
+      <label class="radio-option">
+        <input v-model="syncAllowMerge" type="radio" :value="true" />
+        Allow a merge commit
+      </label>
+    </fieldset>
+    <label v-if="showSyncPush" class="radio-option">
+      <input v-model="syncPush" type="checkbox" />
+      {{ syncPushLabel }}
+    </label>
+    <p class="muted tiny pull-hint">
+      <template v-if="!syncAllowMerge">
+        Fast-forward moves {{ syncTarget || "the branch" }} up to {{ syncSourceLabel }} without a
+        merge commit. If {{ syncTarget || "it" }} has its own commits, Shipyard asks before merging.
+      </template>
+      <template v-else>
+        Checks out {{ syncTarget || "the branch" }} if needed. Conflicts appear in the files list
+        so you can resolve them or abort, and nothing is pushed until they're done.
+      </template>
+    </p>
+    <template #actions>
+      <button class="ghost" type="button" @click="closeSync">Cancel</button>
+      <button class="primary" type="button" :disabled="!syncTarget" @click="confirmSync">
+        {{ syncAllowMerge ? "Merge" : "Sync" }}
       </button>
     </template>
   </Modal>

@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 use crate::command_log;
 use crate::models::{
     BlameLine, BranchOverview, BranchTracking, CommitFile, CommitNode, DeleteMergedResult,
-    FileBlame, GitConfig, LastCommit, LocalBranch, RepoFile, StashEntry, TagEntry, WorkingTreeFile,
+    FileBlame, GitConfig, LastCommit, LocalBranch, RemoteBranch, RemoteEntry, RemoteOverview,
+    RepoFile, StashEntry, TagEntry, WorkingTreeFile,
 };
 
 pub struct GitOutput {
@@ -436,7 +437,22 @@ pub struct LiveStatus {
 }
 
 pub fn fetch_remote(git: &Path, repo: &Path) {
-    let args = ["fetch", "--prune", "--no-tags"];
+    let _ = run_network_git(
+        git,
+        repo,
+        &["fetch", "--all", "--prune", "--no-tags"],
+        Duration::from_secs(30),
+    );
+}
+
+/// Never prompts: credential helpers and ssh run in batch mode, and the process is
+/// killed at `timeout` so an unreachable remote cannot hang the caller.
+fn run_network_git(
+    git: &Path,
+    repo: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<GitOutput, String> {
     let started = Instant::now();
     let mut child = match Command::new(git)
         .args(args)
@@ -447,53 +463,54 @@ pub fn fetch_remote(git: &Path, repo: &Path) {
         .env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=8")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
     {
         Ok(child) => child,
         Err(err) => {
-            command_log::record(repo, git, &args, false, started.elapsed(), "", &err.to_string());
-            return;
+            let message = format!("Failed to run git: {err}");
+            command_log::record(repo, git, args, false, started.elapsed(), "", &message);
+            return Err(message);
         }
     };
 
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let stderr_reader = child.stderr.take().map(|mut stderr| {
+        thread::spawn(move || {
+            let mut text = String::new();
+            let _ = std::io::Read::read_to_string(&mut stderr, &mut text);
+            text
+        })
+    });
+    let collect_stderr =
+        |reader: Option<thread::JoinHandle<String>>| reader.and_then(|handle| handle.join().ok()).unwrap_or_default();
+
+    let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                command_log::record(
-                    repo,
-                    git,
-                    &args,
-                    status.success(),
-                    started.elapsed(),
-                    "",
-                    if status.success() {
-                        ""
-                    } else {
-                        "fetch exited with a non-zero status"
-                    },
-                );
-                return;
+                let stderr = collect_stderr(stderr_reader);
+                command_log::record(repo, git, args, status.success(), started.elapsed(), "", &stderr);
+                return Ok(GitOutput {
+                    stdout: String::new(),
+                    stderr,
+                    success: status.success(),
+                });
             }
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                command_log::record(
-                    repo,
-                    git,
-                    &args,
-                    false,
-                    started.elapsed(),
-                    "",
-                    "fetch timed out after 20s",
-                );
-                return;
+                let _ = collect_stderr(stderr_reader);
+                let message = format!("git {} timed out after {}s", args[0], timeout.as_secs());
+                command_log::record(repo, git, args, false, started.elapsed(), "", &message);
+                return Err(message);
             }
             Ok(None) => thread::sleep(Duration::from_millis(40)),
             Err(err) => {
-                command_log::record(repo, git, &args, false, started.elapsed(), "", &err.to_string());
-                return;
+                let _ = child.kill();
+                let _ = child.wait();
+                let message = err.to_string();
+                command_log::record(repo, git, args, false, started.elapsed(), "", &message);
+                return Err(message);
             }
         }
     }
@@ -2180,6 +2197,531 @@ pub fn checkout_with_fallbacks(
         "{fetch_note}None of these branches exist locally or on origin: {}",
         branches.join(", ")
     ))
+}
+
+pub const NOT_FAST_FORWARD_PREFIX: &str = "Not a fast-forward:";
+pub const LOCAL_BRANCH_EXISTS_PREFIX: &str = "Local branch exists:";
+
+const REMOTE_FETCH_TIMEOUT: Duration = Duration::from_secs(60);
+
+pub fn validate_remote_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 {
+        return Err("Remote names must be 1 to 64 characters.".into());
+    }
+    if name.starts_with('-') || name.starts_with('.') || name.ends_with(".lock") {
+        return Err(format!("Invalid remote name: {name}"));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Err(format!(
+            "Invalid remote name: {name}. Use letters, numbers, dots, dashes, or underscores."
+        ));
+    }
+    Ok(())
+}
+
+fn validate_remote_url(url: &str) -> Result<(), String> {
+    if url.is_empty() {
+        return Err("Enter a remote URL.".into());
+    }
+    if url.len() > 2048 || url.starts_with('-') || url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("That doesn't look like a valid remote URL.".into());
+    }
+    Ok(())
+}
+
+fn remote_exists(git: &Path, repo: &Path, name: &str) -> bool {
+    run_git_quiet(git, repo, &["remote"])
+        .map(|output| output.success && output.stdout.lines().any(|line| line.trim() == name))
+        .unwrap_or(false)
+}
+
+fn require_remote(git: &Path, repo: &Path, name: &str) -> Result<(), String> {
+    validate_remote_name(name)?;
+    if !remote_exists(git, repo, name) {
+        return Err(format!("There is no remote named {name}."));
+    }
+    Ok(())
+}
+
+fn remote_sort_rank(name: &str) -> u8 {
+    match name {
+        "origin" => 0,
+        "upstream" => 1,
+        _ => 2,
+    }
+}
+
+pub fn list_remotes(git: &Path, repo: &Path) -> Result<Vec<RemoteEntry>, String> {
+    let output = run_git(git, repo, &["remote", "-v"])?;
+    if !output.success {
+        return Err(or_fallback(&combined_message(&output), "Could not list remotes."));
+    }
+    let mut remotes: Vec<RemoteEntry> = Vec::new();
+    for line in output.stdout.lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(name), Some(url), Some(kind)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let index = match remotes.iter().position(|remote| remote.name == name) {
+            Some(index) => index,
+            None => {
+                remotes.push(RemoteEntry {
+                    name: name.to_string(),
+                    fetch_url: String::new(),
+                    push_url: String::new(),
+                    browse_url: None,
+                    branch_count: 0,
+                });
+                remotes.len() - 1
+            }
+        };
+        let entry = &mut remotes[index];
+        if kind == "(push)" {
+            entry.push_url = url.to_string();
+        } else {
+            entry.fetch_url = url.to_string();
+        }
+    }
+
+    let refs = run_git_quiet(
+        git,
+        repo,
+        &["for-each-ref", "--format=%(refname)%00%(symref)", "refs/remotes"],
+    )?;
+    for entry in &mut remotes {
+        if entry.push_url.is_empty() {
+            entry.push_url = entry.fetch_url.clone();
+        }
+        entry.browse_url = remote_browse_url(&entry.fetch_url).ok();
+        let prefix = format!("refs/remotes/{}/", entry.name);
+        entry.branch_count = refs
+            .stdout
+            .lines()
+            .filter(|line| {
+                let mut parts = line.split('\0');
+                let refname = parts.next().unwrap_or("");
+                let symref = parts.next().unwrap_or("");
+                refname.starts_with(&prefix) && symref.is_empty()
+            })
+            .count() as u32;
+    }
+    remotes.sort_by(|left, right| {
+        remote_sort_rank(&left.name)
+            .cmp(&remote_sort_rank(&right.name))
+            .then(left.name.cmp(&right.name))
+    });
+    Ok(remotes)
+}
+
+pub fn fetch_named_remote(git: &Path, repo: &Path, name: &str) -> Result<String, String> {
+    require_remote(git, repo, name)?;
+    let output = run_network_git(
+        git,
+        repo,
+        &["fetch", "--prune", "--no-tags", name],
+        REMOTE_FETCH_TIMEOUT,
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Could not fetch {name}."),
+        ));
+    }
+    Ok(format!("Fetched {name}"))
+}
+
+pub fn add_remote(git: &Path, repo: &Path, name: &str, url: &str) -> Result<String, String> {
+    let url = url.trim();
+    validate_remote_name(name)?;
+    validate_remote_url(url)?;
+    if remote_exists(git, repo, name) {
+        return Err(format!("A remote named {name} already exists."));
+    }
+    let output = run_git(git, repo, &["remote", "add", name, url])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to add remote {name}."),
+        ));
+    }
+    match fetch_named_remote(git, repo, name) {
+        Ok(_) => Ok(format!("Added {name} and fetched its branches")),
+        Err(err) => Ok(format!(
+            "Added {name}, but fetching it failed. Check the URL and your access, then fetch again.\n\n{err}"
+        )),
+    }
+}
+
+pub fn update_remote(
+    git: &Path,
+    repo: &Path,
+    name: &str,
+    new_name: &str,
+    url: &str,
+) -> Result<String, String> {
+    let url = url.trim();
+    require_remote(git, repo, name)?;
+    validate_remote_name(new_name)?;
+    validate_remote_url(url)?;
+    let mut changes = Vec::new();
+    if new_name != name {
+        if remote_exists(git, repo, new_name) {
+            return Err(format!("A remote named {new_name} already exists."));
+        }
+        let output = run_git(git, repo, &["remote", "rename", name, new_name])?;
+        if !output.success {
+            return Err(or_fallback(
+                &combined_message(&output),
+                &format!("Failed to rename remote {name}."),
+            ));
+        }
+        changes.push(format!("Renamed {name} to {new_name}"));
+    }
+    let current_url = run_git_quiet(git, repo, &["remote", "get-url", new_name])
+        .map(|output| output.stdout.trim().to_string())
+        .unwrap_or_default();
+    if current_url != url {
+        let output = run_git(git, repo, &["remote", "set-url", new_name, url])?;
+        if !output.success {
+            return Err(or_fallback(
+                &combined_message(&output),
+                &format!("Failed to change the URL for {new_name}."),
+            ));
+        }
+        changes.push(format!("Updated the URL for {new_name}"));
+    }
+    if changes.is_empty() {
+        return Ok(format!("{name} is unchanged"));
+    }
+    Ok(changes.join(". "))
+}
+
+fn local_upstreams(git: &Path, repo: &Path) -> Vec<(String, String)> {
+    let output = match run_git_quiet(
+        git,
+        repo,
+        &["for-each-ref", "--format=%(refname:short)%00%(upstream)", "refs/heads"],
+    ) {
+        Ok(output) if output.success => output,
+        _ => return Vec::new(),
+    };
+    output
+        .stdout
+        .lines()
+        .filter_map(|line| {
+            let (name, upstream) = line.split_once('\0')?;
+            let name = name.trim();
+            (!name.is_empty()).then(|| (name.to_string(), upstream.trim().to_string()))
+        })
+        .collect()
+}
+
+pub fn remove_remote(git: &Path, repo: &Path, name: &str) -> Result<String, String> {
+    require_remote(git, repo, name)?;
+    let prefix = format!("refs/remotes/{name}/");
+    let orphaned: Vec<String> = local_upstreams(git, repo)
+        .into_iter()
+        .filter(|(_, upstream)| upstream.starts_with(&prefix))
+        .map(|(local, _)| local)
+        .collect();
+    let output = run_git(git, repo, &["remote", "remove", name])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to remove remote {name}."),
+        ));
+    }
+    if orphaned.is_empty() {
+        return Ok(format!("Removed remote {name}"));
+    }
+    Ok(format!(
+        "Removed remote {name}. These local branches no longer track anything: {}",
+        join_branch_names(&orphaned)
+    ))
+}
+
+fn remote_default_branch(git: &Path, repo: &Path, remote: &str) -> Option<String> {
+    let head = format!("refs/remotes/{remote}/HEAD");
+    let output = run_git_quiet(git, repo, &["symbolic-ref", "--quiet", &head]).ok()?;
+    if !output.success {
+        return None;
+    }
+    output
+        .stdout
+        .trim()
+        .strip_prefix(&format!("refs/remotes/{remote}/"))
+        .filter(|name| !name.is_empty())
+        .map(ToString::to_string)
+}
+
+pub fn remote_branches(git: &Path, repo: &Path, remote: &str) -> Result<RemoteOverview, String> {
+    require_remote(git, repo, remote)?;
+    let prefix = format!("refs/remotes/{remote}/");
+    let pattern = format!("refs/remotes/{remote}");
+    let output = run_git(
+        git,
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(refname)%00%(symref)%00%(objectname:short)%00%(committerdate:iso-strict)%00%(subject)",
+            &pattern,
+        ],
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Could not list branches on {remote}."),
+        ));
+    }
+
+    let locals = local_upstreams(git, repo);
+    let local_names: HashSet<&str> = locals.iter().map(|(name, _)| name.as_str()).collect();
+    let current = head_branch_name(git, repo).unwrap_or_default();
+    let default_branch = remote_default_branch(git, repo, remote);
+
+    let mut branches = Vec::new();
+    for line in output.stdout.lines() {
+        let mut parts = line.split('\0');
+        let refname = parts.next().unwrap_or("");
+        let symref = parts.next().unwrap_or("");
+        let hash = parts.next().unwrap_or("").trim();
+        let date = parts.next().unwrap_or("").trim();
+        let subject = parts.next().unwrap_or("").trim();
+        let Some(name) = refname.strip_prefix(&prefix) else {
+            continue;
+        };
+        if name.is_empty() || !symref.is_empty() {
+            continue;
+        }
+        let tracker = locals
+            .iter()
+            .find(|(_, upstream)| upstream == refname)
+            .map(|(local, _)| local.clone());
+        let tracked = tracker.is_some();
+        let local = tracker.or_else(|| local_names.contains(name).then(|| name.to_string()));
+        let (ahead, behind) = local
+            .as_deref()
+            .map(|local| {
+                ahead_behind_between(git, repo, &format!("refs/heads/{local}"), refname, false)
+            })
+            .unwrap_or((0, 0));
+        branches.push(RemoteBranch {
+            name: name.to_string(),
+            remote: remote.to_string(),
+            hash: hash.to_string(),
+            date: date.to_string(),
+            subject: subject.to_string(),
+            is_default: default_branch.as_deref() == Some(name),
+            current: local.as_deref().is_some_and(|local| local == current),
+            local,
+            tracked,
+            ahead,
+            behind,
+        });
+    }
+    branches.sort_by(|left, right| {
+        right
+            .is_default
+            .cmp(&left.is_default)
+            .then(left.name.cmp(&right.name))
+    });
+    Ok(RemoteOverview {
+        remote: remote.to_string(),
+        default_branch,
+        branches,
+    })
+}
+
+fn require_remote_branch(git: &Path, repo: &Path, remote: &str, branch: &str) -> Result<String, String> {
+    require_remote(git, repo, remote)?;
+    validate_ref(branch)?;
+    let full = format!("refs/remotes/{remote}/{branch}");
+    if !ref_exists(git, repo, &full) {
+        return Err(format!(
+            "{remote}/{branch} does not exist. Fetch {remote} and try again."
+        ));
+    }
+    Ok(full)
+}
+
+fn is_ancestor(git: &Path, repo: &Path, ancestor: &str, descendant: &str) -> bool {
+    run_git_quiet(git, repo, &["merge-base", "--is-ancestor", ancestor, descendant])
+        .map(|output| output.success)
+        .unwrap_or(false)
+}
+
+pub fn checkout_remote_branch(
+    git: &Path,
+    repo: &Path,
+    remote: &str,
+    branch: &str,
+    local_name: Option<&str>,
+) -> Result<String, String> {
+    let full = require_remote_branch(git, repo, remote, branch)?;
+    require_no_operation(repo)?;
+    let local_name = local_name.map(str::trim).filter(|name| !name.is_empty());
+    if local_name.is_none() {
+        if let Some((tracker, _)) = local_upstreams(git, repo)
+            .into_iter()
+            .find(|(_, upstream)| *upstream == full)
+        {
+            return checkout_local_branch(git, repo, &tracker);
+        }
+    }
+    let name = local_name.unwrap_or(branch);
+    validate_ref(name)?;
+    if ref_exists(git, repo, &format!("refs/heads/{name}")) {
+        return Err(format!(
+            "{LOCAL_BRANCH_EXISTS_PREFIX} a local branch named {name} already exists and doesn't track {remote}/{branch}. Pick another name."
+        ));
+    }
+    let source = format!("{remote}/{branch}");
+    let output = run_git(git, repo, &["checkout", "-b", name, "--track", &source])?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to check out {source}"),
+        ));
+    }
+    Ok(format!("Checked out {name} tracking {source}"))
+}
+
+/// Brings a remote branch into a local branch. Fast-forwards when possible; a merge commit
+/// is only made when `allow_merge_commit` is set. Never rewrites the target's history.
+pub fn merge_remote_branch(
+    git: &Path,
+    repo: &Path,
+    remote: &str,
+    branch: &str,
+    target: &str,
+    allow_merge_commit: bool,
+) -> Result<String, String> {
+    let full = require_remote_branch(git, repo, remote, branch)?;
+    validate_ref(target)?;
+    require_no_operation(repo)?;
+    let target_ref = format!("refs/heads/{target}");
+    if !ref_exists(git, repo, &target_ref) {
+        return Err(format!("Local branch {target} does not exist."));
+    }
+    let source = format!("{remote}/{branch}");
+    if is_ancestor(git, repo, &full, &target_ref) {
+        return Ok(format!("{target} already has everything in {source}"));
+    }
+    let fast_forward = is_ancestor(git, repo, &target_ref, &full);
+    if !fast_forward && !allow_merge_commit {
+        return Err(format!(
+            "{NOT_FAST_FORWARD_PREFIX} {target} has commits that aren't in {source}, so it can't fast-forward. Merging makes a merge commit on {target}."
+        ));
+    }
+
+    let on_target = head_branch_name(git, repo).as_deref() == Some(target);
+    if fast_forward && !on_target {
+        // Updates the branch without checking it out; git refuses if another worktree has it.
+        let refspec = format!("{full}:{target_ref}");
+        let output = run_git(git, repo, &["fetch", "--no-tags", ".", &refspec])?;
+        if !output.success {
+            return Err(or_fallback(
+                &combined_message(&output),
+                &format!("Failed to fast-forward {target} to {source}."),
+            ));
+        }
+        return Ok(format!("Fast-forwarded {target} to {source}"));
+    }
+
+    if !on_target {
+        checkout_local_branch(git, repo, target)?;
+    }
+    let args: Vec<&str> = if fast_forward {
+        vec!["merge", "--ff-only", &source]
+    } else {
+        vec!["merge", "--no-edit", &source]
+    };
+    let output = run_git(git, repo, &args)?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to merge {source} into {target}."),
+        ));
+    }
+    Ok(if fast_forward {
+        format!("Fast-forwarded {target} to {source}")
+    } else {
+        format!("Merged {source} into {target}")
+    })
+}
+
+/// Standard push of one local branch to the remote it tracks, or to origin with `-u` when it
+/// tracks nothing. Never adds `--force` or `+` refspecs.
+pub fn push_local_branch(git: &Path, repo: &Path, branch: &str) -> Result<String, String> {
+    validate_ref(branch)?;
+    if !ref_exists(git, repo, &format!("refs/heads/{branch}")) {
+        return Err(format!("Local branch {branch} does not exist."));
+    }
+    let config = |key: String| {
+        run_git_quiet(git, repo, &["config", "--get", &key])
+            .ok()
+            .filter(|output| output.success)
+            .map(|output| output.stdout.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    let upstream_remote = config(format!("branch.{branch}.remote")).filter(|remote| remote != ".");
+    let upstream_merge = config(format!("branch.{branch}.merge"));
+    let (remote, output) = match (upstream_remote, upstream_merge) {
+        (Some(remote), Some(merge)) => {
+            let refspec = format!("refs/heads/{branch}:{merge}");
+            let output = run_git(git, repo, &["push", &remote, &refspec])?;
+            (remote, output)
+        }
+        _ => {
+            if !has_origin_remote(git, repo) {
+                return Err(format!("{branch} doesn't track a remote and there is no origin to push to."));
+            }
+            let output = run_git(git, repo, &["push", "-u", "origin", branch])?;
+            ("origin".to_string(), output)
+        }
+    };
+    if !output.success {
+        let message = combined_message(&output);
+        if is_non_fast_forward(&message) {
+            return Err(format!(
+                "{PUSH_REJECTED_PREFIX} {remote} has commits on {branch} you don't have yet. Pull them in, then push again.\n\n{message}"
+            ));
+        }
+        return Err(or_fallback(&message, &format!("Failed to push {branch}.")));
+    }
+    Ok(format!("Pushed {branch} to {remote}"))
+}
+
+/// Deletes the branch on the remote server. The remote's default branch is refused.
+pub fn delete_remote_branch(git: &Path, repo: &Path, remote: &str, branch: &str) -> Result<String, String> {
+    require_remote_branch(git, repo, remote, branch)?;
+    if remote_default_branch(git, repo, remote).as_deref() == Some(branch) {
+        return Err(format!(
+            "{branch} is the default branch on {remote}. Change the default on the server before deleting it."
+        ));
+    }
+    let target = format!("refs/heads/{branch}");
+    let output = run_network_git(
+        git,
+        repo,
+        &["push", remote, "--delete", &target],
+        REMOTE_FETCH_TIMEOUT,
+    )?;
+    if !output.success {
+        return Err(or_fallback(
+            &combined_message(&output),
+            &format!("Failed to delete {remote}/{branch}."),
+        ));
+    }
+    let _ = run_git_quiet(
+        git,
+        repo,
+        &["update-ref", "-d", &format!("refs/remotes/{remote}/{branch}")],
+    );
+    Ok(format!("Deleted {branch} on {remote}"))
 }
 
 pub fn log_graph(git: &Path, repo: &Path) -> Result<Vec<CommitNode>, String> {
@@ -5065,6 +5607,185 @@ filename README.md
         fs::write(repo.join(name), contents).unwrap();
         git(repo, &["add", name]);
         git(repo, &["commit", "-m", name]);
+    }
+
+    /// A fork layout: `work` clones `origin` (the fork) and adds `upstream`. `upstream_dev`
+    /// is a clone of upstream used to land new upstream commits.
+    struct Fork {
+        origin: PathBuf,
+        upstream_dev: PathBuf,
+        work: PathBuf,
+    }
+
+    fn fork_with_upstream() -> Fork {
+        let seed = init_repo();
+        let upstream = temp_dir();
+        git(&upstream, &["init", "--bare", "-b", "develop"]);
+        git(&seed, &["remote", "add", "origin", upstream.to_str().unwrap()]);
+        git(&seed, &["push", "-u", "origin", "develop"]);
+
+        let origin = temp_dir();
+        git(&origin, &["clone", "--bare", upstream.to_str().unwrap(), "."]);
+
+        let work = temp_dir();
+        git(&work, &["clone", origin.to_str().unwrap(), "."]);
+        git(&work, &["config", "user.name", "Shipyard Test"]);
+        git(&work, &["config", "user.email", "test@shipyard.local"]);
+        add_remote(&git_bin(), &work, "upstream", upstream.to_str().unwrap()).unwrap();
+
+        let upstream_dev = temp_dir();
+        git(&upstream_dev, &["clone", upstream.to_str().unwrap(), "."]);
+        git(&upstream_dev, &["config", "user.name", "Shipyard Test"]);
+        git(&upstream_dev, &["config", "user.email", "test@shipyard.local"]);
+        Fork {
+            origin,
+            upstream_dev,
+            work,
+        }
+    }
+
+    fn land_upstream_commit(fork: &Fork, name: &str) {
+        commit_file(&fork.upstream_dev, name, "upstream\n");
+        git(&fork.upstream_dev, &["push", "origin", "develop"]);
+        fetch_named_remote(&git_bin(), &fork.work, "upstream").unwrap();
+    }
+
+    #[test]
+    fn validates_remote_names() {
+        assert!(validate_remote_name("upstream").is_ok());
+        assert!(validate_remote_name("my-fork_2.old").is_ok());
+        for bad in ["", "-x", ".x", "a b", "a/b", "x.lock", "a;b"] {
+            assert!(validate_remote_name(bad).is_err(), "{bad} should be rejected");
+        }
+        assert!(validate_remote_url("--upload-pack=evil").is_err());
+        assert!(validate_remote_url("git@github.com:owner/repo.git").is_ok());
+    }
+
+    #[test]
+    fn lists_remotes_origin_first_with_branch_counts() {
+        let fork = fork_with_upstream();
+        let remotes = list_remotes(&git_bin(), &fork.work).unwrap();
+        let names: Vec<&str> = remotes.iter().map(|remote| remote.name.as_str()).collect();
+        assert_eq!(names, ["origin", "upstream"]);
+        assert_eq!(remotes[0].branch_count, 1);
+        assert_eq!(remotes[1].branch_count, 1);
+        assert_eq!(remotes[0].fetch_url, fork.origin.to_str().unwrap());
+    }
+
+    #[test]
+    fn remote_branches_compare_against_same_named_local_branch() {
+        let fork = fork_with_upstream();
+        land_upstream_commit(&fork, "one.txt");
+        land_upstream_commit(&fork, "two.txt");
+
+        let overview = remote_branches(&git_bin(), &fork.work, "upstream").unwrap();
+        let develop = &overview.branches[0];
+        assert_eq!(develop.name, "develop");
+        assert_eq!(develop.local.as_deref(), Some("develop"));
+        assert!(!develop.tracked, "local develop tracks origin, not upstream");
+        assert!(develop.current);
+        assert_eq!((develop.ahead, develop.behind), (0, 2));
+
+        let origin = remote_branches(&git_bin(), &fork.work, "origin").unwrap();
+        assert!(origin.branches[0].tracked);
+        assert!(origin.branches[0].is_default);
+    }
+
+    #[test]
+    fn syncs_fork_from_upstream_then_pushes_to_origin() {
+        let fork = fork_with_upstream();
+        land_upstream_commit(&fork, "sync.txt");
+
+        let message =
+            merge_remote_branch(&git_bin(), &fork.work, "upstream", "develop", "develop", false).unwrap();
+        assert!(message.starts_with("Fast-forwarded develop"), "{message}");
+        assert!(fork.work.join("sync.txt").exists());
+
+        push_local_branch(&git_bin(), &fork.work, "develop").unwrap();
+        let origin_tip = git(&fork.origin, &["rev-parse", "develop"]).stdout;
+        let upstream_tip = git(&fork.upstream_dev, &["rev-parse", "HEAD"]).stdout;
+        assert_eq!(origin_tip, upstream_tip);
+
+        let again =
+            merge_remote_branch(&git_bin(), &fork.work, "upstream", "develop", "develop", false).unwrap();
+        assert!(again.contains("already has everything"), "{again}");
+    }
+
+    #[test]
+    fn fast_forwards_a_branch_that_is_not_checked_out() {
+        let fork = fork_with_upstream();
+        git(&fork.work, &["checkout", "-b", "feature"]);
+        land_upstream_commit(&fork, "ff.txt");
+
+        merge_remote_branch(&git_bin(), &fork.work, "upstream", "develop", "develop", false).unwrap();
+        assert_eq!(current_branch(&git_bin(), &fork.work).unwrap(), "feature");
+        let develop = git(&fork.work, &["rev-parse", "develop"]).stdout;
+        let upstream = git(&fork.work, &["rev-parse", "upstream/develop"]).stdout;
+        assert_eq!(develop, upstream);
+        assert!(!fork.work.join("ff.txt").exists());
+    }
+
+    #[test]
+    fn diverged_sync_needs_permission_for_a_merge_commit() {
+        let fork = fork_with_upstream();
+        commit_file(&fork.work, "local.txt", "local\n");
+        land_upstream_commit(&fork, "remote.txt");
+
+        let err = merge_remote_branch(&git_bin(), &fork.work, "upstream", "develop", "develop", false)
+            .unwrap_err();
+        assert!(err.starts_with(NOT_FAST_FORWARD_PREFIX), "{err}");
+        assert!(!fork.work.join("remote.txt").exists());
+
+        let message =
+            merge_remote_branch(&git_bin(), &fork.work, "upstream", "develop", "develop", true).unwrap();
+        assert!(message.starts_with("Merged upstream/develop"), "{message}");
+        assert!(fork.work.join("remote.txt").exists());
+        assert!(fork.work.join("local.txt").exists());
+    }
+
+    #[test]
+    fn checkout_remote_branch_asks_for_a_name_when_local_exists() {
+        let fork = fork_with_upstream();
+        let err = checkout_remote_branch(&git_bin(), &fork.work, "upstream", "develop", None).unwrap_err();
+        assert!(err.starts_with(LOCAL_BRANCH_EXISTS_PREFIX), "{err}");
+
+        checkout_remote_branch(&git_bin(), &fork.work, "upstream", "develop", Some("upstream-develop"))
+            .unwrap();
+        assert_eq!(current_branch(&git_bin(), &fork.work).unwrap(), "upstream-develop");
+        let upstream = git(&fork.work, &["rev-parse", "--abbrev-ref", "@{upstream}"]).stdout;
+        assert_eq!(upstream.trim(), "upstream/develop");
+
+        git(&fork.work, &["checkout", "develop"]);
+        checkout_remote_branch(&git_bin(), &fork.work, "upstream", "develop", None).unwrap();
+        assert_eq!(current_branch(&git_bin(), &fork.work).unwrap(), "upstream-develop");
+    }
+
+    #[test]
+    fn deletes_remote_branch_but_not_the_default() {
+        let fork = fork_with_upstream();
+        git(&fork.work, &["push", "origin", "develop:old-feature"]);
+        fetch_named_remote(&git_bin(), &fork.work, "origin").unwrap();
+
+        let err = delete_remote_branch(&git_bin(), &fork.work, "origin", "develop").unwrap_err();
+        assert!(err.contains("default branch"), "{err}");
+
+        delete_remote_branch(&git_bin(), &fork.work, "origin", "old-feature").unwrap();
+        assert!(!ref_exists(&git_bin(), &fork.origin, "refs/heads/old-feature"));
+        assert!(!ref_exists(&git_bin(), &fork.work, "refs/remotes/origin/old-feature"));
+    }
+
+    #[test]
+    fn renames_and_removes_remotes() {
+        let fork = fork_with_upstream();
+        let url = list_remotes(&git_bin(), &fork.work).unwrap()[1].fetch_url.clone();
+        update_remote(&git_bin(), &fork.work, "upstream", "source", &url).unwrap();
+        assert!(ref_exists(&git_bin(), &fork.work, "refs/remotes/source/develop"));
+        assert!(add_remote(&git_bin(), &fork.work, "source", &url).is_err());
+
+        checkout_remote_branch(&git_bin(), &fork.work, "source", "develop", Some("src")).unwrap();
+        let message = remove_remote(&git_bin(), &fork.work, "source").unwrap();
+        assert!(message.contains("src"), "{message}");
+        assert!(!ref_exists(&git_bin(), &fork.work, "refs/remotes/source/develop"));
     }
 
     #[test]

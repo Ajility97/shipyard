@@ -525,6 +525,44 @@ pub struct BranchOverview {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RemoteEntry {
+    pub name: String,
+    pub fetch_url: String,
+    pub push_url: String,
+    pub browse_url: Option<String>,
+    pub branch_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteBranch {
+    pub name: String,
+    pub remote: String,
+    pub hash: String,
+    pub date: String,
+    pub subject: String,
+    pub is_default: bool,
+    /// Local branch that tracks this one, or a local branch with the same name.
+    pub local: Option<String>,
+    /// True when `local` has this branch configured as its upstream.
+    pub tracked: bool,
+    pub current: bool,
+    /// Commits on `local` that are not on the remote branch.
+    pub ahead: u32,
+    /// Commits on the remote branch that are not on `local`.
+    pub behind: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteOverview {
+    pub remote: String,
+    pub default_branch: Option<String>,
+    pub branches: Vec<RemoteBranch>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StashEntry {
     pub index: u32,
     pub message: String,

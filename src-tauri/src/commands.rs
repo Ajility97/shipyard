@@ -7,8 +7,8 @@ use crate::git;
 use crate::models::{
     sanitize_editor, sanitize_font_family, sanitize_font_size, sanitize_refresh_active_hours,
     AppData, BranchOverview, BranchTracking, CommitFile, CommitNode, DeleteMergedResult, FileBlame,
-    GitConfig, LastCommit, RefreshActiveHours, RepoActionResult, RepoEntry, RepoFile, RepoGroup,
-    RepoStatus, StashEntry, TagEntry, WorkingTreeFile,
+    GitConfig, LastCommit, RefreshActiveHours, RemoteEntry, RemoteOverview, RepoActionResult,
+    RepoEntry, RepoFile, RepoGroup, RepoStatus, StashEntry, TagEntry, WorkingTreeFile,
 };
 use crate::persist;
 
@@ -1214,6 +1214,160 @@ pub async fn merge_local_branch(
     let git = require_git(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
         git::merge_local_branch(&git, Path::new(&path), &source, &target)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn list_remotes(state: State<'_, AppState>, path: String) -> Result<Vec<RemoteEntry>, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::list_remotes(&git, Path::new(&path)))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn fetch_named_remote(
+    state: State<'_, AppState>,
+    path: String,
+    remote: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::fetch_named_remote(&git, Path::new(&path), &remote)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn add_remote(
+    state: State<'_, AppState>,
+    path: String,
+    name: String,
+    url: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::add_remote(&git, Path::new(&path), name.trim(), &url)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn update_remote(
+    state: State<'_, AppState>,
+    path: String,
+    name: String,
+    new_name: String,
+    url: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::update_remote(&git, Path::new(&path), &name, new_name.trim(), &url)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn remove_remote(
+    state: State<'_, AppState>,
+    path: String,
+    name: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || git::remove_remote(&git, Path::new(&path), &name))
+        .await
+        .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn remote_branches(
+    state: State<'_, AppState>,
+    path: String,
+    remote: String,
+) -> Result<RemoteOverview, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::remote_branches(&git, Path::new(&path), &remote)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn checkout_remote_branch(
+    state: State<'_, AppState>,
+    path: String,
+    remote: String,
+    branch: String,
+    local_name: Option<String>,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::checkout_remote_branch(
+            &git,
+            Path::new(&path),
+            &remote,
+            &branch,
+            local_name.as_deref(),
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn merge_remote_branch(
+    state: State<'_, AppState>,
+    path: String,
+    remote: String,
+    branch: String,
+    target: String,
+    allow_merge_commit: bool,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::merge_remote_branch(
+            &git,
+            Path::new(&path),
+            &remote,
+            &branch,
+            &target,
+            allow_merge_commit,
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn push_local_branch(
+    state: State<'_, AppState>,
+    path: String,
+    branch: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::push_local_branch(&git, Path::new(&path), &branch)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub async fn delete_remote_branch(
+    state: State<'_, AppState>,
+    path: String,
+    remote: String,
+    branch: String,
+) -> Result<String, String> {
+    let git = require_git(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        git::delete_remote_branch(&git, Path::new(&path), &remote, &branch)
     })
     .await
     .map_err(|err| err.to_string())?

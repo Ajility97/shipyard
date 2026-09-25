@@ -9,6 +9,10 @@ export const CHANGELOG: ChangelogRelease[] = [
     version: "1.5.0",
     date: "September 24, 2026",
     notes: [
+      "A new Remotes page lists every remote on a repo, like origin and upstream. Pick one to see its branches, and add, rename, change the URL of, or remove remotes from the same page.",
+      "Keep a fork up to date: pick a branch on upstream, choose Merge into, and Shipyard fast-forwards your local branch, then pushes it to your fork. If your branch has its own commits, it asks before making a merge commit.",
+      "Remote branches show which local branch tracks them and how many commits each side is ahead or behind. Checkout makes a local tracking branch, and Delete removes a branch from the server after you confirm. The remote's default branch can't be deleted.",
+      "Fetch now fetches every remote, not just origin, so upstream branches stay current too.",
       "The dashboard updates as soon as git changes a repo outside Shipyard. Checking out a branch, committing, tagging, or fetching from the terminal shows up right away instead of at the next auto-fetch.",
       "Tags and branch switches made outside Shipyard show up in an open repo tab again. Repos added through a symlinked path, like /tmp, were missing every change.",
       "Linked git worktrees pick up branch, tag, and commit changes. Their HEAD and refs live in the main repo's git folder, which Shipyard was not watching.",

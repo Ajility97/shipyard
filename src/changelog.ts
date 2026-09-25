@@ -6,6 +6,13 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.6.1",
+    date: "September 24, 2026",
+    notes: [
+      "The Tags page has a header bar like the Remotes page, with New tag on the right.",
+    ],
+  },
+  {
     version: "1.6.0",
     date: "September 24, 2026",
     notes: [

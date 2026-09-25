@@ -3299,6 +3299,14 @@ input[type="text"].branch-search-query {
   font-family: var(--font-code);
 }
 
+.tag-header-copy {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .remote-header-actions {
   display: flex;
   flex-shrink: 0;

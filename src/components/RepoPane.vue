@@ -4,10 +4,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import BranchList from "./BranchList.vue";
-import ChangesToggle from "./ChangesToggle.vue";
+import ChangesPanelTabs from "./ChangesPanelTabs.vue";
 import CommitFiles from "./CommitFiles.vue";
 import FileHistoryList from "./FileHistoryList.vue";
-import FileHistoryToggle from "./FileHistoryToggle.vue";
 import FileTree from "./FileTree.vue";
 import CommitContextMenu from "./CommitContextMenu.vue";
 import CommitGraph from "./CommitGraph.vue";
@@ -16,6 +15,7 @@ import Modal from "./Modal.vue";
 import PathLabel from "./PathLabel.vue";
 import RemoteList from "./RemoteList.vue";
 import RepoToolbar from "./RepoToolbar.vue";
+import RepoViewTabs, { type RepoViewTab } from "./RepoViewTabs.vue";
 import StashList from "./StashList.vue";
 import TagList from "./TagList.vue";
 import TerminalPane from "./TerminalPane.vue";
@@ -63,7 +63,6 @@ const {
   filesPaneWidth,
   setFilesPaneWidth,
   saveFilesPaneWidth,
-  terminalPaneHeight,
   diffMode,
   saveDiffMode,
   editor,
@@ -80,13 +79,14 @@ const branches = ref<string[]>([]);
 const branchTracking = ref<BranchTracking[]>([]);
 let trackingGeneration = 0;
 const trackingPath = ref("");
-const branchesView = ref(false);
+const mainTab = ref<RepoViewTab>("commits");
+const branchesView = computed(() => mainTab.value === "branches");
 const graphStale = ref(false);
 const stashes = ref<StashEntry[]>([]);
-const stashView = ref(false);
+const stashView = computed(() => mainTab.value === "stashes");
 const tags = ref<TagEntry[]>([]);
-const tagView = ref(false);
-const remotesView = ref(false);
+const tagView = computed(() => mainTab.value === "tags");
+const remotesView = computed(() => mainTab.value === "remotes");
 const remotes = ref<RemoteEntry[]>([]);
 const selectedRemote = ref("");
 const remoteOverview = ref<RemoteOverview | null>(null);
@@ -104,7 +104,7 @@ const syncingBranch = ref<RemoteBranch | null>(null);
 const syncTarget = ref("");
 const syncAllowMerge = ref(false);
 const syncPush = ref(true);
-const terminalOpen = ref(false);
+const terminalStarted = ref(false);
 const overview = ref<BranchOverview | null>(null);
 let overviewGeneration = 0;
 const selectedFile = ref<WorkingTreeFile | null>(null);
@@ -112,7 +112,6 @@ const selectedCommit = ref<CommitNode | null>(null);
 const selectedCommitFile = ref<CommitFile | null>(null);
 const commitFiles = ref<CommitFile[]>([]);
 const commitFilesLoading = ref(false);
-const filesCollapsed = ref(false);
 const historyOpen = ref(false);
 const repoFiles = ref<RepoFile[]>([]);
 const repoFilesLoading = ref(false);
@@ -1437,99 +1436,51 @@ function removeOverviewBranches(names: string[]) {
   };
 }
 
-async function toggleBranchesView() {
-  branchesView.value = !branchesView.value;
-  if (!branchesView.value) {
+async function selectMainTab(tab: RepoViewTab) {
+  if (mainTab.value === tab) {
+    return;
+  }
+  mainTab.value = tab;
+  if (tab === "terminal") {
+    terminalStarted.value = true;
+    return;
+  }
+  if (tab === "commits") {
     if (graphStale.value) {
       void loadRepo({ overview: false, silent: true });
     }
     return;
   }
-  stashView.value = false;
-  tagView.value = false;
-  remotesView.value = false;
-  await nextTick();
-  try {
-    await loadOverview();
-  } catch (err) {
-    message.value = String(err);
-  }
-}
-
-async function toggleRemotesView() {
-  remotesView.value = !remotesView.value;
-  if (!remotesView.value) {
-    if (graphStale.value) {
-      void loadRepo({ overview: false, silent: true });
+  if (tab === "branches") {
+    await nextTick();
+    try {
+      await loadOverview();
+    } catch (err) {
+      message.value = String(err);
     }
     return;
   }
-  branchesView.value = false;
-  stashView.value = false;
-  tagView.value = false;
-  const match = current.value;
-  if (!match) {
-    return;
+  if (tab === "remotes") {
+    const match = current.value;
+    if (!match) {
+      return;
+    }
+    await refreshRemoteList(match.repo.path);
+    await loadRemoteOverview();
+    void fetchSelectedRemote({ quiet: true });
   }
-  await refreshRemoteList(match.repo.path);
-  await loadRemoteOverview();
-  void fetchSelectedRemote({ quiet: true });
-}
-
-function toggleStashView() {
-  stashView.value = !stashView.value;
-  if (stashView.value) {
-    branchesView.value = false;
-    tagView.value = false;
-    remotesView.value = false;
-    return;
-  }
-  if (graphStale.value) {
-    void loadRepo({ overview: false, silent: true });
-  }
-}
-
-function toggleTagView() {
-  tagView.value = !tagView.value;
-  if (tagView.value) {
-    branchesView.value = false;
-    stashView.value = false;
-    remotesView.value = false;
-    return;
-  }
-  if (graphStale.value) {
-    void loadRepo({ overview: false, silent: true });
-  }
-}
-
-function toggleTerminal() {
-  terminalOpen.value = !terminalOpen.value;
 }
 
 function openChangesPane() {
-  filesCollapsed.value = false;
   historyOpen.value = false;
   closeHistoryFile();
   lastHistoryFile.value = "";
 }
 
-function toggleChangesPane() {
-  if (!filesCollapsed.value && !historyOpen.value) {
-    filesCollapsed.value = true;
+function openHistoryPane() {
+  if (historyOpen.value) {
     return;
   }
-  openChangesPane();
-}
-
-function toggleHistoryPane() {
-  if (!filesCollapsed.value && historyOpen.value) {
-    filesCollapsed.value = true;
-    historyOpen.value = false;
-    closeHistoryFile();
-    lastHistoryFile.value = "";
-    return;
-  }
-  filesCollapsed.value = false;
   historyOpen.value = true;
   void loadRepoFiles();
 }
@@ -2731,10 +2682,7 @@ async function discardAll() {
 watch(
   () => props.repoId,
   () => {
-    branchesView.value = false;
-    stashView.value = false;
-    tagView.value = false;
-    remotesView.value = false;
+    mainTab.value = "commits";
     remoteGeneration += 1;
     remotes.value = [];
     selectedRemote.value = "";
@@ -2747,7 +2695,7 @@ watch(
     repoFilesGeneration += 1;
     closeHistoryFile();
     lastHistoryFile.value = "";
-    terminalOpen.value = false;
+    terminalStarted.value = false;
     graphStale.value = false;
     overviewGeneration += 1;
     overview.value = null;
@@ -2802,11 +2750,8 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
   <div
     v-if="current"
     class="repo-view"
-    :class="{ 'files-collapsed': filesCollapsed, resizing }"
-    :style="{
-      '--files-pane-width': `${filesPaneWidth}px`,
-      '--terminal-pane-height': `${terminalPaneHeight}px`,
-    }"
+    :class="{ resizing }"
+    :style="{ '--files-pane-width': `${filesPaneWidth}px` }"
   >
     <section v-show="!showingDiff" class="graph-pane">
       <RepoToolbar
@@ -2819,19 +2764,6 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         :busy="actionBusy"
         :busy-label="actionLabel || (loading ? 'Loading…' : '')"
         :busy-branch="actionBranch"
-        :branches-view="branchesView"
-        :remotes-view="remotesView"
-        :remote-count="remotes.length"
-        :tag-view="tagView"
-        :tag-count="tags.length"
-        :stash-view="stashView"
-        :stash-count="stashes.length"
-        :files-open="!filesCollapsed && !historyOpen"
-        :history-open="!filesCollapsed && historyOpen"
-        :unstaged-count="unstagedCount"
-        :staged-count="stagedCount"
-        :conflicted-count="conflictedCount"
-        :terminal-open="terminalOpen"
         @fetch="fetchRepo"
         @pull="pullRepo"
         @pull-options="openPullOptions"
@@ -2840,14 +2772,16 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         @checkout="checkoutBranch"
         @create="openCreateBranch"
         @merge="openMergeBranch()"
-        @branches="toggleBranchesView"
-        @remotes="toggleRemotesView"
-        @tags="toggleTagView"
-        @stash="toggleStashView"
-        @files="toggleChangesPane"
-        @history="toggleHistoryPane"
         @refresh-branches="refreshBranches"
-        @terminal="toggleTerminal"
+      />
+      <RepoViewTabs
+        :active="mainTab"
+        :busy="actionBusy"
+        :branch-count="branches.length"
+        :remote-count="remotes.length"
+        :tag-count="tags.length"
+        :stash-count="stashes.length"
+        @select="selectMainTab"
       />
       <div v-if="conflictActive" class="conflict-banner">
         <div class="conflict-banner-copy">
@@ -2877,7 +2811,13 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         </div>
       </div>
       <p v-if="message" class="banner">{{ message }}</p>
-      <div class="graph-body" :class="{ 'with-terminal': terminalOpen }">
+      <div class="graph-body">
+        <TerminalPane
+          v-if="terminalStarted"
+          v-show="mainTab === 'terminal'"
+          :cwd="current.repo.path"
+          :active="mainTab === 'terminal'"
+        />
         <BranchList
           v-if="branchesView"
           :overview="overview"
@@ -2924,7 +2864,7 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
           @drop="dropStash"
           @push="openStash"
         />
-        <div v-else class="graph-scroll">
+        <div v-else-if="mainTab === 'commits'" class="graph-scroll">
           <CommitGraph
             :commits="commits"
             :selected-hash="selectedCommit?.hash ?? ''"
@@ -2932,11 +2872,6 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
             @menu="openCommitMenu"
           />
         </div>
-        <TerminalPane
-          v-if="terminalOpen"
-          :cwd="current.repo.path"
-          @close="terminalOpen = false"
-        />
       </div>
     </section>
     <section v-if="showingDiff" class="diff-main">
@@ -2999,17 +2934,6 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
               Side by side
             </button>
           </div>
-          <FileHistoryToggle
-            :open="!filesCollapsed && historyOpen"
-            @click="toggleHistoryPane"
-          />
-          <ChangesToggle
-            :open="!filesCollapsed && !historyOpen"
-            :unstaged="unstagedCount"
-            :staged="stagedCount"
-            :conflicted="conflictedCount"
-            @click="toggleChangesPane"
-          />
         </div>
       </div>
       <div class="diff-scroll">
@@ -3024,12 +2948,20 @@ void listen<RepoFilesChanged>("repo-files-changed", (event) => {
         />
       </div>
     </section>
-    <aside v-if="!filesCollapsed" class="changes-pane">
+    <aside class="changes-pane">
       <button
         class="pane-resize"
         type="button"
         aria-label="Resize files panel"
         @pointerdown="startResize"
+      />
+      <ChangesPanelTabs
+        :history-open="historyOpen"
+        :unstaged="unstagedCount"
+        :staged="stagedCount"
+        :conflicted="conflictedCount"
+        @changes="openChangesPane"
+        @history="openHistoryPane"
       />
       <div v-if="historyOpen" class="file-history-host">
         <FileTree

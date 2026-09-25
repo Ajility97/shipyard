@@ -2485,10 +2485,6 @@ body.reordering-repos .repo-row,
   min-height: 0;
 }
 
-.repo-view.files-collapsed {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 .graph-pane,
 .changes-pane,
 .diff-main {
@@ -2522,22 +2518,66 @@ body.reordering-repos .repo-row,
   min-height: 0;
 }
 
-.graph-body.with-terminal > .branch-pane,
-.graph-body.with-terminal > .graph-scroll {
-  flex: 1 1 0;
-  min-height: 6rem;
+.view-tabs {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  min-height: 2.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.repo-view-tabs {
+  overflow-x: auto;
+  padding: 0 0.5rem;
+}
+
+.changes-panel-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.view-tab,
+button.view-tab:hover:not(:disabled),
+button.view-tab:active {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 0 -2px 0 transparent;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+button.view-tab:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.view-tab.active,
+button.view-tab.active:hover:not(:disabled) {
+  box-shadow: inset 0 -2px 0 var(--accent);
+  color: var(--text);
+}
+
+.view-tab-end {
+  margin-left: auto;
+}
+
+.view-tab .branch-icon {
+  width: 1rem;
+  height: 1rem;
 }
 
 .repo-terminal {
-  position: relative;
   display: flex;
-  flex: 0 0 var(--terminal-pane-height, 280px);
+  flex: 1 1 auto;
   flex-direction: column;
-  height: var(--terminal-pane-height, 280px);
-  max-height: calc(100% - 6rem);
-  min-height: 10rem;
+  min-height: 0;
   overflow: hidden;
-  border-top: 1px solid var(--border);
   background: #0d1016;
 }
 
@@ -2814,15 +2854,13 @@ body.is-resizing-y * {
 }
 
 .repo-toolbar.pane-header {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 0.4rem;
-  padding: 0.5rem 0.85rem 0.45rem;
+  gap: 0.75rem;
+  padding: 0.4rem 0.85rem;
 }
 
 .repo-toolbar-meta {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: 0.55rem;
   min-width: 0;
@@ -2830,21 +2868,16 @@ body.is-resizing-y * {
 
 .repo-toolbar-bar {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
-  justify-content: space-between;
   gap: 0.75rem;
 }
 
-.repo-toolbar-work,
-.repo-toolbar-views {
+.repo-toolbar-work {
   display: flex;
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
-}
-
-.repo-toolbar-views {
-  margin-left: auto;
 }
 
 .repo-toolbar-name {

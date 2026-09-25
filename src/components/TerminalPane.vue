@@ -10,26 +10,13 @@ import { fontFaceName, resolveFontStack } from "../fonts";
 
 const props = defineProps<{
   cwd: string;
+  active: boolean;
 }>();
 
-const emit = defineEmits<{
-  close: [];
-}>();
-
-const {
-  terminalPaneHeight,
-  setTerminalPaneHeight,
-  saveTerminalPaneHeight,
-  terminalFontFamily,
-  terminalFontSize,
-} = useApp();
+const { terminalFontFamily, terminalFontSize } = useApp();
 
 const host = ref<HTMLDivElement | null>(null);
 const message = ref("");
-const resizing = ref(false);
-let resizeStartY = 0;
-let resizeStartHeight = 280;
-let resizePointerId: number | null = null;
 
 let term: Terminal | null = null;
 let fit: FitAddon | null = null;
@@ -103,38 +90,6 @@ function syncSize() {
   void api.resizeTerminal(sessionId, term.cols, term.rows).catch(() => {
     /* closed while resizing */
   });
-}
-
-function onResizeMove(event: PointerEvent) {
-  setTerminalPaneHeight(resizeStartHeight + (resizeStartY - event.clientY));
-}
-
-function stopResize(event?: PointerEvent) {
-  if (resizePointerId === null) {
-    return;
-  }
-  if (event && event.pointerId !== resizePointerId) {
-    return;
-  }
-  window.removeEventListener("pointermove", onResizeMove);
-  window.removeEventListener("pointerup", stopResize);
-  window.removeEventListener("pointercancel", stopResize);
-  resizing.value = false;
-  resizePointerId = null;
-  document.body.classList.remove("is-resizing", "is-resizing-y");
-  void saveTerminalPaneHeight(terminalPaneHeight.value);
-}
-
-function startResize(event: PointerEvent) {
-  event.preventDefault();
-  resizeStartY = event.clientY;
-  resizeStartHeight = terminalPaneHeight.value;
-  resizePointerId = event.pointerId;
-  resizing.value = true;
-  document.body.classList.add("is-resizing", "is-resizing-y");
-  window.addEventListener("pointermove", onResizeMove);
-  window.addEventListener("pointerup", stopResize);
-  window.addEventListener("pointercancel", stopResize);
 }
 
 async function preloadTerminalFont() {
@@ -234,7 +189,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  stopResize();
   resizeObserver?.disconnect();
   resizeObserver = null;
   void closeSession();
@@ -252,6 +206,18 @@ watch(
   },
 );
 
+watch(
+  () => props.active,
+  async (active) => {
+    if (!active || !term) {
+      return;
+    }
+    await nextTick();
+    syncSize();
+    term.focus();
+  },
+);
+
 watch([terminalFontFamily, terminalFontSize], async () => {
   if (!term) {
     return;
@@ -263,22 +229,9 @@ watch([terminalFontFamily, terminalFontSize], async () => {
 </script>
 
 <template>
-  <section
-    class="repo-terminal"
-    :class="{ resizing }"
-    :style="{ '--terminal-pane-height': `${terminalPaneHeight}px` }"
-  >
-    <button
-      class="pane-resize-y"
-      type="button"
-      aria-label="Resize terminal"
-      @pointerdown="startResize"
-    />
+  <section class="repo-terminal">
     <div class="repo-terminal-bar">
       <span class="repo-terminal-path" :title="cwd">{{ cwd }}</span>
-      <button class="ghost tiny" type="button" title="Close terminal" @click="emit('close')">
-        Close
-      </button>
     </div>
     <div ref="host" class="repo-terminal-host" />
     <p v-if="message" class="repo-terminal-error">{{ message }}</p>

@@ -6,6 +6,17 @@ export interface ChangelogRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "1.6.0",
+    date: "September 24, 2026",
+    notes: [
+      "Repo views are now tabs: Commits, Branches, Remotes, Tags, and Stashes, with Terminal at the far right. Commits opens by default.",
+      "Fetch, Pull, and Push moved to the top right, next to the repo name, so the header takes up one row instead of two.",
+      "The terminal fills the whole area like the other tabs and keeps running when you switch away. It no longer has a Close button.",
+      "The right panel always stays open, with Changes and File History as tabs at the top. Changes is selected by default.",
+      "The Terminal height setting is gone now that the terminal fills its tab.",
+    ],
+  },
+  {
     version: "1.5.0",
     date: "September 24, 2026",
     notes: [

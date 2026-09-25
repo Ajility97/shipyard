@@ -16,18 +16,12 @@ import { EDITOR_OPTIONS, type DiffMode } from "../../types";
 const FILES_PANE_MIN = 220;
 const FILES_PANE_MAX = 800;
 const FILES_PANE_DEFAULT = 320;
-const TERMINAL_PANE_MIN = 160;
-const TERMINAL_PANE_MAX = 720;
-const TERMINAL_PANE_DEFAULT = 280;
 
 const {
   refreshIntervalSeconds,
   filesPaneWidth,
   setFilesPaneWidth,
   saveFilesPaneWidth,
-  terminalPaneHeight,
-  setTerminalPaneHeight,
-  saveTerminalPaneHeight,
   diffMode,
   saveDiffMode,
   diffFontFamily,
@@ -217,26 +211,6 @@ async function onWidthChange(event: Event) {
 async function resetFilesPaneWidth() {
   try {
     await saveFilesPaneWidth(FILES_PANE_DEFAULT);
-  } catch (err) {
-    showToast(String(err), "error");
-  }
-}
-
-function onHeightInput(event: Event) {
-  setTerminalPaneHeight(Number((event.target as HTMLInputElement).value));
-}
-
-async function onHeightChange(event: Event) {
-  try {
-    await saveTerminalPaneHeight(Number((event.target as HTMLInputElement).value));
-  } catch (err) {
-    showToast(String(err), "error");
-  }
-}
-
-async function resetTerminalHeight() {
-  try {
-    await saveTerminalPaneHeight(TERMINAL_PANE_DEFAULT);
   } catch (err) {
     showToast(String(err), "error");
   }
@@ -456,34 +430,6 @@ async function resetTerminalHeight() {
               type="button"
               :disabled="terminalFontSize === DEFAULT_TERMINAL_FONT_SIZE"
               @click="resetTerminalFontSize"
-            >
-              Reset
-            </button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-row-copy">
-            <h3>Terminal height</h3>
-            <p class="muted tiny">Height of the repository terminal pane.</p>
-          </div>
-          <div class="settings-control settings-slider">
-            <label class="settings-slider-input">
-              <span class="visually-hidden">Terminal height</span>
-              <input
-                type="range"
-                :min="TERMINAL_PANE_MIN"
-                :max="TERMINAL_PANE_MAX"
-                :value="terminalPaneHeight"
-                @input="onHeightInput"
-                @change="onHeightChange"
-              />
-            </label>
-            <span class="settings-slider-value">{{ terminalPaneHeight }}px</span>
-            <button
-              class="ghost tiny"
-              type="button"
-              :disabled="terminalPaneHeight === TERMINAL_PANE_DEFAULT"
-              @click="resetTerminalHeight"
             >
               Reset
             </button>

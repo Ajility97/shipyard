@@ -726,12 +726,8 @@ pub async fn pull_repo(
         git::validate_ref(name)?;
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let args: Vec<String> = match &branch {
-            Some(name) => vec!["pull".into(), "origin".into(), name.clone()],
-            None => vec!["pull".into()],
-        };
-        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let output = match git::run_git(&git, Path::new(&repo.path), &arg_refs) {
+        let path = Path::new(&repo.path);
+        let output = match git::run_pull(&git, path, branch.as_deref()) {
             Ok(output) => output,
             Err(err) => {
                 return Ok(RepoActionResult {
@@ -762,7 +758,7 @@ pub fn pull_current(state: State<AppState>, group_id: String) -> Result<Vec<Repo
         .repos
         .into_iter()
         .map(|repo| {
-            let output = match git::run_git(&git, Path::new(&repo.path), &["pull"]) {
+            let output = match git::run_pull(&git, Path::new(&repo.path), None) {
                 Ok(output) => output,
                 Err(err) => {
                     return RepoActionResult {
@@ -796,7 +792,7 @@ pub fn pull_from_branch(
         .repos
         .into_iter()
         .map(|repo| {
-            let output = match git::run_git(&git, Path::new(&repo.path), &["pull", "origin", branch]) {
+            let output = match git::run_pull(&git, Path::new(&repo.path), Some(branch)) {
                 Ok(output) => output,
                 Err(err) => {
                     return RepoActionResult {

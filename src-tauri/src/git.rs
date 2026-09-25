@@ -1972,9 +1972,59 @@ pub fn rename_local_branch(
     ))
 }
 
+pub const PUSH_REJECTED_PREFIX: &str = "Push rejected:";
+
+fn has_upstream(git: &Path, repo: &Path) -> bool {
+    run_git_quiet(git, repo, &["rev-parse", "--abbrev-ref", "@{upstream}"])
+        .map(|output| output.success && !output.stdout.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn has_origin_remote(git: &Path, repo: &Path) -> bool {
+    run_git_quiet(git, repo, &["remote", "get-url", "origin"])
+        .map(|output| output.success)
+        .unwrap_or(false)
+}
+
+/// Branches created or pushed without `-u` have no upstream, so plain `git pull` refuses to run
+/// even though `origin/<branch>` exists. Link them so pull and push target the same branch.
+fn link_missing_upstream(git: &Path, repo: &Path) {
+    if has_upstream(git, repo) {
+        return;
+    }
+    let Some(branch) = head_branch_name(git, repo) else {
+        return;
+    };
+    if !ref_exists(git, repo, &format!("refs/remotes/origin/{branch}")) {
+        return;
+    }
+    let upstream = format!("--set-upstream-to=origin/{branch}");
+    let _ = run_git(git, repo, &["branch", &upstream, &branch]);
+}
+
+fn has_config(git: &Path, repo: &Path, key: &str) -> bool {
+    run_git_quiet(git, repo, &["config", "--get", key])
+        .map(|output| output.success && !output.stdout.trim().is_empty())
+        .unwrap_or(false)
+}
+
 /// Standard `git pull` only. Never add `--force` or other overwrite flags.
+/// With no `remote_branch`, pulls the current branch's upstream. Without `pull.rebase` or
+/// `pull.ff` configured, git refuses to reconcile diverged branches, so fall back to a merge.
+pub fn run_pull(git: &Path, repo: &Path, remote_branch: Option<&str>) -> Result<GitOutput, String> {
+    let mut args = vec!["pull"];
+    if !has_config(git, repo, "pull.rebase") && !has_config(git, repo, "pull.ff") {
+        args.push("--no-rebase");
+    }
+    match remote_branch {
+        Some(branch) => args.extend(["origin", branch]),
+        None => link_missing_upstream(git, repo),
+    }
+    run_git(git, repo, &args)
+}
+
 pub fn pull(git: &Path, repo: &Path) -> Result<String, String> {
-    let output = run_git(git, repo, &["pull"])?;
+    let output = run_pull(git, repo, None)?;
     if !output.success {
         return Err(or_fallback(&combined_message(&output), "Pull failed."));
     }
@@ -1984,11 +2034,31 @@ pub fn pull(git: &Path, repo: &Path) -> Result<String, String> {
     ))
 }
 
+fn is_non_fast_forward(message: &str) -> bool {
+    message.contains("[rejected]")
+        && (message.contains("non-fast-forward") || message.contains("fetch first"))
+}
+
 /// Standard `git push` only. Never add `--force`, `--force-with-lease`, or `+` refspecs.
 pub fn push(git: &Path, repo: &Path) -> Result<String, String> {
-    let output = run_git(git, repo, &["push"])?;
+    link_missing_upstream(git, repo);
+    let new_branch = if has_upstream(git, repo) || !has_origin_remote(git, repo) {
+        None
+    } else {
+        head_branch_name(git, repo)
+    };
+    let output = match &new_branch {
+        Some(branch) => run_git(git, repo, &["push", "-u", "origin", branch])?,
+        None => run_git(git, repo, &["push"])?,
+    };
     if !output.success {
-        return Err(or_fallback(&combined_message(&output), "Push failed."));
+        let message = combined_message(&output);
+        if is_non_fast_forward(&message) {
+            return Err(format!(
+                "{PUSH_REJECTED_PREFIX} the remote branch has commits you don't have yet. Pull them in, then push again.\n\n{message}"
+            ));
+        }
+        return Err(or_fallback(&message, "Push failed."));
     }
     Ok(or_fallback(
         &combined_message(&output),
@@ -4975,6 +5045,78 @@ filename README.md
         assert_eq!(deleted, vec!["one".to_string(), "two".to_string()]);
         assert_eq!(refused, vec!["three".to_string()]);
         assert!(errors.is_empty());
+    }
+
+    fn bare_origin_with_clone() -> (PathBuf, PathBuf) {
+        let seed = init_repo();
+        let origin = temp_dir();
+        git(&origin, &["init", "--bare", "-b", "develop"]);
+        git(&seed, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        git(&seed, &["push", "-u", "origin", "develop"]);
+
+        let work = temp_dir();
+        git(&work, &["clone", origin.to_str().unwrap(), "."]);
+        git(&work, &["config", "user.name", "Shipyard Test"]);
+        git(&work, &["config", "user.email", "test@shipyard.local"]);
+        (origin, work)
+    }
+
+    fn commit_file(repo: &Path, name: &str, contents: &str) {
+        fs::write(repo.join(name), contents).unwrap();
+        git(repo, &["add", name]);
+        git(repo, &["commit", "-m", name]);
+    }
+
+    #[test]
+    fn pull_links_missing_upstream_to_same_named_origin_branch() {
+        let (origin, work) = bare_origin_with_clone();
+        git(&work, &["checkout", "-b", "feature"]);
+        git(&work, &["push", "origin", "feature"]);
+        assert!(!has_upstream(&git_bin(), &work));
+
+        let other = temp_dir();
+        git(&other, &["clone", origin.to_str().unwrap(), "."]);
+        git(&other, &["config", "user.name", "Shipyard Test"]);
+        git(&other, &["config", "user.email", "test@shipyard.local"]);
+        git(&other, &["checkout", "feature"]);
+        commit_file(&other, "remote.txt", "remote\n");
+        git(&other, &["push"]);
+
+        git(&work, &["fetch"]);
+        pull(&git_bin(), &work).unwrap();
+        assert!(has_upstream(&git_bin(), &work));
+        assert!(work.join("remote.txt").exists());
+    }
+
+    #[test]
+    fn push_sets_upstream_for_new_branch() {
+        let (origin, work) = bare_origin_with_clone();
+        git(&work, &["checkout", "-b", "fresh"]);
+        commit_file(&work, "fresh.txt", "fresh\n");
+        push(&git_bin(), &work).unwrap();
+        assert!(has_upstream(&git_bin(), &work));
+        assert!(ref_exists(&git_bin(), &origin, "refs/heads/fresh"));
+    }
+
+    #[test]
+    fn diverged_push_is_rejected_with_pull_hint_and_never_forced() {
+        let (origin, work) = bare_origin_with_clone();
+        let other = temp_dir();
+        git(&other, &["clone", origin.to_str().unwrap(), "."]);
+        git(&other, &["config", "user.name", "Shipyard Test"]);
+        git(&other, &["config", "user.email", "test@shipyard.local"]);
+        commit_file(&other, "theirs.txt", "theirs\n");
+        git(&other, &["push"]);
+        let remote_tip = git(&origin, &["rev-parse", "develop"]).stdout;
+
+        commit_file(&work, "mine.txt", "mine\n");
+        let err = push(&git_bin(), &work).unwrap_err();
+        assert!(err.starts_with(PUSH_REJECTED_PREFIX), "{err}");
+        assert_eq!(git(&origin, &["rev-parse", "develop"]).stdout, remote_tip);
+
+        pull(&git_bin(), &work).unwrap();
+        push(&git_bin(), &work).unwrap();
+        assert!(work.join("theirs.txt").exists());
     }
 
     #[test]

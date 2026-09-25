@@ -894,10 +894,10 @@ const pullHint = computed(() =>
     : "Brings that remote branch into this checkout. Conflicts appear in the files list so you can open them, mark them resolved, or abort.",
 );
 
-async function runPull(branch?: string) {
+async function runPull(branch?: string): Promise<boolean> {
   const match = current.value;
   if (!match || actionBusy.value) {
-    return;
+    return false;
   }
   actionBusy.value = true;
   actionLabel.value = "Pulling…";
@@ -928,6 +928,7 @@ async function runPull(branch?: string) {
         await selectFile(first);
       }
     }
+    return result.ok;
   } catch (err) {
     const text = String(err);
     message.value = text;
@@ -942,6 +943,7 @@ async function runPull(branch?: string) {
         await selectFile(first);
       }
     }
+    return false;
   } finally {
     actionBusy.value = false;
     actionLabel.value = "";
@@ -987,12 +989,44 @@ function confirmPull() {
   return runPull(branch || undefined);
 }
 
-function pushRepo() {
+async function pushRepo() {
   const match = current.value;
-  if (!match) {
+  if (!match || actionBusy.value) {
     return;
   }
-  return runRepoAction("Pushing…", () => api.repoPush(match.repo.path), match.status?.branch ?? "");
+  const branch = match.status?.branch ?? "";
+  let rejected = false;
+  await runRepoAction(
+    "Pushing…",
+    async () => {
+      try {
+        return await api.repoPush(match.repo.path);
+      } catch (err) {
+        rejected = String(err).startsWith(api.PUSH_REJECTED_PREFIX);
+        throw err;
+      }
+    },
+    branch,
+  );
+  if (!rejected) {
+    return;
+  }
+  const behind = current.value?.status?.behind ?? 0;
+  const incoming =
+    behind === 1 ? "1 commit" : behind > 1 ? `${behind} commits` : "commits";
+  const ok = await confirm(
+    `The remote branch has ${incoming} you don't have yet, so the push was rejected. Pull them in first, then push again? If the changes conflict, you'll resolve them before anything is pushed.`,
+    {
+      title: "Push rejected",
+      kind: "warning",
+      okLabel: "Pull, then push",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!ok || !(await runPull()) || conflictActive.value) {
+    return;
+  }
+  await runRepoAction("Pushing…", () => api.repoPush(match.repo.path), branch);
 }
 
 async function undoUnpushedCommits() {

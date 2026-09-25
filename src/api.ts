@@ -364,6 +364,9 @@ export function repoPull(path: string) {
   return invoke<string>("repo_pull", { path });
 }
 
+/** Matches `git::PUSH_REJECTED_PREFIX`: the remote has commits the local branch lacks. */
+export const PUSH_REJECTED_PREFIX = "Push rejected:";
+
 export function repoPush(path: string) {
   return invoke<string>("repo_push", { path });
 }

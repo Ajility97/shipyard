@@ -16,6 +16,10 @@ export const CHANGELOG: ChangelogRelease[] = [
       "A pull where every repo succeeds no longer pops open the output window. The toast has a View details button when there is output to read. The window still opens by itself when a pull fails.",
       "The commit window has a Commit all button that stages every changed file, including untracked files, and commits in one step. With nothing staged it replaces the old Stage a file to commit dead end. It is hidden while any file has conflicts.",
       "Dragging to select text in a dialog or the output window no longer closes it when the mouse is released outside. Clicking outside still closes it.",
+      "Pull works on a branch that was pushed without tracking set up. Shipyard links it to the matching origin branch instead of failing with There is no tracking information for the current branch.",
+      "Pushing a new branch sets up tracking, so later pulls and pushes go to the same origin branch.",
+      "When a push is rejected because the remote has commits you don't have, Shipyard explains why and offers Pull, then push. It never force pushes.",
+      "Pulling a branch that has diverged from the remote merges the remote commits when pull.rebase and pull.ff are not set, instead of stopping with Need to specify how to reconcile divergent branches.",
     ],
   },
   {

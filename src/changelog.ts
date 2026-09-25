@@ -10,6 +10,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     date: "September 24, 2026",
     notes: [
       "The Tags page has a header bar like the Remotes page, with New tag on the right.",
+      "File History shows its filter field right away instead of a File History title and a search button.",
     ],
   },
   {

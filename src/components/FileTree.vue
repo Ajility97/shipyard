@@ -16,7 +16,6 @@ const emit = defineEmits<{
   select: [path: string];
 }>();
 
-const searchOpen = ref(false);
 const query = ref("");
 const searchInput = ref<HTMLInputElement | null>(null);
 const fileList = ref<HTMLElement | null>(null);
@@ -57,16 +56,6 @@ watch(
   },
 );
 
-async function toggleSearch() {
-  searchOpen.value = !searchOpen.value;
-  if (!searchOpen.value) {
-    query.value = "";
-    return;
-  }
-  await nextTick();
-  searchInput.value?.focus();
-}
-
 function collapseAll() {
   expanded.value = new Set();
 }
@@ -103,7 +92,7 @@ function onSearchKeydown(event: KeyboardEvent) {
     query.value = "";
     return;
   }
-  searchOpen.value = false;
+  searchInput.value?.blur();
 }
 </script>
 
@@ -111,7 +100,7 @@ function onSearchKeydown(event: KeyboardEvent) {
   <div class="file-pane">
     <section class="file-section">
       <div class="pane-header file-tree-header">
-        <label v-if="searchOpen" class="file-tree-search">
+        <label class="file-tree-search">
           <span class="sr-only">Filter files</span>
           <input
             ref="searchInput"
@@ -133,24 +122,7 @@ function onSearchKeydown(event: KeyboardEvent) {
             </svg>
           </button>
         </label>
-        <div v-else class="file-heading">
-          <strong>File History</strong>
-        </div>
         <div class="file-tree-actions">
-          <button
-            class="ghost tiny icon-action"
-            :class="{ active: searchOpen }"
-            type="button"
-            :aria-pressed="searchOpen"
-            :title="searchOpen ? 'Close search' : 'Search files'"
-            @click="toggleSearch"
-          >
-            <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"
-              />
-            </svg>
-          </button>
           <button
             class="ghost tiny icon-action"
             type="button"
